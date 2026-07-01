@@ -3,7 +3,7 @@ export default function Avatar({ name, src, size = 32, status, ringColor = 'bord
 
   const dot =
     status === 'online' ? 'bg-ok'
-      : status === 'idle' ? 'bg-warn'
+      : status === 'away' ? 'bg-warn'
       : status === 'offline' ? 'bg-ink-dim'
       : null
 

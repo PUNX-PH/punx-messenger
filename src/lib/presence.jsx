@@ -4,10 +4,10 @@ import { db } from './firebase'
 import { useAuth } from './auth'
 
 // Timings
-const HEARTBEAT_MS   = 45_000              // write lastSeen every 45s while active
-const IDLE_AFTER_MS  = 5 * 60_000          // 5 min of no activity → idle
+const HEARTBEAT_MS     = 45_000            // write lastSeen every 45s while active
+const AWAY_AFTER_MS    = 5 * 60_000        // 5 min of no activity → away
 const OFFLINE_AFTER_MS = 2 * 60_000        // no heartbeat within 2 min → treat as offline
-const TICK_MS        = 30_000              // re-render presence dots every 30s
+const TICK_MS          = 30_000            // re-render presence dots every 30s
 
 // ---------- Heartbeat: writes my presence + lastSeen ----------
 
@@ -31,37 +31,37 @@ export function PresenceHeartbeat() {
       catch { /* non-fatal */ }
     }
 
-    let idleTimer = null
-    const armIdleTimer = () => {
-      clearTimeout(idleTimer)
-      idleTimer = setTimeout(() => writeState('idle'), IDLE_AFTER_MS)
+    let awayTimer = null
+    const armAwayTimer = () => {
+      clearTimeout(awayTimer)
+      awayTimer = setTimeout(() => writeState('away'), AWAY_AFTER_MS)
     }
 
     const onActivity = () => {
       if (document.visibilityState !== 'visible') return
       if (stateRef.current !== 'online') writeState('online')
-      armIdleTimer()
+      armAwayTimer()
     }
 
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
         writeState('online')
-        armIdleTimer()
+        armAwayTimer()
       } else {
-        writeState('idle')
-        clearTimeout(idleTimer)
+        writeState('away')
+        clearTimeout(awayTimer)
       }
     }
 
     // Best-effort offline write on tab close (may not always fire)
     const onPageHide = () => {
       // Fire-and-forget; rely on staleness cleanup otherwise
-      writeState('idle')
+      writeState('away')
     }
 
     // Initial state
     writeState('online')
-    armIdleTimer()
+    armAwayTimer()
 
     // Heartbeat interval — only writes when tab is visible + online
     const hbInterval = setInterval(() => {
@@ -76,7 +76,7 @@ export function PresenceHeartbeat() {
     window.addEventListener('pagehide', onPageHide)
 
     return () => {
-      clearTimeout(idleTimer)
+      clearTimeout(awayTimer)
       clearInterval(hbInterval)
       events.forEach(ev => window.removeEventListener(ev, onActivity))
       document.removeEventListener('visibilitychange', onVisibility)
@@ -113,7 +113,8 @@ export function computeStatus(user, now = Date.now()) {
   const lastSeen = user.lastSeen?.toMillis?.() ?? 0
   const staleness = now - lastSeen
   if (staleness > OFFLINE_AFTER_MS) return 'offline'
-  if (user.presence === 'idle') return 'idle'
+  // Treat legacy 'idle' the same as 'away' for existing docs
+  if (user.presence === 'away' || user.presence === 'idle') return 'away'
   return 'online'
 }
 
@@ -122,4 +123,4 @@ export function useUserStatus(user) {
   return computeStatus(user, now)
 }
 
-export const statusLabel = (s) => s === 'online' ? 'Online' : s === 'idle' ? 'Idle' : 'Offline'
+export const statusLabel = (s) => s === 'online' ? 'Online' : s === 'away' ? 'Away' : 'Offline'
