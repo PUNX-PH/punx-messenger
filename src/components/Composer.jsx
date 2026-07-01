@@ -3,6 +3,7 @@ import EmojiPicker from './EmojiPicker'
 import Avatar from './Avatar'
 import { useUsers } from '../lib/users'
 import { useAuth } from '../lib/auth'
+import { resolveMentions } from '../lib/markdown'
 
 const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
 
@@ -19,6 +20,11 @@ export default function Composer({ placeholder = 'Message', onSend, disabled, on
   const fileRef = useRef(null)
   const taRef = useRef(null)
   const emojiBtnRef = useRef(null)
+
+  // Mentions the user has explicitly picked in this composition
+  // (map of "@Name" chunk → uid). Applied at send time to convert visible
+  // names into <@uid> tokens.
+  const mentionHintsRef = useRef(new Map())
 
   // Typing state — throttled writes + auto-clear
   const typingActiveRef = useRef(false)
@@ -107,12 +113,16 @@ export default function Composer({ placeholder = 'Message', onSend, disabled, on
     if (!mention || !user) return
     const before = text.slice(0, mention.startIdx)
     const after = text.slice(mention.startIdx + 1 + mention.query.length)
-    const token = `<@${user.id}> `
-    const next = before + token + after
+    // Visible chunk uses the user's display name; at send time we resolve it
+    // back to <@uid> via mentionHintsRef + a fallback exact-name match.
+    const chunk = `@${user.name}`
+    mentionHintsRef.current.set(chunk, user.id)
+    const inserted = chunk + ' '
+    const next = before + inserted + after
     setText(next)
     setMention(null)
     requestAnimationFrame(() => {
-      const pos = before.length + token.length
+      const pos = before.length + inserted.length
       taRef.current?.focus()
       taRef.current?.setSelectionRange(pos, pos)
     })
@@ -140,8 +150,10 @@ export default function Composer({ placeholder = 'Message', onSend, disabled, on
     setSending(true); setError(null)
     stopTypingNow()
     try {
-      await onSend({ text: text.trim(), imageFile: file })
+      const resolved = resolveMentions(text.trim(), users, mentionHintsRef.current)
+      await onSend({ text: resolved, imageFile: file })
       setText(''); setFile(null)
+      mentionHintsRef.current.clear()
       taRef.current?.focus()
     } catch (err) {
       console.error(err)

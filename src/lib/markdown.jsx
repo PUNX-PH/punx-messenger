@@ -149,3 +149,30 @@ export function extractMentionedUids(text) {
   while ((m = re.exec(text)) !== null) s.add(m[1])
   return [...s]
 }
+
+/**
+ * Convert visible @Name mentions in composer text to their <@uid> tokens.
+ * `hintMap` is a Map of exact chunks ("@Alice") → uid, populated when the
+ * user picks from autocomplete. Applied first so intentional picks always
+ * win. Then any remaining "@Name" is matched against workspace users by
+ * exact display name (longest first, to disambiguate name-inside-name cases).
+ */
+export function resolveMentions(text, users = [], hintMap) {
+  if (!text) return text
+  let out = text
+  if (hintMap && hintMap.size) {
+    for (const [chunk, uid] of hintMap.entries()) {
+      if (chunk) out = out.split(chunk).join(`<@${uid}>`)
+    }
+  }
+  const sorted = users
+    .filter(u => u.name)
+    .slice()
+    .sort((a, b) => (b.name.length || 0) - (a.name.length || 0))
+  for (const u of sorted) {
+    const escaped = u.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const re = new RegExp(`(?<![\\w<])@${escaped}(?!\\w)`, 'g')
+    out = out.replace(re, `<@${u.id}>`)
+  }
+  return out
+}
