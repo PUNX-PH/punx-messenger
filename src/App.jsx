@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './lib/auth'
 import { UsersProvider } from './lib/users'
 import { EmojisProvider } from './lib/emojis'
 import { PresenceHeartbeat, PresenceTickProvider } from './lib/presence'
+import { NotificationDaemon, NotificationsProvider } from './lib/notifications'
 import Login from './components/Login'
 import Loading from './components/Loading'
 import AppShell from './components/AppShell'
@@ -18,10 +19,13 @@ export default function App() {
     <AuthProvider>
       <UsersProvider>
         <PresenceTickProvider>
-          <EmojisProvider>
-            <PresenceHeartbeat />
-            <Gate />
-          </EmojisProvider>
+          <NotificationsProvider>
+            <EmojisProvider>
+              <PresenceHeartbeat />
+              <NotificationDaemon />
+              <Gate />
+            </EmojisProvider>
+          </NotificationsProvider>
         </PresenceTickProvider>
       </UsersProvider>
     </AuthProvider>

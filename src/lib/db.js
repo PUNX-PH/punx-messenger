@@ -4,6 +4,7 @@ import {
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { PRESETS, resizeToDataURL } from './images'
+import { extractMentionedUids } from './markdown'
 
 // Deterministic DM convo id from two uids
 export const dmConvoId = (a, b) => [a, b].sort().join('__')
@@ -104,6 +105,7 @@ export async function sendMessage(path, { text, author, imageFile = null }) {
       name: author.name,
       photoURL: author.photoURL || null,
     },
+    mentionedUids: extractMentionedUids(trimmed),
     createdAt: serverTimestamp(),
     pinned: false,
   })
@@ -119,6 +121,7 @@ export async function sendMessage(path, { text, author, imageFile = null }) {
       await setDoc(doc(db, 'dms', convoId), {
         lastMessageAt: serverTimestamp(),
         lastMessageText: trimmed || '📷 Image',
+        lastMessageAuthorUid: author.uid,
       }, { merge: true })
     } else if (path.startsWith('groups/') && path.includes('/channels/')) {
       const parts = path.split('/')

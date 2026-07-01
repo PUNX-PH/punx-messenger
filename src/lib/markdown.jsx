@@ -139,3 +139,13 @@ export const isOnlyEmojis = (text) => {
 /** Does this message text mention the given uid? */
 export const mentionsUid = (text, uid) =>
   !!uid && typeof text === 'string' && text.includes(`<@${uid}>`)
+
+/** Extract all mentioned uids from message text. */
+export function extractMentionedUids(text) {
+  if (!text) return []
+  const s = new Set()
+  const re = /<@([A-Za-z0-9_-]{6,40})>/g
+  let m
+  while ((m = re.exec(text)) !== null) s.add(m[1])
+  return [...s]
+}
