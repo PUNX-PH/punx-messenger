@@ -27,6 +27,7 @@ export default function ChatSurface({
   title, subtitle, icon = '#', path, composerPlaceholder, empty,
   canPin = false,
   canDeleteAny = false, // group admin / workspace admin: can delete anyone's
+  headerExtras = null,  // optional extra buttons rendered at the right of the header
 }) {
   const { profile } = useAuth()
   const { byId: usersById } = useUsers()
@@ -196,6 +197,8 @@ export default function ChatSurface({
             />
           )}
         </div>
+
+        {headerExtras}
       </header>
 
       <MessageList

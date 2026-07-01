@@ -5,12 +5,20 @@ import { db } from '../lib/firebase'
 import { useAuth, isAdmin } from '../lib/auth'
 import { listenGroup } from '../lib/groups'
 import ChatSurface from '../components/ChatSurface'
+import MembersPanel, { MembersToggle } from '../components/MembersPanel'
 
 export default function Channel() {
   const { groupId, channelId } = useParams()
   const { profile } = useAuth()
   const [channel, setChannel] = useState(null)
   const [group, setGroup] = useState(null)
+  const [membersOpen, setMembersOpen] = useState(() => {
+    try { return localStorage.getItem('punx.membersPanel') !== '0' } catch { return true }
+  })
+
+  useEffect(() => {
+    try { localStorage.setItem('punx.membersPanel', membersOpen ? '1' : '0') } catch {}
+  }, [membersOpen])
 
   useEffect(() => {
     setChannel(null)
@@ -35,18 +43,24 @@ export default function Channel() {
   const path = `groups/${groupId}/channels/${channelId}/messages`
 
   return (
-    <ChatSurface
-      title={channel.name}
-      icon="#"
-      path={path}
-      canPin={elevated}
-      canDeleteAny={elevated}
-      composerPlaceholder={`Message #${channel.name}`}
-      empty={{
-        title: `Welcome to #${channel.name}`,
-        desc: 'This is the start of the channel. Drop a message to get the conversation going.',
-      }}
-    />
+    <div className="flex-1 flex min-w-0">
+      <ChatSurface
+        title={channel.name}
+        icon="#"
+        path={path}
+        canPin={elevated}
+        canDeleteAny={elevated}
+        composerPlaceholder={`Message #${channel.name}`}
+        empty={{
+          title: `Welcome to #${channel.name}`,
+          desc: 'This is the start of the channel. Drop a message to get the conversation going.',
+        }}
+        headerExtras={
+          <MembersToggle open={membersOpen} onToggle={() => setMembersOpen(o => !o)} />
+        }
+      />
+      <MembersPanel group={group} open={membersOpen} />
+    </div>
   )
 }
 
