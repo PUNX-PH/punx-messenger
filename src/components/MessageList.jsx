@@ -92,7 +92,7 @@ export default function MessageList({
 }
 
 function Group({
-  group, onZoom, canPin, onTogglePin, highlightId, usersById, emojiByName,
+  group, onZoom, canPin, onTogglePin, highlightId, usersById, emojiByName, tickNow,
   canDeleteAny, meUid, editingId, setEditingId, onEdit, onDelete, onReact,
 }) {
   const currentAuthor = usersById?.[group.author?.uid]
@@ -101,6 +101,7 @@ function Group({
     name:     currentAuthor?.name     || group.author?.name,
     photoURL: currentAuthor?.photoURL || group.author?.photoURL,
     role:     currentAuthor?.role,
+    status:   currentAuthor ? computeStatus(currentAuthor, tickNow) : undefined,
   }
   return (
     <div className="space-y-0">
