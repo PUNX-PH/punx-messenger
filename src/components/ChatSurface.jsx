@@ -9,6 +9,7 @@ import { useUsers } from '../lib/users'
 import MessageList, { PinIcon } from './MessageList'
 import Composer from './Composer'
 import TypingIndicator from './TypingIndicator'
+import SearchDropdown from './SearchDropdown'
 import { MenuButton } from './AppShell'
 
 /**
@@ -31,10 +32,12 @@ export default function ChatSurface({
   const { byId: usersById } = useUsers()
   const [messages, setMessages] = useState([])
   const [pinnedOpen, setPinnedOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [jumpId, setJumpId] = useState(null)
   const [container, setContainer] = useState(null)
   const [nowTick, setNowTick] = useState(() => Date.now())
   const pinnedRef = useRef(null)
+  const searchRef = useRef(null)
 
   // Container path for typing (drops the trailing /messages). Skip for private notes.
   const containerPath = path && !path.startsWith('users/')
@@ -146,10 +149,34 @@ export default function ChatSurface({
 
         <div className="flex-1" />
 
+        {/* Search */}
+        <div className="relative" ref={searchRef}>
+          <button
+            onClick={() => { setSearchOpen(o => !o); setPinnedOpen(false) }}
+            className={[
+              'p-1.5 rounded transition-colors',
+              searchOpen
+                ? 'bg-bg-hover text-ink'
+                : 'text-ink-muted hover:text-ink hover:bg-bg-raised',
+            ].join(' ')}
+            title="Search this chat"
+          >
+            <SearchIcon />
+          </button>
+          {searchOpen && (
+            <SearchDropdown
+              messages={messages}
+              usersById={usersById}
+              onJump={jumpTo}
+              onClose={() => setSearchOpen(false)}
+            />
+          )}
+        </div>
+
         {/* Pinned messages button */}
         <div className="relative" ref={pinnedRef}>
           <button
-            onClick={() => setPinnedOpen(o => !o)}
+            onClick={() => { setPinnedOpen(o => !o); setSearchOpen(false) }}
             className={[
               'p-1.5 rounded transition-colors',
               pinnedOpen
@@ -194,6 +221,15 @@ export default function ChatSurface({
         onTyping={onTyping}
       />
     </main>
+  )
+}
+
+function SearchIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7"/>
+      <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+    </svg>
   )
 }
 
