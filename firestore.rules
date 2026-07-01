@@ -1,0 +1,198 @@
+rules_version = '2';
+
+// Punx Messenger — Firestore security rules
+//
+// Hierarchy:
+//   super_admin  → full workspace power (manages roles, can do anything)
+//   admin        → workspace-wide admin (group settings + pinning everywhere)
+//   employee     → regular member (read/send in own groups + DMs + notes)
+//
+// Bootstrap super-admins are listed in `isBootstrapSuperAdmin()` below — these
+// emails are allowed to create their /users/{uid} doc with role=super_admin on
+// first sign-in. After that, role changes go through the admin panel and are
+// only writable by an existing super_admin.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ───────── Helpers ─────────
+
+    function signedIn() {
+      return request.auth != null
+        && (request.auth.token.email.matches('.*@punx[.]ai$')
+            || request.auth.token.email == 'perezjohnrey43@gmail.com');
+    }
+
+    function myUid() { return request.auth.uid; }
+
+    function myRole() {
+      return get(/databases/$(database)/documents/users/$(myUid())).data.role;
+    }
+
+    function isSuperAdmin()      { return signedIn() && myRole() == 'super_admin'; }
+    function isWorkspaceAdmin()  { return signedIn() && (myRole() == 'admin' || myRole() == 'super_admin'); }
+
+    function isBootstrapSuperAdmin() {
+      // KEEP IN SYNC with VITE_SUPER_ADMIN_EMAILS in .env.local
+      return request.auth.token.email == 'rey@punx.ai';
+    }
+
+    function isGroupMember(groupId) {
+      return signedIn() &&
+        myUid() in get(/databases/$(database)/documents/groups/$(groupId)).data.memberUids;
+    }
+    function isGroupAdmin(groupId) {
+      return signedIn() &&
+        myUid() in get(/databases/$(database)/documents/groups/$(groupId)).data.adminUids;
+    }
+    // Like isGroupAdmin but works during a batch that creates the parent group.
+    function isGroupAdminAfter(groupId) {
+      return signedIn() &&
+        myUid() in getAfter(/databases/$(database)/documents/groups/$(groupId)).data.adminUids;
+    }
+
+    function isDmMember(convoId) {
+      return signedIn() &&
+        myUid() in get(/databases/$(database)/documents/dms/$(convoId)).data.members;
+    }
+
+    // ───────── Users (workspace directory) ─────────
+
+    match /users/{uid} {
+      // Any @punx.ai signed-in user can read the directory
+      allow read: if signedIn();
+
+      // On first sign-in the client creates the user's own doc.
+      // Role must default to 'employee', UNLESS the email is in the bootstrap list,
+      // in which case 'super_admin' is allowed.
+      allow create: if signedIn() && uid == myUid() && (
+        request.resource.data.role == 'employee'
+        || (request.resource.data.role == 'super_admin' && isBootstrapSuperAdmin())
+      );
+
+      // Updates:
+      //   - super_admin: anything
+      //   - the user themselves: anything EXCEPT role/email/uid/createdAt
+      allow update: if isSuperAdmin()
+        || (uid == myUid()
+            && !request.resource.data.diff(resource.data).affectedKeys()
+                 .hasAny(['role', 'email', 'uid', 'createdAt']));
+
+      allow delete: if isSuperAdmin();
+
+      // Private notes: only the owner
+      match /notes/{noteId} {
+        allow read, write: if signedIn() && uid == myUid();
+      }
+    }
+
+    // ───────── Groups ─────────
+
+    match /groups/{groupId} {
+      allow read: if signedIn() && myUid() in resource.data.memberUids;
+
+      // Any signed-in user can create a group, but they must be the owner and
+      // be in both memberUids and adminUids.
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == myUid()
+        && myUid() in request.resource.data.memberUids
+        && myUid() in request.resource.data.adminUids;
+
+      // Update:
+      //   - workspace admins anything
+      //   - group admins anything except ownerUid
+      //   - any non-owner member can self-leave (remove self from memberUids/adminUids only)
+      allow update: if isWorkspaceAdmin()
+        || (isGroupAdmin(groupId)
+            && request.resource.data.ownerUid == resource.data.ownerUid)
+        || (signedIn()
+            && myUid() in resource.data.memberUids
+            && resource.data.ownerUid != myUid()
+            && !(myUid() in request.resource.data.memberUids)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids', 'adminUids']));
+
+      // Delete: owner or workspace admin
+      allow delete: if (signedIn() && resource.data.ownerUid == myUid())
+        || isWorkspaceAdmin();
+
+      // ───── Channels ─────
+      match /channels/{channelId} {
+        allow read: if isGroupMember(groupId);
+        // Create: group admin (incl. during batched group creation) or workspace admin
+        allow create: if isWorkspaceAdmin() || isGroupAdminAfter(groupId);
+        // Update: admins anything; any group member may bump `lastMessageAt`
+        // (so rail/sidebar unread indicators work for regular members too).
+        allow update: if isWorkspaceAdmin() || isGroupAdmin(groupId)
+          || (isGroupMember(groupId)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt']));
+        allow delete: if isWorkspaceAdmin() || isGroupAdmin(groupId);
+
+        // ───── Channel messages ─────
+        match /messages/{msgId} {
+          allow read: if isGroupMember(groupId);
+
+          // Create: must be group member + author identifies the sender
+          allow create: if isGroupMember(groupId)
+            && request.resource.data.author.uid == myUid();
+
+          // Update:
+          //   - author can edit their own message body (text/imageURL)
+          //   - group admins / workspace admins can pin/unpin (and anything)
+          //   - any group member can update ONLY the `reactions` field (for emoji reactions)
+          allow update: if isWorkspaceAdmin()
+            || isGroupAdmin(groupId)
+            || (isGroupMember(groupId) && resource.data.author.uid == myUid())
+            || (isGroupMember(groupId)
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions']));
+
+          // Delete: author, group admin, or workspace admin
+          allow delete: if isWorkspaceAdmin()
+            || isGroupAdmin(groupId)
+            || (isGroupMember(groupId) && resource.data.author.uid == myUid());
+        }
+      }
+    }
+
+    // ───────── Direct messages ─────────
+
+    // ───────── Custom emojis (workspace-wide) ─────────
+
+    match /emojis/{emojiId} {
+      allow read:   if signedIn();
+      allow create: if isWorkspaceAdmin() && request.resource.data.createdBy == myUid();
+      allow delete: if isWorkspaceAdmin();
+      // No update — emojis are immutable; delete + re-create to change.
+    }
+
+    // ───────── Direct messages ─────────
+
+    match /dms/{convoId} {
+      allow read: if signedIn() && myUid() in resource.data.members;
+
+      // Create: must be a 2-person convo that includes you
+      allow create: if signedIn()
+        && myUid() in request.resource.data.members
+        && request.resource.data.members.size() == 2;
+
+      // Update (lastMessageAt, lastMessageText, memberInfo): either member
+      allow update: if signedIn() && myUid() in resource.data.members;
+
+      // Delete: super_admin only (admin tool)
+      allow delete: if isSuperAdmin();
+
+      match /messages/{msgId} {
+        allow read: if isDmMember(convoId);
+
+        allow create: if isDmMember(convoId)
+          && request.resource.data.author.uid == myUid();
+
+        // Either party can pin/unpin in their DM
+        allow update: if isDmMember(convoId);
+
+        // Only the author can delete (no global unsend by counterpart)
+        allow delete: if isDmMember(convoId)
+          && resource.data.author.uid == myUid();
+      }
+    }
+  }
+}

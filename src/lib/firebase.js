@@ -28,5 +28,12 @@ googleProvider.addScope('email')
 googleProvider.addScope('profile')
 
 export const ALLOWED_DOMAIN = import.meta.env.VITE_ALLOWED_EMAIL_DOMAIN || 'punx.ai'
+export const ALLOWED_EXTRA_EMAILS = (import.meta.env.VITE_ALLOWED_EXTRA_EMAILS || '')
+  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
 export const SUPER_ADMINS = (import.meta.env.VITE_SUPER_ADMIN_EMAILS || '')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+
+export const isEmailAllowed = (email) => {
+  const e = (email || '').toLowerCase()
+  return e.endsWith('@' + ALLOWED_DOMAIN) || ALLOWED_EXTRA_EMAILS.includes(e)
+}

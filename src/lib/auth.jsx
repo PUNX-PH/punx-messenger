@@ -5,7 +5,10 @@ import {
   signOut as fbSignOut,
 } from 'firebase/auth'
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
-import { auth, db, googleProvider, firebaseConfigured, ALLOWED_DOMAIN, SUPER_ADMINS } from './firebase'
+import {
+  auth, db, googleProvider, firebaseConfigured,
+  ALLOWED_DOMAIN, ALLOWED_EXTRA_EMAILS, SUPER_ADMINS, isEmailAllowed,
+} from './firebase'
 
 const AuthCtx = createContext(null)
 
@@ -22,38 +25,53 @@ export function AuthProvider({ children }) {
       if (!u) { setUser(null); setProfile(null); setLoading(false); return }
 
       const email = (u.email || '').toLowerCase()
-      if (!email.endsWith('@' + ALLOWED_DOMAIN)) {
+      if (!isEmailAllowed(email)) {
         await fbSignOut(auth)
-        setAuthError(`Only @${ALLOWED_DOMAIN} accounts can sign in.`)
+        const extras = ALLOWED_EXTRA_EMAILS.length
+          ? ` Some external addresses are also allowed.`
+          : ''
+        setAuthError(`Only @${ALLOWED_DOMAIN} accounts can sign in.${extras}`)
         setLoading(false)
         return
       }
 
-      const ref = doc(db, 'users', u.uid)
-      const snap = await getDoc(ref)
-      const isSuper = SUPER_ADMINS.includes(email)
-      if (!snap.exists()) {
-        await setDoc(ref, {
-          uid: u.uid,
-          email,
-          name: u.displayName || email.split('@')[0],
-          photoURL: u.photoURL || null,
-          role: isSuper ? 'super_admin' : 'employee',
-          createdAt: serverTimestamp(),
-          lastSeen: serverTimestamp(),
-        })
-      } else {
-        await setDoc(ref, {
-          name: u.displayName || snap.data().name,
-          photoURL: u.photoURL || snap.data().photoURL || null,
-          lastSeen: serverTimestamp(),
-          ...(isSuper && snap.data().role !== 'super_admin' ? { role: 'super_admin' } : {}),
-        }, { merge: true })
+      try {
+        const ref = doc(db, 'users', u.uid)
+        const snap = await getDoc(ref)
+        const isSuper = SUPER_ADMINS.includes(email)
+        if (!snap.exists()) {
+          await setDoc(ref, {
+            uid: u.uid,
+            email,
+            name: u.displayName || email.split('@')[0],
+            photoURL: u.photoURL || null,
+            role: isSuper ? 'super_admin' : 'employee',
+            createdAt: serverTimestamp(),
+            lastSeen: serverTimestamp(),
+          })
+        } else {
+          // Existing user: refresh display fields only. Role is managed by super_admin
+          // via the admin panel and locked down by Firestore rules.
+          await setDoc(ref, {
+            name: u.displayName || snap.data().name,
+            photoURL: u.photoURL || snap.data().photoURL || null,
+            lastSeen: serverTimestamp(),
+          }, { merge: true })
+        }
+        const fresh = await getDoc(ref)
+        setUser(u)
+        setProfile({ id: u.uid, ...fresh.data() })
+      } catch (e) {
+        console.error('[auth] profile sync failed:', e)
+        await fbSignOut(auth)
+        setAuthError(
+          e?.code === 'permission-denied'
+            ? 'Firestore rules are blocking your user profile. Paste the dev rules in Firebase Console → Firestore → Rules and Publish.'
+            : `Sign-in failed: ${e?.message || e}`
+        )
+      } finally {
+        setLoading(false)
       }
-      const fresh = await getDoc(ref)
-      setUser(u)
-      setProfile({ id: u.uid, ...fresh.data() })
-      setLoading(false)
     })
   }, [])
 

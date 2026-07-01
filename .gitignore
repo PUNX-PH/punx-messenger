@@ -5,3 +5,5 @@ dist
 .firebase
 *.log
 .DS_Store
+.claude/
+.vercel/
