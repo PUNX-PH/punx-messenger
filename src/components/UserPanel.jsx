@@ -3,12 +3,18 @@ import { useAuth, isSuperAdmin } from '../lib/auth'
 import Avatar from './Avatar'
 import RoleBadge from './RoleBadge'
 import { roleLabel } from '../lib/users'
+import { computeStatus, useTickNow } from '../lib/presence'
+import { useUsers } from '../lib/users'
 
 export default function UserPanel() {
   const { profile, signOut } = useAuth()
+  const { byId } = useUsers()
+  const now = useTickNow()
+  const me = byId[profile?.id] || profile
+  const status = computeStatus(me, now)
   return (
     <div className="h-14 bg-bg-deepest border-t border-line-subtle px-2 flex items-center gap-2 shrink-0">
-      <Avatar name={profile?.name} src={profile?.photoURL} size={32} />
+      <Avatar name={profile?.name} src={profile?.photoURL} size={32} status={status} ringColor="border-bg-deepest" />
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium truncate flex items-center gap-1.5">
           <span className="truncate">{profile?.name}</span>

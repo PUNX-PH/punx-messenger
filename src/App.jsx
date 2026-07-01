@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/auth'
 import { UsersProvider } from './lib/users'
 import { EmojisProvider } from './lib/emojis'
+import { PresenceHeartbeat, PresenceTickProvider } from './lib/presence'
 import Login from './components/Login'
 import Loading from './components/Loading'
 import AppShell from './components/AppShell'
@@ -16,9 +17,12 @@ export default function App() {
   return (
     <AuthProvider>
       <UsersProvider>
-        <EmojisProvider>
-          <Gate />
-        </EmojisProvider>
+        <PresenceTickProvider>
+          <EmojisProvider>
+            <PresenceHeartbeat />
+            <Gate />
+          </EmojisProvider>
+        </PresenceTickProvider>
       </UsersProvider>
     </AuthProvider>
   )

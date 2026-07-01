@@ -6,6 +6,7 @@ import EmojiPicker from './EmojiPicker'
 import { useUsers } from '../lib/users'
 import { useEmojis } from '../lib/emojis'
 import { isOnlyEmojis, mentionsUid, renderMessage } from '../lib/markdown'
+import { computeStatus, useTickNow } from '../lib/presence'
 
 export default function MessageList({
   messages, emptyTitle, emptyDesc,
@@ -23,6 +24,7 @@ export default function MessageList({
   const [editingId, setEditingId] = useState(null)
   const { byId: usersById } = useUsers()
   const { byName: emojiByName } = useEmojis()
+  const now = useTickNow()
 
   useEffect(() => {
     if (scrollToId) return
@@ -72,6 +74,7 @@ export default function MessageList({
             highlightId={highlightId}
             usersById={usersById}
             emojiByName={emojiByName}
+            tickNow={now}
             canDeleteAny={canDeleteAny}
             meUid={meUid}
             editingId={editingId}
@@ -157,7 +160,7 @@ function Row({
       ].join(' ')}
     >
       <div className="w-9 shrink-0">
-        {showHeader && <Avatar name={author?.name} src={author?.photoURL} size={36} />}
+        {showHeader && <Avatar name={author?.name} src={author?.photoURL} size={36} status={author?.status} ringColor="border-bg-main" />}
       </div>
 
       <div className="min-w-0 flex-1">

@@ -3,6 +3,7 @@ import { NavLink, useParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import { isUnread, listenMyDmConvos, pathToReadKey } from '../lib/db'
+import { computeStatus, useTickNow } from '../lib/presence'
 import Avatar from './Avatar'
 import RoleBadge from './RoleBadge'
 import UserPanel from './UserPanel'
@@ -13,6 +14,7 @@ export default function DMsSidebar() {
   const { otherUid: activeOtherUid } = useParams()
   const [filter, setFilter] = useState('')
   const [convosByOther, setConvosByOther] = useState({})
+  const now = useTickNow()
 
   useEffect(() => {
     if (!profile?.id) return
@@ -75,7 +77,7 @@ export default function DMsSidebar() {
                     : 'text-ink-muted hover:bg-bg-raised hover:text-ink',
               ].join(' ')}
             >
-              <Avatar name={u.name} src={u.photoURL} size={28} />
+              <Avatar name={u.name} src={u.photoURL} size={28} status={computeStatus(u, now)} />
               <span className="truncate flex-1">{u.name}</span>
               {unread && <span className="w-2 h-2 rounded-full bg-bad shrink-0" />}
               <RoleBadge role={u.role} size="xs" />
