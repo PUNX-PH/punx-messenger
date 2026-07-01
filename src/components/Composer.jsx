@@ -6,7 +6,7 @@ import { useAuth } from '../lib/auth'
 
 const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
 
-export default function Composer({ placeholder = 'Message', onSend, disabled }) {
+export default function Composer({ placeholder = 'Message', onSend, disabled, onTyping }) {
   const { profile } = useAuth()
   const { users } = useUsers()
   const [text, setText] = useState('')
@@ -19,6 +19,41 @@ export default function Composer({ placeholder = 'Message', onSend, disabled }) 
   const fileRef = useRef(null)
   const taRef = useRef(null)
   const emojiBtnRef = useRef(null)
+
+  // Typing state — throttled writes + auto-clear
+  const typingActiveRef = useRef(false)
+  const lastTypingWriteRef = useRef(0)
+  const stopTimerRef = useRef(null)
+
+  const pingTyping = () => {
+    if (!onTyping) return
+    const now = Date.now()
+    if (now - lastTypingWriteRef.current > 3000) {
+      lastTypingWriteRef.current = now
+      typingActiveRef.current = true
+      onTyping(true)
+    }
+    clearTimeout(stopTimerRef.current)
+    stopTimerRef.current = setTimeout(() => {
+      if (typingActiveRef.current) {
+        typingActiveRef.current = false
+        lastTypingWriteRef.current = 0
+        onTyping(false)
+      }
+    }, 5000)
+  }
+
+  const stopTypingNow = () => {
+    clearTimeout(stopTimerRef.current)
+    if (typingActiveRef.current && onTyping) {
+      typingActiveRef.current = false
+      lastTypingWriteRef.current = 0
+      onTyping(false)
+    }
+  }
+
+  // Clean up typing on unmount (switch channels/DMs, sign out, etc.)
+  useEffect(() => () => stopTypingNow(), []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const insertAtCursor = (token) => {
     const ta = taRef.current
@@ -64,6 +99,8 @@ export default function Composer({ placeholder = 'Message', onSend, disabled }) 
     const v = e.target.value
     setText(v)
     detectMention(v, e.target.selectionStart)
+    if (v.trim().length > 0) pingTyping()
+    else stopTypingNow()
   }
 
   const pickMention = (user) => {
@@ -101,6 +138,7 @@ export default function Composer({ placeholder = 'Message', onSend, disabled }) 
     if (sending || disabled) return
     if (!text.trim() && !file) return
     setSending(true); setError(null)
+    stopTypingNow()
     try {
       await onSend({ text: text.trim(), imageFile: file })
       setText(''); setFile(null)

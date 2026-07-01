@@ -1,6 +1,6 @@
 import {
-  addDoc, collection, deleteDoc, doc, getDoc, limit as fbLimit, onSnapshot,
-  orderBy, query, serverTimestamp, setDoc, updateDoc, where,
+  addDoc, collection, deleteDoc, deleteField, doc, getDoc, limit as fbLimit,
+  onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { PRESETS, resizeToDataURL } from './images'
@@ -178,4 +178,22 @@ export async function editMessageText(messagePath, text) {
 // Delete a message (rules: author, group admin, or workspace admin)
 export async function deleteMessage(messagePath) {
   await deleteDoc(doc(db, ...messagePath.split('/')))
+}
+
+// Listen to a container doc (dm convo or channel) — used for typing indicators.
+export function listenContainer(containerPath, cb) {
+  return onSnapshot(doc(db, ...containerPath.split('/')), snap => {
+    cb(snap.exists() ? snap.data() : null)
+  })
+}
+
+// Mark self as typing (or not) on the given container.
+// Uses dot-path so we only touch `typing.{uid}`, not the whole `typing` map.
+export async function setTyping(containerPath, uid, isTyping) {
+  if (!uid || !containerPath) return
+  try {
+    await updateDoc(doc(db, ...containerPath.split('/')), {
+      [`typing.${uid}`]: isTyping ? serverTimestamp() : deleteField(),
+    })
+  } catch { /* non-fatal */ }
 }

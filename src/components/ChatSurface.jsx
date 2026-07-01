@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   listenMessages, sendMessage, setMessagePinned,
   editMessageText, deleteMessage, toggleReaction, markRead,
+  listenContainer, setTyping,
 } from '../lib/db'
 import { useAuth } from '../lib/auth'
+import { useUsers } from '../lib/users'
 import MessageList, { PinIcon } from './MessageList'
 import Composer from './Composer'
+import TypingIndicator from './TypingIndicator'
 import { MenuButton } from './AppShell'
 
 /**
@@ -25,10 +28,43 @@ export default function ChatSurface({
   canDeleteAny = false, // group admin / workspace admin: can delete anyone's
 }) {
   const { profile } = useAuth()
+  const { byId: usersById } = useUsers()
   const [messages, setMessages] = useState([])
   const [pinnedOpen, setPinnedOpen] = useState(false)
   const [jumpId, setJumpId] = useState(null)
+  const [container, setContainer] = useState(null)
+  const [nowTick, setNowTick] = useState(() => Date.now())
   const pinnedRef = useRef(null)
+
+  // Container path for typing (drops the trailing /messages). Skip for private notes.
+  const containerPath = path && !path.startsWith('users/')
+    ? path.replace(/\/messages$/, '')
+    : null
+
+  // Listen to container doc for typing map
+  useEffect(() => {
+    if (!containerPath) return
+    return listenContainer(containerPath, setContainer)
+  }, [containerPath])
+
+  // Fast ticker (every 2s) so stale typing entries age out promptly
+  useEffect(() => {
+    if (!containerPath) return
+    const t = setInterval(() => setNowTick(Date.now()), 2000)
+    return () => clearInterval(t)
+  }, [containerPath])
+
+  const typingNames = useMemo(() => {
+    const typing = container?.typing || {}
+    return Object.entries(typing)
+      .filter(([uid, ts]) => {
+        if (uid === profile?.uid) return false
+        const ms = ts?.toMillis?.() ?? 0
+        return nowTick - ms < 6000
+      })
+      .map(([uid]) => usersById[uid]?.name)
+      .filter(Boolean)
+  }, [container, profile?.uid, nowTick, usersById])
 
   useEffect(() => {
     if (!path) return
@@ -59,7 +95,13 @@ export default function ChatSurface({
 
   const onSend = async ({ text, imageFile }) => {
     await sendMessage(path, { text, imageFile, author: profile })
+    // Clear our typing state on send
+    if (containerPath && profile?.uid) setTyping(containerPath, profile.uid, false)
   }
+
+  const onTyping = containerPath && profile?.uid
+    ? (isTyping) => setTyping(containerPath, profile.uid, isTyping)
+    : null
 
   const onTogglePin = async (m) => {
     await setMessagePinned(`${path}/${m.id}`, !m.pinned)
@@ -144,9 +186,12 @@ export default function ChatSurface({
         highlightId={jumpId}
       />
 
+      <TypingIndicator names={typingNames} />
+
       <Composer
         placeholder={composerPlaceholder || `Message ${icon}${title}`}
         onSend={onSend}
+        onTyping={onTyping}
       />
     </main>
   )

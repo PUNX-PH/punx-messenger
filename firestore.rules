@@ -121,10 +121,10 @@ service cloud.firestore {
         // Create: group admin (incl. during batched group creation) or workspace admin
         allow create: if isWorkspaceAdmin() || isGroupAdminAfter(groupId);
         // Update: admins anything; any group member may bump `lastMessageAt`
-        // (so rail/sidebar unread indicators work for regular members too).
+        // (unread state) and/or write to `typing` (typing indicators).
         allow update: if isWorkspaceAdmin() || isGroupAdmin(groupId)
           || (isGroupMember(groupId)
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt']));
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'typing']));
         allow delete: if isWorkspaceAdmin() || isGroupAdmin(groupId);
 
         // ───── Channel messages ─────
