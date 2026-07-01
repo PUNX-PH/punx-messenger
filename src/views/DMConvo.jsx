@@ -12,24 +12,34 @@ export default function DMConvo() {
   const { profile } = useAuth()
   const [other, setOther] = useState(null)
   const [convoReady, setConvoReady] = useState(false)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     setConvoReady(false)
     setOther(null)
+    setError(null)
     if (!profile || !otherUid) return
     let cancelled = false
     ;(async () => {
-      const snap = await getDoc(doc(db, 'users', otherUid))
-      if (cancelled) return
-      if (!snap.exists()) { setOther({ notFound: true }); return }
-      const o = { id: snap.id, ...snap.data() }
-      setOther(o)
-      await ensureDmConvo(profile, o)
-      if (!cancelled) setConvoReady(true)
+      try {
+        const snap = await getDoc(doc(db, 'users', otherUid))
+        if (cancelled) return
+        if (!snap.exists()) { setOther({ notFound: true }); return }
+        const o = { id: snap.id, ...snap.data() }
+        setOther(o)
+        await ensureDmConvo(profile, o)
+        if (!cancelled) setConvoReady(true)
+      } catch (e) {
+        console.error('[DMConvo] failed to open:', e)
+        if (!cancelled) setError(e?.code === 'permission-denied'
+          ? "Couldn't open this DM. Try re-publishing your Firestore rules with the non-existent-doc read fix."
+          : e?.message || 'Failed to open DM.')
+      }
     })()
     return () => { cancelled = true }
   }, [otherUid, profile])
 
+  if (error) return <Center>{error}</Center>
   if (!other) return <Center>Loading conversation…</Center>
   if (other.notFound) return <Center>That teammate doesn't exist.</Center>
   if (!convoReady) return <Center>Opening DM…</Center>

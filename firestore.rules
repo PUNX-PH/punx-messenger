@@ -167,7 +167,9 @@ service cloud.firestore {
     // ───────── Direct messages ─────────
 
     match /dms/{convoId} {
-      allow read: if signedIn() && myUid() in resource.data.members;
+      // Read: allow reading a non-existent doc (so clients can check-then-create),
+      // and reading an existing doc only if you're a member.
+      allow read: if signedIn() && (resource == null || myUid() in resource.data.members);
 
       // Create: must be a 2-person convo that includes you
       allow create: if signedIn()
