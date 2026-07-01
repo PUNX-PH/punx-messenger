@@ -7,7 +7,10 @@ import { resolveMentions } from '../lib/markdown'
 
 const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
 
-export default function Composer({ placeholder = 'Message', onSend, disabled, onTyping }) {
+export default function Composer({
+  placeholder = 'Message', onSend, disabled, onTyping,
+  replyingTo = null, onCancelReply,
+}) {
   const { profile } = useAuth()
   const { users } = useUsers()
   const [text, setText] = useState('')
@@ -181,6 +184,26 @@ export default function Composer({ placeholder = 'Message', onSend, disabled, on
 
   return (
     <form onSubmit={submit} className="px-3 md:px-4 pb-safe pt-1">
+      {replyingTo && (
+        <div className="mb-1.5 flex items-center gap-2 bg-bg-raised/70 border border-line-subtle rounded-md px-3 py-1.5 text-xs">
+          <span className="text-ink-dim">Replying to</span>
+          <span className="text-brand font-medium">@{replyingTo.author?.name || 'someone'}</span>
+          <span className="text-ink-dim truncate flex-1 min-w-0">
+            {replyingTo.text || (replyingTo.imageURL ? '[image]' : '')}
+          </span>
+          <button
+            type="button"
+            onClick={onCancelReply}
+            className="text-ink-dim hover:text-ink p-0.5"
+            title="Cancel reply"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+      )}
+
       {error && (
         <div className="mb-2 text-xs text-bad bg-bad/10 border border-bad/20 rounded px-2 py-1">
           {error}

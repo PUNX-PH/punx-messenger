@@ -35,6 +35,7 @@ export default function ChatSurface({
   const [pinnedOpen, setPinnedOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [jumpId, setJumpId] = useState(null)
+  const [replyingTo, setReplyingTo] = useState(null)
   const [container, setContainer] = useState(null)
   const [nowTick, setNowTick] = useState(() => Date.now())
   const pinnedRef = useRef(null)
@@ -98,7 +99,8 @@ export default function ChatSurface({
   }, [pinnedOpen])
 
   const onSend = async ({ text, imageFile }) => {
-    await sendMessage(path, { text, imageFile, author: profile })
+    await sendMessage(path, { text, imageFile, author: profile, replyTo: replyingTo })
+    setReplyingTo(null)
     // Clear our typing state on send
     if (containerPath && profile?.uid) setTyping(containerPath, profile.uid, false)
   }
@@ -211,6 +213,8 @@ export default function ChatSurface({
         onEdit={onEdit}
         onDelete={onDelete}
         onReact={onReact}
+        onReply={setReplyingTo}
+        onJumpToMessage={jumpTo}
         meUid={profile?.uid}
         scrollToId={jumpId}
         highlightId={jumpId}
@@ -222,6 +226,8 @@ export default function ChatSurface({
         placeholder={composerPlaceholder || `Message ${icon}${title}`}
         onSend={onSend}
         onTyping={onTyping}
+        replyingTo={replyingTo}
+        onCancelReply={() => setReplyingTo(null)}
       />
     </main>
   )

@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useAuth } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import { computeStatus, useTickNow } from '../lib/presence'
 import Avatar from './Avatar'
@@ -10,8 +12,10 @@ import Avatar from './Avatar'
  *   open:    boolean (parent controls show/hide via header toggle)
  */
 export default function MembersPanel({ group, open }) {
+  const { profile } = useAuth()
   const { users } = useUsers()
   const now = useTickNow()
+  const meUid = profile?.id
 
   const { online, offline, total } = useMemo(() => {
     if (!group) return { online: [], offline: [], total: 0 }
@@ -48,14 +52,14 @@ export default function MembersPanel({ group, open }) {
         {online.length > 0 && (
           <>
             <SectionLabel>Online — {online.length}</SectionLabel>
-            {online.map(m => <MemberRow key={m.id} m={m} />)}
+            {online.map(m => <MemberRow key={m.id} m={m} meUid={meUid} />)}
           </>
         )}
 
         {offline.length > 0 && (
           <>
             <SectionLabel className="mt-4">Offline — {offline.length}</SectionLabel>
-            {offline.map(m => <MemberRow key={m.id} m={m} dim />)}
+            {offline.map(m => <MemberRow key={m.id} m={m} meUid={meUid} dim />)}
           </>
         )}
 
@@ -75,31 +79,34 @@ function SectionLabel({ children, className = '' }) {
   )
 }
 
-function MemberRow({ m, dim }) {
-  return (
-    <div
-      title={m.email}
-      className={[
-        'flex items-center gap-2 px-2 py-1.5 rounded-sm transition-colors',
-        'hover:bg-bg-hover cursor-default',
-        dim ? 'opacity-55' : '',
-      ].join(' ')}
-    >
-      <Avatar
-        name={m.name}
-        src={m.photoURL}
-        size={28}
-        status={m.status}
-        ringColor="border-bg-dark"
-      />
-      <span className="text-sm truncate flex-1 text-ink">{m.name}</span>
+function MemberRow({ m, meUid, dim }) {
+  const isMe = m.id === meUid
+  const inner = (
+    <>
+      <Avatar name={m.name} src={m.photoURL} size={28} status={m.status} ringColor="border-bg-dark" />
+      <span className="text-sm truncate flex-1 text-ink">
+        {m.name} {isMe && <span className="text-[10px] text-ink-dim">(you)</span>}
+      </span>
       {m.roleTier === 0 && (
         <span className="text-[9px] uppercase tracking-wider text-warn font-semibold shrink-0">Owner</span>
       )}
       {m.roleTier === 1 && (
         <span className="text-[9px] uppercase tracking-wider text-brand font-semibold shrink-0">Admin</span>
       )}
-    </div>
+    </>
+  )
+  const cls = [
+    'flex items-center gap-2 px-2 py-1.5 rounded-sm transition-colors',
+    'hover:bg-bg-hover',
+    dim ? 'opacity-55' : '',
+  ].join(' ')
+  if (isMe) {
+    return <div title={m.email} className={cls + ' cursor-default'}>{inner}</div>
+  }
+  return (
+    <Link to={`/dms/${m.id}`} title={`Message ${m.name}`} className={cls}>
+      {inner}
+    </Link>
   )
 }
 

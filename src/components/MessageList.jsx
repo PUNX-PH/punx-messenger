@@ -13,7 +13,9 @@ export default function MessageList({
   canPin, onTogglePin,
   canDeleteAny,
   onEdit, onDelete,
-  onReact,                // (message, key) => Promise<void>
+  onReact,
+  onReply,                // (message) => void  (start replying)
+  onJumpToMessage,        // (messageId) => void (for replyTo preview jump)
   meUid,
   highlightId,
   scrollToId,
@@ -82,6 +84,8 @@ export default function MessageList({
             onEdit={onEdit}
             onDelete={onDelete}
             onReact={onReact}
+            onReply={onReply}
+            onJumpToMessage={onJumpToMessage}
           />
         ))}
         <div ref={endRef} />
@@ -94,6 +98,7 @@ export default function MessageList({
 function Group({
   group, onZoom, canPin, onTogglePin, highlightId, usersById, emojiByName, tickNow,
   canDeleteAny, meUid, editingId, setEditingId, onEdit, onDelete, onReact,
+  onReply, onJumpToMessage,
 }) {
   const currentAuthor = usersById?.[group.author?.uid]
   const author = {
@@ -124,6 +129,8 @@ function Group({
           onEdit={onEdit}
           onDelete={onDelete}
           onReact={onReact}
+          onReply={onReply}
+          onJumpToMessage={onJumpToMessage}
           meUid={meUid}
           usersById={usersById}
         />
@@ -135,7 +142,7 @@ function Group({
 function Row({
   message, showHeader, author, firstTime, onZoom, canPin, onTogglePin, highlighted,
   emojiByName, isAuthor, canDeleteAny, editing, setEditing, onEdit, onDelete,
-  onReact, meUid, usersById,
+  onReact, onReply, onJumpToMessage, meUid, usersById,
 }) {
   const onlyEmojis = isOnlyEmojis(message.text)
   const emojiSize = onlyEmojis ? 40 : 22
@@ -165,6 +172,24 @@ function Row({
       </div>
 
       <div className="min-w-0 flex-1">
+        {message.replyTo && (
+          <button
+            type="button"
+            onClick={() => onJumpToMessage?.(message.replyTo.messageId)}
+            className="flex items-center gap-1 text-xs text-ink-muted hover:text-ink max-w-full mb-0.5"
+            title="Jump to replied message"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 text-ink-dim">
+              <polyline points="9 14 4 9 9 4"/>
+              <path d="M20 20v-7a4 4 0 0 0-4-4H4"/>
+            </svg>
+            <span className="text-brand font-medium shrink-0">
+              @{usersById?.[message.replyTo.authorUid]?.name || message.replyTo.authorName}
+            </span>
+            <span className="truncate opacity-75">{message.replyTo.snippet}</span>
+          </button>
+        )}
+
         {showHeader && (
           <div className="flex items-baseline gap-2 -mt-0.5 flex-wrap">
             <span className="font-semibold text-ink truncate">{author?.name || 'Unknown'}</span>
@@ -233,7 +258,7 @@ function Row({
       </div>
 
       {/* Hover toolbar */}
-      {!editing && (onReact || canPin || canEdit || canDelete) && (
+      {!editing && (onReact || onReply || canPin || canEdit || canDelete) && (
         <div className="absolute -top-3 right-3 opacity-0 group-hover/msg:opacity-100 group-focus-within/msg:opacity-100 transition-opacity bg-bg-raised border border-line-subtle rounded-md shadow-elev1 flex">
           {onReact && (
             <div className="relative">
@@ -253,6 +278,15 @@ function Row({
                 position="bottom-right"
               />
             </div>
+          )}
+          {onReply && (
+            <button
+              onClick={() => onReply(message)}
+              className="p-1.5 text-ink-muted hover:text-ink hover:bg-bg-hover rounded transition-colors"
+              title="Reply"
+            >
+              <ReplyIcon />
+            </button>
           )}
           {canEdit && message.text && (
             <button
@@ -317,6 +351,15 @@ function ReactionChip({ emojiKey, uids, meUid, emojiByName, usersById, onToggle 
       )}
       <span className="font-semibold tabular-nums">{uids.length}</span>
     </button>
+  )
+}
+
+function ReplyIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="9 17 4 12 9 7"/>
+      <path d="M20 18v-2a4 4 0 0 0-4-4H4"/>
+    </svg>
   )
 }
 

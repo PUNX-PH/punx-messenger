@@ -74,9 +74,12 @@ export function listenMyDmConvos(uid, cb) {
   })
 }
 
-// Send a message at the given collection path
-// Accepts an optional `imageFile` (File) — uploads it to Storage at the message's path
-export async function sendMessage(path, { text, author, imageFile = null }) {
+// Send a message at the given collection path.
+// Accepts:
+//   text       — trimmed at send
+//   imageFile  — optional File (resized + base64 embedded)
+//   replyTo    — optional message obj we're replying to; a snapshot is embedded
+export async function sendMessage(path, { text, author, imageFile = null, replyTo = null }) {
   const trimmed = (text || '').trim()
   if (!trimmed && !imageFile) return
   const colRef = collection(db, ...path.split('/'))
@@ -106,6 +109,12 @@ export async function sendMessage(path, { text, author, imageFile = null }) {
       photoURL: author.photoURL || null,
     },
     mentionedUids: extractMentionedUids(trimmed),
+    replyTo: replyTo ? {
+      messageId:  replyTo.id,
+      authorUid:  replyTo.author?.uid || null,
+      authorName: replyTo.author?.name || 'Unknown',
+      snippet:    (replyTo.text || (replyTo.imageURL ? '[image]' : '')).slice(0, 160),
+    } : null,
     createdAt: serverTimestamp(),
     pinned: false,
   })
