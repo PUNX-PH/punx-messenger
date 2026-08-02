@@ -25,12 +25,21 @@ export function listenMyGroups(uid, cb) {
 }
 
 // Listen to channels in a group
-export function listenChannels(groupId, cb) {
+export function listenChannels(groupId, cb, onError) {
   const q = query(
     collection(db, 'groups', groupId, 'channels'),
     orderBy('createdAt', 'asc'),
   )
-  return onSnapshot(q, snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+  return onSnapshot(
+    q,
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    err => {
+      // Without this, a denied/broken query here just hangs GroupHome.jsx's
+      // "Opening group…" screen forever with zero feedback.
+      console.error('[groups] listenChannels failed:', err)
+      onError?.(err)
+    },
+  )
 }
 
 // Listen to a single group doc
