@@ -91,7 +91,21 @@ class CallController extends StateNotifier<CallUiState> {
     await stop();
     _uid = uid;
     unawaited(_repo.sweepStaleOutboundCalls(uid));
-    _activeCallsSub = _repo.listenMyActiveCall(uid).listen(_handleActiveCalls);
+    // Without onError, a broken listener (e.g. a missing Firestore composite
+    // index) fails *silently* — calls could be created but this client would
+    // never learn about them. Surface it instead.
+    _activeCallsSub = _repo
+        .listenMyActiveCall(uid)
+        .listen(
+          _handleActiveCalls,
+          onError: (Object err) {
+            debugPrint('[calls] listenMyActiveCall failed: $err');
+            _connError = err.toString().contains('failed-precondition')
+                ? 'Calling isn’t set up yet — a required Firestore index is missing. Check the debug console for a link to create it.'
+                : 'Calling is unavailable right now: $err';
+            _publish();
+          },
+        );
   }
 
   Future<void> stop() async {
@@ -213,6 +227,9 @@ class CallController extends StateNotifier<CallUiState> {
         unawaited(_repo.cleanupCallCandidates(callId));
         unawaited(_teardown());
       }
+    }, onError: (Object err) {
+      _connError = 'Lost track of this call: $err';
+      unawaited(_teardown());
     });
 
     _iceSub = _repo.listenIceCandidates(callId).listen((candDoc) async {
@@ -226,7 +243,7 @@ class CallController extends StateNotifier<CallUiState> {
       } else {
         _pendingRemoteCandidates.add(candidate);
       }
-    });
+    }, onError: (Object err) => _connError = 'Connection signaling failed: $err');
   }
 
   // _callId must already be set before this runs (both startCall and

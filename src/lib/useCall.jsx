@@ -47,7 +47,16 @@ function useCallEngine() {
   useEffect(() => {
     if (!myUid) { setActiveCalls([]); return }
     sweepStaleOutboundCalls(myUid)
-    return listenMyActiveCall(myUid, setActiveCalls)
+    return listenMyActiveCall(myUid, setActiveCalls, (err) => {
+      // If this listener is broken (e.g. a missing Firestore composite
+      // index), calls can be created but this client will never learn
+      // about them — surface that instead of failing silently.
+      setConnError(
+        err?.code === 'failed-precondition'
+          ? 'Calling isn’t set up yet — a required Firestore index is missing. Check the browser console for a link to create it.'
+          : `Calling is unavailable right now: ${err?.message || err}`
+      )
+    })
   }, [myUid])
 
   const setLocalStreamBoth = (s) => { localStreamRef.current = s; setLocalStream(s) }
@@ -98,6 +107,9 @@ function useCallEngine() {
         cleanupCallCandidates(callId).catch(() => {})
         teardown()
       }
+    }, (err) => {
+      setConnError(`Lost track of this call: ${err?.message || err}`)
+      teardown()
     })
 
     unsubIceRef.current = listenIceCandidates(callId, (candDoc) => {
@@ -110,7 +122,7 @@ function useCallEngine() {
       } else {
         pendingRemoteCandidatesRef.current.push(candDoc.candidate)
       }
-    })
+    }, (err) => setConnError(`Connection signaling failed: ${err?.message || err}`))
   }, [myUid, teardown])
 
   // callIdRef.current must already be set before this runs (both startCall
@@ -262,7 +274,7 @@ function useCallEngine() {
   return {
     call, status, myUid, localStream, remoteStream, muted, cameraOff, connError,
     startCall, accept, decline, cancel, hangup, endActiveCall,
-    toggleMute, toggleCamera,
+    toggleMute, toggleCamera, clearConnError: () => setConnError(null),
   }
 }
 
