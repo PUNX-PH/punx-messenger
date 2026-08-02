@@ -6,6 +6,7 @@ import { useAuth } from '../lib/auth'
 import { dmConvoId, ensureDmConvo } from '../lib/db'
 import ChatSurface from '../components/ChatSurface'
 import Loading from '../components/Loading'
+import CallButtons from '../components/calls/CallButtons'
 
 export default function DMConvo() {
   const { otherUid } = useParams()
@@ -57,6 +58,7 @@ export default function DMConvo() {
         title: `This is the start of your conversation with ${other.name}.`,
         desc: 'Only the two of you can see these messages.',
       }}
+      headerExtras={<CallButtons otherUid={other.id} />}
     />
   )
 }

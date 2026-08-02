@@ -4,9 +4,11 @@ import { UsersProvider } from './lib/users'
 import { EmojisProvider } from './lib/emojis'
 import { PresenceHeartbeat, PresenceTickProvider } from './lib/presence'
 import { NotificationDaemon, NotificationsProvider } from './lib/notifications'
+import { CallProvider } from './lib/useCall'
 import Login from './components/Login'
 import Loading from './components/Loading'
 import AppShell from './components/AppShell'
+import CallManager from './components/calls/CallManager'
 import DMsHome from './views/DMsHome'
 import DMConvo from './views/DMConvo'
 import MyNotes from './views/MyNotes'
@@ -23,7 +25,10 @@ export default function App() {
             <EmojisProvider>
               <PresenceHeartbeat />
               <NotificationDaemon />
-              <Gate />
+              <CallProvider>
+                <CallManager />
+                <Gate />
+              </CallProvider>
             </EmojisProvider>
           </NotificationsProvider>
         </PresenceTickProvider>

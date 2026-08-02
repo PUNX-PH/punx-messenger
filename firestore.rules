@@ -56,6 +56,11 @@ service cloud.firestore {
         myUid() in get(/databases/$(database)/documents/dms/$(convoId)).data.members;
     }
 
+    function isCallMember(callId) {
+      return signedIn() &&
+        myUid() in get(/databases/$(database)/documents/calls/$(callId)).data.members;
+    }
+
     // ───────── Users (workspace directory) ─────────
 
     match /users/{uid} {
@@ -194,6 +199,69 @@ service cloud.firestore {
         // Only the author can delete (no global unsend by counterpart)
         allow delete: if isDmMember(convoId)
           && resource.data.author.uid == myUid();
+      }
+    }
+
+    // ───────── 1:1 calls (WebRTC signaling) ─────────
+    //
+    // A `calls/{callId}` doc carries the offer/answer SDP + state machine for
+    // one 1:1 audio/video call. ICE candidates live in a subcollection (not a
+    // field) since both sides trickle several independently — a field would
+    // race on concurrent writes. Call docs are never deleted by rule until a
+    // terminal state is reached, and are cheap enough to keep as call-history
+    // afterward (client chooses whether to delete).
+    //
+    // Callees always *discover* an incoming call via a query on `calleeUid`/
+    // `pairKey` (see src/lib/calls.js), never a blind fetch of a guessed id,
+    // so — unlike `dms/{convoId}` — there's no need to allow reading a
+    // non-existent doc here.
+
+    match /calls/{callId} {
+      allow read: if signedIn() && myUid() in resource.data.members;
+
+      // Only the caller can start a call, and only in the `ringing` state
+      // with a valid offer attached.
+      allow create: if signedIn()
+        && request.resource.data.callerUid == myUid()
+        && request.resource.data.members.size() == 2
+        && myUid() in request.resource.data.members
+        && request.resource.data.calleeUid in request.resource.data.members
+        && request.resource.data.state == 'ringing'
+        && request.resource.data.offer != null;
+
+      // Each state transition is restricted to the side allowed to make it,
+      // and to only the fields that transition should touch.
+      allow update: if signedIn() && myUid() in resource.data.members && (
+        // Callee accepts: attaches the answer.
+        (myUid() == resource.data.calleeUid && resource.data.state == 'ringing'
+          && request.resource.data.state == 'accepted'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'answer', 'acceptedAt']))
+        // Callee declines (incl. auto-decline when busy).
+        || (myUid() == resource.data.calleeUid && resource.data.state == 'ringing'
+          && request.resource.data.state == 'declined'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'endedAt', 'endedBy']))
+        // Caller cancels before answer, or times out waiting for one.
+        || (myUid() == resource.data.callerUid && resource.data.state == 'ringing'
+          && request.resource.data.state in ['cancelled', 'missed']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'endedAt', 'endedBy']))
+        // Either side hangs up a connected call.
+        || (resource.data.state == 'accepted' && request.resource.data.state == 'ended'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'endedAt', 'endedBy']))
+        // Either side reports a connection failure, from any non-terminal state.
+        || (request.resource.data.state == 'failed'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'endedAt', 'endedBy']))
+      );
+
+      // Only once the call has reached a terminal state — either side may
+      // clean it up.
+      allow delete: if signedIn() && myUid() in resource.data.members
+        && resource.data.state in ['declined', 'cancelled', 'missed', 'ended', 'failed'];
+
+      match /candidates/{candId} {
+        allow read:   if isCallMember(callId);
+        // Write-once, append-only — each side stamps its own uid.
+        allow create: if isCallMember(callId) && request.resource.data.from == myUid();
+        allow delete: if isCallMember(callId);
       }
     }
   }
