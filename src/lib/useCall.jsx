@@ -167,6 +167,22 @@ function useCallEngine() {
     }
   }, [activeCalls, call, myUid])
 
+  // ---- Orphan cleanup: this call doc is still ringing/accepted in
+  // Firestore, but nothing in *this* page load created its peer connection
+  // (e.g. the tab refreshed mid-call — the browser correctly drops the local
+  // camera/mic + RTCPeerConnection, but never told Firestore the call ended).
+  // v1 has no reconnect/renegotiation flow, so there's no way to resume it —
+  // end it instead of leaving a dead "connected" black screen or an
+  // unusable stale ring. A genuinely fresh incoming ring is exempt, since
+  // that's the normal "someone's calling me" case accept() will claim.
+  useEffect(() => {
+    if (!myUid || !call) return
+    if (callIdRef.current === call.id) return // I'm actively driving this call
+    if (call.state === 'ringing' && call.calleeUid === myUid) return // legit fresh incoming ring
+    if (call.state === 'accepted') markFailed(call.id, myUid).catch(() => {})
+    else if (call.state === 'ringing' && call.callerUid === myUid) cancelCall(call.id, myUid).catch(() => {})
+  }, [call, myUid])
+
   const startCall = useCallback(async (otherUid, callType = 'video') => {
     if (!myUid || call) return // v1: one call at a time
     setConnError(null)
@@ -267,7 +283,13 @@ function useCallEngine() {
   // Tear down on sign-out / app close.
   useEffect(() => () => teardown(), [teardown])
 
-  const status = !call ? 'idle'
+  // A call this page load isn't actively driving (see the orphan-cleanup
+  // effect above) renders as idle immediately, rather than flashing a dead
+  // "connected"/"outgoing" UI while the cleanup write is still in flight.
+  const isMine = !!call && callIdRef.current === call.id
+  const isFreshIncomingRing = !!call && call.state === 'ringing' && call.calleeUid === myUid
+
+  const status = !call || (!isMine && !isFreshIncomingRing) ? 'idle'
     : call.state === 'accepted' ? 'connected'
     : call.callerUid === myUid ? 'outgoing'
     : 'incoming'

@@ -37,7 +37,7 @@ export default function CallOverlay() {
     <div className="fixed inset-0 z-[70] bg-black/95 flex flex-col">
       <div className="flex-1 relative overflow-hidden">
         {showRemoteVideo ? (
-          <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-contain bg-black" />
+          <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover bg-black" />
         ) : (
           <div className="w-full h-full grid place-items-center">
             <div className="flex flex-col items-center gap-4">

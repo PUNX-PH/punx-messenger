@@ -6,10 +6,14 @@ import { useCall } from '../../lib/useCall'
  * DM-only, see Channel.jsx which passes MembersToggle there instead).
  */
 export default function CallButtons({ otherUid }) {
-  const { call, startCall } = useCall()
+  const { call, status, startCall } = useCall()
 
-  const busyElsewhere = call && !(call.callerUid === otherUid || call.calleeUid === otherUid)
-  const alreadyWithThem = call && (call.callerUid === otherUid || call.calleeUid === otherUid)
+  // Use `status` (not the raw `call`) so a stale/orphaned call that's mid
+  // cleanup — see useCall.jsx's orphan-cleanup effect — doesn't leave these
+  // needlessly disabled for the moment before that write lands.
+  const busy = status !== 'idle'
+  const busyElsewhere = busy && !(call.callerUid === otherUid || call.calleeUid === otherUid)
+  const alreadyWithThem = busy && (call.callerUid === otherUid || call.calleeUid === otherUid)
   const busyReason = alreadyWithThem
     ? 'Already on a call with them'
     : busyElsewhere
@@ -20,14 +24,14 @@ export default function CallButtons({ otherUid }) {
     <div className="flex items-center gap-0.5">
       <CallIconButton
         onClick={() => startCall(otherUid, 'audio')}
-        disabled={!!call}
+        disabled={busy}
         title={busyReason || 'Start a voice call'}
       >
         <PhoneIcon />
       </CallIconButton>
       <CallIconButton
         onClick={() => startCall(otherUid, 'video')}
-        disabled={!!call}
+        disabled={busy}
         title={busyReason || 'Start a video call'}
       >
         <VideoIcon />

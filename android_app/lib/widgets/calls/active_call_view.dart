@@ -72,7 +72,7 @@ class _ActiveCallViewState extends ConsumerState<ActiveCallView> {
                         ? RTCVideoView(
                             _remoteRenderer,
                             objectFit:
-                                RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+                                RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                           )
                         : Center(
                             child: Column(

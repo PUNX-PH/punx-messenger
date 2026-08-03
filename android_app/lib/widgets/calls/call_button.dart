@@ -17,8 +17,12 @@ class CallButton extends ConsumerWidget {
     final callState = ref.watch(callControllerProvider);
     final controller = ref.read(callControllerProvider.notifier);
     final call = callState.call;
-    final busy = call != null;
+    // Use `status` (not the raw `call`) so a stale/orphaned call that's mid
+    // cleanup — see CallController's orphan-cleanup logic — doesn't leave
+    // these needlessly disabled for the moment before that write lands.
+    final busy = callState.status != CallStatus.idle;
     final alreadyWithThem =
+        busy &&
         call != null &&
         (call.callerUid == otherUid || call.calleeUid == otherUid);
     final busyReason = alreadyWithThem

@@ -143,13 +143,39 @@ class CallController extends StateNotifier<CallUiState> {
       }
     }
 
+    // Orphan cleanup: this call doc is still ringing/accepted in Firestore,
+    // but nothing in *this* app launch created its peer connection (e.g. the
+    // app was killed/restarted mid-call — the OS drops the local camera/mic
+    // + RTCPeerConnection, but never told Firestore the call ended). v1 has
+    // no reconnect/renegotiation flow, so there's no way to resume it — end
+    // it instead of leaving a dead "connected" screen or an unusable stale
+    // ring. A genuinely fresh incoming ring is exempt — that's the normal
+    // "someone's calling me" case accept() will claim.
+    if (uid != null && call != null && _callId != call.id) {
+      final isFreshIncomingRing =
+          call.state == 'ringing' && call.calleeUid == uid;
+      if (!isFreshIncomingRing) {
+        if (call.state == 'accepted') {
+          unawaited(_repo.markFailed(call.id, uid));
+        } else if (call.state == 'ringing' && call.callerUid == uid) {
+          unawaited(_repo.cancelCall(call.id, uid));
+        }
+      }
+    }
+
     _publish();
   }
 
   void _publish() {
     final uid = _uid;
     final call = _activeCalls.isNotEmpty ? _activeCalls.first : null;
-    final status = call == null
+    // A call this app launch isn't actively driving (see the orphan-cleanup
+    // above) reports as idle immediately, rather than flashing a dead
+    // connected/outgoing UI while the cleanup write is still in flight.
+    final isMine = call != null && _callId == call.id;
+    final isFreshIncomingRing =
+        call != null && call.state == 'ringing' && call.calleeUid == uid;
+    final status = call == null || (!isMine && !isFreshIncomingRing)
         ? CallStatus.idle
         : call.state == 'accepted'
         ? CallStatus.connected
