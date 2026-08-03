@@ -164,6 +164,12 @@ class _ActiveCallViewState extends ConsumerState<ActiveCallView> {
                       active: callState.cameraOff,
                       onPressed: controller.toggleCamera,
                     ),
+                  ] else if (connected) ...[
+                    const SizedBox(width: 20),
+                    _ControlButton(
+                      icon: Icons.videocam_outlined,
+                      onPressed: controller.addVideo,
+                    ),
                   ],
                   const SizedBox(width: 20),
                   _ControlButton(

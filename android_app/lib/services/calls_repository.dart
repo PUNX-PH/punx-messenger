@@ -115,6 +115,67 @@ class CallsRepository {
         );
   }
 
+  // ---------- Mid-call renegotiation (e.g. audio call -> add video) ----------
+  //
+  // Adding a track to an already-connected RTCPeerConnection requires a
+  // fresh SDP offer/answer round — it can't reuse the call doc's original
+  // offer/answer fields.
+
+  /// Marks the call itself as video — read reactively by both sides' UI so
+  /// a mid-call upgrade shows the video area/camera controls for both
+  /// parties even before the SDP exchange below finishes.
+  Future<void> upgradeCallToVideo(String callId) {
+    return _db.collection('calls').doc(callId).update({'type': 'video'});
+  }
+
+  Future<String> proposeRenegotiation(
+    String callId,
+    String fromUid,
+    Map<String, dynamic> offer,
+  ) async {
+    final ref = await _db
+        .collection('calls')
+        .doc(callId)
+        .collection('renegotiate')
+        .add({
+          'from': fromUid,
+          'offer': offer,
+          'answer': null,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+    return ref.id;
+  }
+
+  Future<void> answerRenegotiation(
+    String callId,
+    String negId,
+    Map<String, dynamic> answer,
+  ) {
+    return _db
+        .collection('calls')
+        .doc(callId)
+        .collection('renegotiate')
+        .doc(negId)
+        .update({'answer': answer});
+  }
+
+  /// Fires for every add/change to a renegotiation doc — the caller (see
+  /// providers/calls_providers.dart) decides whether it's an incoming offer
+  /// to answer or the answer to an offer it sent.
+  Stream<CallRenegotiation> listenRenegotiations(String callId) {
+    return _db
+        .collection('calls')
+        .doc(callId)
+        .collection('renegotiate')
+        .orderBy('createdAt')
+        .snapshots()
+        .expand(
+          (snap) => snap.docChanges
+              .where((c) => c.type != DocumentChangeType.removed)
+              .map((c) => CallRenegotiation.fromDoc(c.doc)),
+        );
+  }
+
   /// Best-effort; a call doc is kept as history but its candidates aren't.
   Future<void> cleanupCallCandidates(String callId) async {
     try {

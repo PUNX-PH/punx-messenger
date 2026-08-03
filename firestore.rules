@@ -251,6 +251,11 @@ service cloud.firestore {
         // Either side reports a connection failure, from any non-terminal state.
         || (request.resource.data.state == 'failed'
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'endedAt', 'endedBy']))
+        // Either side can upgrade an already-connected audio call to video
+        // (one-way — no downgrade back to audio-only in v1).
+        || (resource.data.state == 'accepted' && resource.data.type == 'audio'
+          && request.resource.data.type == 'video'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['type']))
       );
 
       // Only once the call has reached a terminal state — either side may
@@ -263,6 +268,23 @@ service cloud.firestore {
         // Write-once, append-only — each side stamps its own uid.
         allow create: if isCallMember(callId) && request.resource.data.from == myUid();
         allow delete: if isCallMember(callId);
+      }
+
+      // A fresh SDP offer/answer round for adding a track to an
+      // already-connected call (e.g. turning an audio call into video) —
+      // WebRTC requires renegotiation for this, it can't reuse the original
+      // offer/answer on the call doc itself. Either member may propose one;
+      // only the other member may attach the answer.
+      match /renegotiate/{negId} {
+        allow read: if isCallMember(callId);
+        allow create: if isCallMember(callId)
+          && request.resource.data.from == myUid()
+          && request.resource.data.answer == null;
+        // Write-once answer — only by someone other than whoever proposed it.
+        allow update: if isCallMember(callId)
+          && resource.data.from != myUid()
+          && resource.data.answer == null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answer']);
       }
     }
   }

@@ -82,9 +82,11 @@ class CallController extends StateNotifier<CallUiState> {
   StreamSubscription<List<Call>>? _activeCallsSub;
   StreamSubscription<Call?>? _callSub;
   StreamSubscription<CallCandidate>? _iceSub;
+  StreamSubscription<CallRenegotiation>? _renegSub;
   Timer? _noAnswerTimer;
   final Set<String> _appliedCandidateIds = {};
   final List<RTCIceCandidate> _pendingRemoteCandidates = [];
+  final Set<String> _processedRenegIds = {};
 
   Future<void> start(String uid) async {
     if (_uid == uid) return;
@@ -200,6 +202,8 @@ class CallController extends StateNotifier<CallUiState> {
     _callSub = null;
     await _iceSub?.cancel();
     _iceSub = null;
+    await _renegSub?.cancel();
+    _renegSub = null;
     await _pc?.close();
     _pc = null;
     await _webrtc.stopStream(_localStream);
@@ -211,6 +215,7 @@ class CallController extends StateNotifier<CallUiState> {
     _cameraOff = false;
     _appliedCandidateIds.clear();
     _pendingRemoteCandidates.clear();
+    _processedRenegIds.clear();
     _publish();
   }
 
@@ -270,6 +275,57 @@ class CallController extends StateNotifier<CallUiState> {
         _pendingRemoteCandidates.add(candidate);
       }
     }, onError: (Object err) => _connError = 'Connection signaling failed: $err');
+
+    // Mid-call renegotiation (see services/calls_repository.dart) — e.g. one
+    // side adding a video track to an audio call. Active for the whole
+    // connected duration, not just at setup, since either side may propose
+    // one at any time.
+    _renegSub = _repo.listenRenegotiations(callId).listen((negDoc) async {
+      final pc = _pc;
+      if (pc == null) return;
+
+      if (negDoc.from != _uid) {
+        // An offer from the other side — answer it once.
+        if (negDoc.answer != null) return;
+        if (_processedRenegIds.contains(negDoc.id)) return;
+        _processedRenegIds.add(negDoc.id);
+        try {
+          await pc.setRemoteDescription(
+            RTCSessionDescription(
+              negDoc.offer['sdp'] as String?,
+              negDoc.offer['type'] as String?,
+            ),
+          );
+          final answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await _repo.answerRenegotiation(callId, negDoc.id, {
+            'sdp': answer.sdp,
+            'type': answer.type,
+          });
+        } catch (e) {
+          _connError = "Couldn't accept the video upgrade: $e";
+          _publish();
+        }
+        return;
+      }
+
+      // My own proposed renegotiation — apply the answer once it arrives.
+      if (negDoc.answer == null) return;
+      if (_processedRenegIds.contains(negDoc.id)) return;
+      _processedRenegIds.add(negDoc.id);
+      try {
+        final answer = negDoc.answer!;
+        await pc.setRemoteDescription(
+          RTCSessionDescription(
+            answer['sdp'] as String?,
+            answer['type'] as String?,
+          ),
+        );
+      } catch (e) {
+        _connError = 'Video upgrade failed: $e';
+        _publish();
+      }
+    }, onError: (Object err) => _connError = 'Video upgrade signaling failed: $err');
   }
 
   // _callId must already be set before this runs (both startCall and
@@ -381,6 +437,53 @@ class CallController extends StateNotifier<CallUiState> {
       _connError = e.toString();
       unawaited(_repo.markFailed(call.id, uid));
       await _teardown();
+    }
+  }
+
+  /// Upgrades a connected audio call to video by adding a camera track to
+  /// the already-connected peer connection and renegotiating (see
+  /// services/calls_repository.dart — this can't reuse the call's original
+  /// offer/answer). Either side may call this at any point during an
+  /// 'accepted' audio call.
+  Future<void> addVideo() async {
+    final call = state.call;
+    final uid = _uid;
+    final pc = _pc;
+    final currentStream = _localStream;
+    if (call == null ||
+        uid == null ||
+        pc == null ||
+        currentStream == null ||
+        call.type != 'audio' ||
+        call.state != 'accepted') {
+      return;
+    }
+    _connError = null;
+    try {
+      final videoStream = await _webrtc.getLocalStream(audio: false);
+      final videoTrack = videoStream.getVideoTracks().firstOrNull;
+      if (videoTrack == null) {
+        throw StateError('No camera track available.');
+      }
+
+      await pc.addTrack(videoTrack, currentStream);
+      // Mutates currentStream (== _localStream) in place; the video widget
+      // reassigns the renderer's srcObject on every build regardless of
+      // object identity, so this alone is enough to pick up the new track.
+      await currentStream.addTrack(videoTrack);
+      _publish();
+
+      await _repo.upgradeCallToVideo(call.id);
+
+      final offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await _repo.proposeRenegotiation(call.id, uid, {
+        'sdp': offer.sdp,
+        'type': offer.type,
+      });
+    } catch (e) {
+      _connError = e.toString();
+      _publish();
     }
   }
 

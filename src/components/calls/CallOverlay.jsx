@@ -11,12 +11,13 @@ import { useCall } from '../../lib/useCall'
 export default function CallOverlay() {
   const {
     call, status, myUid, localStream, remoteStream, muted, cameraOff,
-    connError, endActiveCall, toggleMute, toggleCamera,
+    connError, endActiveCall, toggleMute, toggleCamera, addVideo,
   } = useCall()
   const { byId } = useUsers()
 
   const localVideoRef = useRef(null)
   const remoteVideoRef = useRef(null)
+  const remoteAudioRef = useRef(null)
 
   useEffect(() => {
     if (localVideoRef.current) localVideoRef.current.srcObject = localStream || null
@@ -24,6 +25,16 @@ export default function CallOverlay() {
 
   useEffect(() => {
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream || null
+  }, [remoteStream])
+
+  // Remote audio needs to play even when we're not showing the remote
+  // <video> (audio-only calls, or a video call before it's connected) —
+  // otherwise the incoming WebRTC audio track just arrives and is never
+  // routed to an actual playback element. Only one of these two elements is
+  // ever mounted at a time (see the ternary below), so this never doubles
+  // up with the <video> element's own audio once that takes over.
+  useEffect(() => {
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remoteStream || null
   }, [remoteStream])
 
   if (status !== 'outgoing' && status !== 'connected') return null
@@ -47,6 +58,7 @@ export default function CallOverlay() {
                 {status === 'connected' ? 'Voice call connected' : 'Ringing…'}
               </div>
             </div>
+            <audio ref={remoteAudioRef} autoPlay />
           </div>
         )}
 
@@ -71,9 +83,13 @@ export default function CallOverlay() {
         <ControlButton onClick={toggleMute} active={muted} label={muted ? 'Unmute' : 'Mute'}>
           {muted ? <MicOffIcon /> : <MicIcon />}
         </ControlButton>
-        {isVideoCall && (
+        {isVideoCall ? (
           <ControlButton onClick={toggleCamera} active={cameraOff} label={cameraOff ? 'Turn camera on' : 'Turn camera off'}>
             {cameraOff ? <VideoOffIcon /> : <VideoIcon />}
+          </ControlButton>
+        ) : status === 'connected' && (
+          <ControlButton onClick={addVideo} label="Turn on video">
+            <VideoIcon />
           </ControlButton>
         )}
         <ControlButton onClick={endActiveCall} danger label="Hang up">

@@ -87,6 +87,52 @@ export async function sendIceCandidate(callId, fromUid, candidate) {
   })
 }
 
+// ---------- Mid-call renegotiation (e.g. audio call → add video) ----------
+//
+// Adding a track to an already-connected RTCPeerConnection requires a fresh
+// SDP offer/answer round — it can't reuse the call doc's original offer/
+// answer fields. Each renegotiation round is its own doc here so multiple
+// upgrades could happen over a call's lifetime (v1 only ever does one:
+// audio → video).
+
+// Marks the call itself as video — read reactively by both sides' UI so a
+// mid-call upgrade shows the video area/camera controls for both parties
+// even before the SDP exchange below finishes.
+export async function upgradeCallToVideo(callId) {
+  await updateDoc(doc(db, 'calls', callId), { type: 'video' })
+}
+
+export async function proposeRenegotiation(callId, fromUid, offer) {
+  const ref = await addDoc(collection(db, 'calls', callId, 'renegotiate'), {
+    from: fromUid,
+    offer,
+    answer: null,
+    createdAt: serverTimestamp(),
+  })
+  return ref.id
+}
+
+export async function answerRenegotiation(callId, negId, answer) {
+  await updateDoc(doc(db, 'calls', callId, 'renegotiate', negId), { answer })
+}
+
+// Fires for every add/change to a renegotiation doc — the caller (see
+// lib/useCall.jsx) decides whether it's an incoming offer to answer or the
+// answer to an offer it sent.
+export function listenRenegotiations(callId, cb, onError) {
+  const q = query(collection(db, 'calls', callId, 'renegotiate'), orderBy('createdAt', 'asc'))
+  return onSnapshot(
+    q,
+    snap => {
+      snap.docChanges().forEach(change => {
+        if (change.type === 'removed') return
+        cb({ id: change.doc.id, ...change.doc.data() })
+      })
+    },
+    err => { logListenerError('listenRenegotiations', err); onError?.(err) },
+  )
+}
+
 // Single call-doc listener (drives the local state-machine reaction).
 export function listenCall(callId, cb, onError) {
   return onSnapshot(

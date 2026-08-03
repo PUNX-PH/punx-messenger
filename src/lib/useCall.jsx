@@ -9,9 +9,10 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useAuth } from './auth'
 import {
-  acceptCall, cancelCall, cleanupCallCandidates, createCall, declineCall,
-  endCall, listenCall, listenIceCandidates, listenMyActiveCall, markFailed,
-  markMissed, newCallId, sendIceCandidate, sweepStaleOutboundCalls,
+  acceptCall, answerRenegotiation, cancelCall, cleanupCallCandidates, createCall,
+  declineCall, endCall, listenCall, listenIceCandidates, listenMyActiveCall,
+  listenRenegotiations, markFailed, markMissed, newCallId, proposeRenegotiation,
+  sendIceCandidate, sweepStaleOutboundCalls, upgradeCallToVideo,
 } from './calls'
 import { createPeerConnection, getLocalStream, stopStream } from './webrtc'
 
@@ -37,9 +38,11 @@ function useCallEngine() {
   const roleRef = useRef(null) // 'caller' | 'callee'
   const unsubCallRef = useRef(null)
   const unsubIceRef = useRef(null)
+  const unsubRenegRef = useRef(null)
   const noAnswerTimerRef = useRef(null)
   const appliedCandidateIdsRef = useRef(new Set())
   const pendingRemoteCandidatesRef = useRef([])
+  const processedRenegIdsRef = useRef(new Set())
 
   const call = activeCalls[0] || null
 
@@ -65,6 +68,7 @@ function useCallEngine() {
     clearTimeout(noAnswerTimerRef.current)
     unsubCallRef.current?.(); unsubCallRef.current = null
     unsubIceRef.current?.(); unsubIceRef.current = null
+    unsubRenegRef.current?.(); unsubRenegRef.current = null
     pcRef.current?.close(); pcRef.current = null
     stopStream(localStreamRef.current)
     localStreamRef.current = null
@@ -72,6 +76,7 @@ function useCallEngine() {
     roleRef.current = null
     appliedCandidateIdsRef.current = new Set()
     pendingRemoteCandidatesRef.current = []
+    processedRenegIdsRef.current = new Set()
     setLocalStream(null)
     setRemoteStream(null)
     setMuted(false)
@@ -123,6 +128,40 @@ function useCallEngine() {
         pendingRemoteCandidatesRef.current.push(candDoc.candidate)
       }
     }, (err) => setConnError(`Connection signaling failed: ${err?.message || err}`))
+
+    // Mid-call renegotiation (see lib/calls.js) — e.g. one side adding a
+    // video track to an audio call. Active for the whole connected duration,
+    // not just at setup, since either side may propose one at any time.
+    unsubRenegRef.current = listenRenegotiations(callId, async (negDoc) => {
+      const pc = pcRef.current
+      if (!pc) return
+
+      if (negDoc.from !== myUid) {
+        // An offer from the other side — answer it once.
+        if (negDoc.answer != null) return
+        if (processedRenegIdsRef.current.has(negDoc.id)) return
+        processedRenegIdsRef.current.add(negDoc.id)
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(negDoc.offer))
+          const answer = await pc.createAnswer()
+          await pc.setLocalDescription(answer)
+          await answerRenegotiation(callId, negDoc.id, { sdp: answer.sdp, type: answer.type })
+        } catch (e) {
+          setConnError(`Couldn't accept the video upgrade: ${e.message}`)
+        }
+        return
+      }
+
+      // My own proposed renegotiation — apply the answer once it arrives.
+      if (negDoc.answer == null) return
+      if (processedRenegIdsRef.current.has(negDoc.id)) return
+      processedRenegIdsRef.current.add(negDoc.id)
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(negDoc.answer))
+      } catch (e) {
+        setConnError(`Video upgrade failed: ${e.message}`)
+      }
+    }, (err) => setConnError(`Video upgrade signaling failed: ${err?.message || err}`))
   }, [myUid, teardown])
 
   // callIdRef.current must already be set before this runs (both startCall
@@ -240,6 +279,37 @@ function useCallEngine() {
     }
   }, [call, myUid, attachSignalingListeners, teardown])
 
+  // Upgrades a connected audio call to video by adding a camera track to the
+  // already-connected peer connection and renegotiating (see lib/calls.js —
+  // this can't reuse the call's original offer/answer). Either side may
+  // call this at any point during an 'accepted' audio call.
+  const addVideo = useCallback(async () => {
+    if (!call || call.type !== 'audio' || call.state !== 'accepted') return
+    const pc = pcRef.current
+    const currentStream = localStreamRef.current
+    if (!pc || !currentStream) return
+    setConnError(null)
+    try {
+      const videoStream = await getLocalStream({ audio: false, video: true })
+      const [videoTrack] = videoStream.getVideoTracks()
+      if (!videoTrack) throw new Error('No camera track available.')
+
+      pc.addTrack(videoTrack, currentStream)
+      currentStream.addTrack(videoTrack)
+      // New MediaStream wrapper so the <video> element's srcObject effect
+      // (keyed on object identity) actually re-fires and picks up the track.
+      setLocalStreamBoth(new MediaStream(currentStream.getTracks()))
+
+      await upgradeCallToVideo(call.id)
+
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+      await proposeRenegotiation(call.id, myUid, { sdp: offer.sdp, type: offer.type })
+    } catch (e) {
+      setConnError(e.message || 'Could not turn on video.')
+    }
+  }, [call, myUid])
+
   const decline = useCallback(async () => {
     if (!call) return
     await declineCall(call.id, myUid).catch(() => {})
@@ -296,7 +366,7 @@ function useCallEngine() {
 
   return {
     call, status, myUid, localStream, remoteStream, muted, cameraOff, connError,
-    startCall, accept, decline, cancel, hangup, endActiveCall,
+    startCall, accept, decline, cancel, hangup, endActiveCall, addVideo,
     toggleMute, toggleCamera, clearConnError: () => setConnError(null),
   }
 }

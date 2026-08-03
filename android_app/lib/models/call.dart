@@ -90,3 +90,31 @@ class CallCandidate {
     );
   }
 }
+
+/// One entry in `calls/{callId}/renegotiate` — a mid-call SDP renegotiation
+/// round (e.g. adding a video track to an audio call).
+class CallRenegotiation {
+  final String id;
+  final String from;
+  final Map<String, dynamic> offer; // { sdp, type }
+  final Map<String, dynamic>? answer; // { sdp, type }, null until answered
+
+  const CallRenegotiation({
+    required this.id,
+    required this.from,
+    required this.offer,
+    this.answer,
+  });
+
+  factory CallRenegotiation.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? {};
+    return CallRenegotiation(
+      id: doc.id,
+      from: data['from'] as String? ?? '',
+      offer: Map<String, dynamic>.from(data['offer'] as Map? ?? const {}),
+      answer: data['answer'] == null
+          ? null
+          : Map<String, dynamic>.from(data['answer'] as Map),
+    );
+  }
+}
