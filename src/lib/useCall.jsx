@@ -29,6 +29,13 @@ function useCallEngine() {
   const [muted, setMuted] = useState(false)
   const [cameraOff, setCameraOff] = useState(false)
   const [connError, setConnError] = useState(null)
+  // Raw RTCPeerConnection ICE state — exposed so the UI can tell "signaling
+  // says connected" apart from "media is actually flowing." A call stuck at
+  // 'checking'/'disconnected' (never reaching 'connected'/'completed') is
+  // the classic symptom of STUN-only ICE failing to traverse a restrictive
+  // NAT/firewall — see lib/webrtc.js's getIceServers() for where a TURN
+  // relay would go once one's configured.
+  const [iceState, setIceState] = useState('new')
 
   // Mutable session state that must never go stale inside async callbacks —
   // kept in refs, mirrored to state only where the UI needs to re-render.
@@ -79,6 +86,7 @@ function useCallEngine() {
     processedRenegIdsRef.current = new Set()
     setLocalStream(null)
     setRemoteStream(null)
+    setIceState('new')
     setMuted(false)
     setCameraOff(false)
   }, [])
@@ -180,6 +188,7 @@ function useCallEngine() {
       if (e.candidate) sendIceCandidate(callIdRef.current, myUid, e.candidate.toJSON()).catch(() => {})
     }
     pc.oniceconnectionstatechange = () => {
+      setIceState(pc.iceConnectionState)
       if (pc.iceConnectionState === 'failed') markFailed(callIdRef.current, myUid).catch(() => {})
     }
     return pc
@@ -365,7 +374,7 @@ function useCallEngine() {
     : 'incoming'
 
   return {
-    call, status, myUid, localStream, remoteStream, muted, cameraOff, connError,
+    call, status, myUid, localStream, remoteStream, muted, cameraOff, connError, iceState,
     startCall, accept, decline, cancel, hangup, endActiveCall, addVideo,
     toggleMute, toggleCamera, clearConnError: () => setConnError(null),
   }

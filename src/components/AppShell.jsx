@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import ServerRail from './ServerRail'
 import DMsSidebar from './DMsSidebar'
 import ChannelSidebar from './ChannelSidebar'
+import CallOverlay from './calls/CallOverlay'
 
 const ShellContext = createContext({ openDrawer: () => {}, closeDrawer: () => {} })
 export const useShell = () => useContext(ShellContext)
@@ -54,7 +55,13 @@ export default function AppShell() {
           {onGroups ? <ChannelSidebar /> : <DMsSidebar />}
         </div>
 
-        <Outlet />
+        {/* relative + flex-1 here (not on Outlet's own rendered element)
+            so CallOverlay's `absolute inset-0` confines it to exactly this
+            pane — the rail/sidebar above stay outside it and visible. */}
+        <div className="relative flex-1 min-w-0 flex">
+          <Outlet />
+          <CallOverlay />
+        </div>
       </div>
     </ShellContext.Provider>
   )
