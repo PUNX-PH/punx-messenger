@@ -275,7 +275,7 @@ class CallController extends StateNotifier<CallUiState> {
     return pc;
   }
 
-  Future<void> startCall(String otherUid) async {
+  Future<void> startCall(String otherUid, {String callType = 'video'}) async {
     final uid = _uid;
     if (uid == null || _activeCalls.isNotEmpty) return; // v1: one call at a time
     _connError = null;
@@ -283,7 +283,7 @@ class CallController extends StateNotifier<CallUiState> {
     _callId = callId;
     _role = 'caller';
     try {
-      final stream = await _webrtc.getLocalStream();
+      final stream = await _webrtc.getLocalStream(video: callType == 'video');
       _localStream = stream;
       _publish();
       final pc = await _setupPeerConnection();
@@ -299,6 +299,7 @@ class CallController extends StateNotifier<CallUiState> {
         callerUid: uid,
         calleeUid: otherUid,
         offer: {'sdp': offer.sdp, 'type': offer.type},
+        type: callType,
       );
 
       _attachSignalingListeners(callId);
@@ -325,7 +326,7 @@ class CallController extends StateNotifier<CallUiState> {
     _callId = call.id;
     _role = 'callee';
     try {
-      final stream = await _webrtc.getLocalStream();
+      final stream = await _webrtc.getLocalStream(video: call.type == 'video');
       _localStream = stream;
       _publish();
       final pc = await _setupPeerConnection();

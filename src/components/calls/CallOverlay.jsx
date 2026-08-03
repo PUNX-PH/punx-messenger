@@ -30,29 +30,35 @@ export default function CallOverlay() {
 
   const otherUid = call.callerUid === myUid ? call.calleeUid : call.callerUid
   const other = byId[otherUid]
+  const isVideoCall = call.type === 'video'
+  const showRemoteVideo = isVideoCall && status === 'connected'
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/95 flex flex-col">
       <div className="flex-1 relative overflow-hidden">
-        {status === 'connected' ? (
+        {showRemoteVideo ? (
           <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-contain bg-black" />
         ) : (
           <div className="w-full h-full grid place-items-center">
             <div className="flex flex-col items-center gap-4">
               <Avatar name={other?.name} src={other?.photoURL} size={96} />
               <div className="text-lg font-semibold text-white">{other?.name || 'Calling…'}</div>
-              <div className="text-sm text-white/60">Ringing…</div>
+              <div className="text-sm text-white/60">
+                {status === 'connected' ? 'Voice call connected' : 'Ringing…'}
+              </div>
             </div>
           </div>
         )}
 
-        <video
-          ref={localVideoRef}
-          autoPlay
-          playsInline
-          muted
-          className="absolute bottom-4 right-4 w-40 h-28 object-cover rounded-lg border border-white/20 bg-black shadow-elev2"
-        />
+        {isVideoCall && (
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="absolute bottom-4 right-4 w-40 h-28 object-cover rounded-lg border border-white/20 bg-black shadow-elev2"
+          />
+        )}
 
         {connError && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-bad/90 text-white text-sm px-4 py-2 rounded-md">
@@ -65,9 +71,11 @@ export default function CallOverlay() {
         <ControlButton onClick={toggleMute} active={muted} label={muted ? 'Unmute' : 'Mute'}>
           {muted ? <MicOffIcon /> : <MicIcon />}
         </ControlButton>
-        <ControlButton onClick={toggleCamera} active={cameraOff} label={cameraOff ? 'Turn camera on' : 'Turn camera off'}>
-          {cameraOff ? <VideoOffIcon /> : <VideoIcon />}
-        </ControlButton>
+        {isVideoCall && (
+          <ControlButton onClick={toggleCamera} active={cameraOff} label={cameraOff ? 'Turn camera on' : 'Turn camera off'}>
+            {cameraOff ? <VideoOffIcon /> : <VideoIcon />}
+          </ControlButton>
+        )}
         <ControlButton onClick={endActiveCall} danger label="Hang up">
           <HangupIcon />
         </ControlButton>

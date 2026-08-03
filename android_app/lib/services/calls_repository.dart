@@ -26,11 +26,14 @@ class CallsRepository {
   /// may call repeatedly.
   String newCallId() => newId();
 
+  /// `type` is 'audio' or 'video' — determines whether the caller's (and
+  /// later the callee's) local stream requests a camera track.
   Future<void> createCall({
     required String callId,
     required String callerUid,
     required String calleeUid,
     required Map<String, dynamic> offer,
+    String type = 'video',
   }) async {
     await _db.collection('calls').doc(callId).set({
       'members': [callerUid, calleeUid]..sort(),
@@ -38,7 +41,7 @@ class CallsRepository {
       'calleeUid': calleeUid,
       'dmConvoId': dmConvoId(callerUid, calleeUid),
       'pairKey': pairKey(callerUid, calleeUid),
-      'type': 'video', // audio+video together in v1
+      'type': type,
       'state': 'ringing',
       'offer': offer,
       'answer': null,

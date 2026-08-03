@@ -39,9 +39,9 @@ class IncomingCallScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 6),
-              const Text(
-                'Incoming video call…',
-                style: TextStyle(color: Palette.inkDim, fontSize: 14),
+              Text(
+                'Incoming ${call.type == 'audio' ? 'voice' : 'video'} call…',
+                style: const TextStyle(color: Palette.inkDim, fontSize: 14),
               ),
               const SizedBox(height: 32),
               Row(

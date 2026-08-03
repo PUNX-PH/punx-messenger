@@ -9,6 +9,7 @@ class Call {
   final String calleeUid;
   final String dmConvoId;
   final String pairKey;
+  final String type; // 'audio' | 'video'
   final String state; // ringing | accepted | declined | cancelled | missed | ended | failed
   final Map<String, dynamic>? offer; // { sdp, type }
   final Map<String, dynamic>? answer; // { sdp, type }
@@ -24,6 +25,7 @@ class Call {
     required this.calleeUid,
     required this.dmConvoId,
     required this.pairKey,
+    this.type = 'video',
     required this.state,
     this.offer,
     this.answer,
@@ -42,6 +44,7 @@ class Call {
       calleeUid: data['calleeUid'] as String? ?? '',
       dmConvoId: data['dmConvoId'] as String? ?? '',
       pairKey: data['pairKey'] as String? ?? '',
+      type: data['type'] as String? ?? 'video',
       state: data['state'] as String? ?? 'ended',
       offer: data['offer'] as Map<String, dynamic>?,
       answer: data['answer'] as Map<String, dynamic>?,

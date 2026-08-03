@@ -55,6 +55,8 @@ class _ActiveCallViewState extends ConsumerState<ActiveCallView> {
     }
 
     final connected = callState.status == CallStatus.connected;
+    final isVideoCall = call.type == 'video';
+    final showRemoteVideo = isVideoCall && connected;
     final other = ref.watch(usersByIdProvider)[call.otherUid(myUid)];
 
     return Material(
@@ -66,7 +68,7 @@ class _ActiveCallViewState extends ConsumerState<ActiveCallView> {
               child: Stack(
                 children: [
                   Positioned.fill(
-                    child: connected && _renderersReady
+                    child: showRemoteVideo && _renderersReady
                         ? RTCVideoView(
                             _remoteRenderer,
                             objectFit:
@@ -91,15 +93,15 @@ class _ActiveCallViewState extends ConsumerState<ActiveCallView> {
                                   ),
                                 ),
                                 const SizedBox(height: 6),
-                                const Text(
-                                  'Ringing…',
-                                  style: TextStyle(color: Colors.white60),
+                                Text(
+                                  connected ? 'Voice call connected' : 'Ringing…',
+                                  style: const TextStyle(color: Colors.white60),
                                 ),
                               ],
                             ),
                           ),
                   ),
-                  if (_renderersReady)
+                  if (isVideoCall && _renderersReady)
                     Positioned(
                       right: 16,
                       bottom: 16,
@@ -153,14 +155,16 @@ class _ActiveCallViewState extends ConsumerState<ActiveCallView> {
                     active: callState.muted,
                     onPressed: controller.toggleMute,
                   ),
-                  const SizedBox(width: 20),
-                  _ControlButton(
-                    icon: callState.cameraOff
-                        ? Icons.videocam_off
-                        : Icons.videocam,
-                    active: callState.cameraOff,
-                    onPressed: controller.toggleCamera,
-                  ),
+                  if (isVideoCall) ...[
+                    const SizedBox(width: 20),
+                    _ControlButton(
+                      icon: callState.cameraOff
+                          ? Icons.videocam_off
+                          : Icons.videocam,
+                      active: callState.cameraOff,
+                      onPressed: controller.toggleCamera,
+                    ),
+                  ],
                   const SizedBox(width: 20),
                   _ControlButton(
                     icon: Icons.call_end,

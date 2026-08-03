@@ -227,6 +227,7 @@ service cloud.firestore {
         && myUid() in request.resource.data.members
         && request.resource.data.calleeUid in request.resource.data.members
         && request.resource.data.state == 'ringing'
+        && request.resource.data.type in ['audio', 'video']
         && request.resource.data.offer != null;
 
       // Each state transition is restricted to the side allowed to make it,

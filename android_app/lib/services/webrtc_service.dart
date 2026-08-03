@@ -14,10 +14,10 @@ class WebrtcService {
     }, const {});
   }
 
-  Future<MediaStream> getLocalStream() {
+  Future<MediaStream> getLocalStream({bool video = true}) {
     return navigator.mediaDevices.getUserMedia({
       'audio': true,
-      'video': {'facingMode': 'user'},
+      'video': video ? {'facingMode': 'user'} : false,
     });
   }
 

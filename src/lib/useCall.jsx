@@ -167,14 +167,14 @@ function useCallEngine() {
     }
   }, [activeCalls, call, myUid])
 
-  const startCall = useCallback(async (otherUid) => {
+  const startCall = useCallback(async (otherUid, callType = 'video') => {
     if (!myUid || call) return // v1: one call at a time
     setConnError(null)
     const callId = newCallId()
     callIdRef.current = callId
     roleRef.current = 'caller'
     try {
-      const stream = await getLocalStream()
+      const stream = await getLocalStream({ video: callType === 'video' })
       setLocalStreamBoth(stream)
       const pc = setupPeerConnection()
       stream.getTracks().forEach(t => pc.addTrack(t, stream))
@@ -187,6 +187,7 @@ function useCallEngine() {
         callerUid: myUid,
         calleeUid: otherUid,
         offer: { sdp: offer.sdp, type: offer.type },
+        type: callType,
       })
 
       attachSignalingListeners(callId)
@@ -205,7 +206,7 @@ function useCallEngine() {
     callIdRef.current = call.id
     roleRef.current = 'callee'
     try {
-      const stream = await getLocalStream()
+      const stream = await getLocalStream({ video: call.type === 'video' })
       setLocalStreamBoth(stream)
       const pc = setupPeerConnection()
       stream.getTracks().forEach(t => pc.addTrack(t, stream))

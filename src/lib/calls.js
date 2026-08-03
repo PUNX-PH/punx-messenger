@@ -40,15 +40,16 @@ function logListenerError(name, err) {
 // lib/useCall.js) — never reuse dmConvoId here, a pair may call repeatedly.
 export const newCallId = () => newId()
 
-// Caller only.
-export async function createCall({ callId, callerUid, calleeUid, offer }) {
+// Caller only. `type` is 'audio' or 'video' — determines whether the
+// caller's (and later the callee's) local stream requests a camera track.
+export async function createCall({ callId, callerUid, calleeUid, offer, type = 'video' }) {
   await setDoc(doc(db, 'calls', callId), {
     members: [callerUid, calleeUid].sort(),
     callerUid,
     calleeUid,
     dmConvoId: dmConvoId(callerUid, calleeUid),
     pairKey: callPairKey(callerUid, calleeUid),
-    type: 'video', // audio+video together in v1; kept for future audio-only mode
+    type,
     state: 'ringing',
     offer,
     answer: null,

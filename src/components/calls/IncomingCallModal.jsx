@@ -18,7 +18,9 @@ export default function IncomingCallModal() {
         <Avatar name={caller?.name} src={caller?.photoURL} size={72} />
         <div>
           <div className="text-lg font-semibold text-ink">{caller?.name || 'Someone'}</div>
-          <div className="text-sm text-ink-dim mt-1">Incoming video call…</div>
+          <div className="text-sm text-ink-dim mt-1">
+            Incoming {call.type === 'audio' ? 'voice' : 'video'} call…
+          </div>
         </div>
         <div className="flex gap-3 mt-2">
           <button
