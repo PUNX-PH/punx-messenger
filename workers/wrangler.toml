@@ -1,0 +1,24 @@
+name = "punx-messenger-api"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# ── D1 (durable storage) ──
+# Create with: wrangler d1 create punx-messenger
+# Then paste the returned database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "punx-messenger"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# ── KV (JWKS cache for Firebase ID token verification — added in Phase 1) ──
+# Create with: wrangler kv namespace create punx-messenger-jwks
+# Then paste the returned id below.
+[[kv_namespaces]]
+binding = "JWKS_CACHE"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# ── Durable Object bindings ──
+# Added incrementally as each class is built (PresenceHub in Phase 1,
+# RosterRoom in Phase 2, ChannelRoom in Phase 3, CallRoom in Phase 5).
+# Intentionally empty in Phase 0 — a binding here without a matching
+# exported class in src/index.js would break `wrangler dev`.
