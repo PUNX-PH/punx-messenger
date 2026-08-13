@@ -13,15 +13,22 @@ const QUICK_EMOJIS = ['👍', '❤️', '😂', '🎉', '🔥', '😮', '😢', 
  *   onClose:   () => void
  *   onPick:    (token: string) => void            // ":name:" for custom, "👍" for unicode — inserted into the composer
  *   onPickGif: (url: string, meta: object) => void // sends immediately, Discord-style
+ *   initialTab: 'emoji' | 'gif' — which tab to land on when the trigger button opens this popover
  *   position:  'top-right' (default, above) | 'bottom-right' (below)
  */
-export default function EmojiPicker({ anchorRef, open, onClose, onPick, onPickGif, position = 'top-right' }) {
+export default function EmojiPicker({ anchorRef, open, onClose, onPick, onPickGif, initialTab = 'emoji', position = 'top-right' }) {
   const popRef = useRef(null)
   const { profile } = useAuth()
   const { emojis } = useEmojis()
-  const [tab, setTab] = useState('emoji')
+  const [tab, setTab] = useState(initialTab)
   const [filter, setFilter] = useState('')
   const [uploading, setUploading] = useState(false)
+
+  // Re-sync when a different trigger button opens/re-targets this popover
+  // (e.g. clicking the dedicated GIF button while it's already open on Emoji).
+  useEffect(() => {
+    if (open) setTab(initialTab)
+  }, [open, initialTab])
 
   useEffect(() => {
     if (!open) return

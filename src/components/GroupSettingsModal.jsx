@@ -8,10 +8,10 @@ import {
 import Modal from './Modal'
 import Avatar from './Avatar'
 
-export default function GroupSettingsModal({ open, onClose, group }) {
+export default function GroupSettingsModal({ open, onClose, group, initialTab = 'overview' }) {
   const { profile } = useAuth()
   const { users } = useUsers()
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useState(initialTab)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -20,7 +20,7 @@ export default function GroupSettingsModal({ open, onClose, group }) {
   const bannerInputRef = useRef(null)
 
   useEffect(() => { setName(group?.name || '') }, [group?.id, group?.name])
-  useEffect(() => { if (open) { setTab('overview'); setError(null) } }, [open, group?.id])
+  useEffect(() => { if (open) { setTab(initialTab); setError(null) } }, [open, group?.id, initialTab])
 
   if (!group) return null
 
