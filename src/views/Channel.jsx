@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { doc, getDoc } from 'firebase/firestore'
-import { db } from '../lib/firebase'
 import { useAuth, isAdmin } from '../lib/auth'
-import { listenGroup } from '../lib/groups'
+import { listenChannels, listenGroup } from '../lib/groups'
 import ChatSurface from '../components/ChatSurface'
 import MembersPanel, { MembersToggle } from '../components/MembersPanel'
 
@@ -23,12 +21,9 @@ export default function Channel() {
   useEffect(() => {
     setChannel(null)
     if (!groupId || !channelId) return
-    let cancelled = false
-    ;(async () => {
-      const snap = await getDoc(doc(db, 'groups', groupId, 'channels', channelId))
-      if (!cancelled) setChannel(snap.exists() ? { id: snap.id, ...snap.data() } : { notFound: true })
-    })()
-    return () => { cancelled = true }
+    return listenChannels(groupId, (channels) => {
+      setChannel(channels.find(c => c.id === channelId) || { notFound: true })
+    })
   }, [groupId, channelId])
 
   useEffect(() => {

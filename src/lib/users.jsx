@@ -42,4 +42,3 @@ export function UsersProvider({ children }) {
 }
 
 export const useUsers = () => useContext(UsersCtx)
-

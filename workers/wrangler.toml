@@ -1,24 +1,24 @@
-name = "punx-messenger-api"
+name = "punx-messenger-gifs"
 main = "src/index.js"
 compatibility_date = "2024-11-01"
 
-# ── D1 (durable storage) ──
-# Create with: wrangler d1 create punx-messenger
-# Then paste the returned database_id below.
-[[d1_databases]]
-binding = "DB"
-database_name = "punx-messenger"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
-
-# ── KV (JWKS cache for Firebase ID token verification — added in Phase 1) ──
-# Create with: wrangler kv namespace create punx-messenger-jwks
-# Then paste the returned id below.
+# ── KV (JWKS cache for Firebase ID token verification) ──
+# Gates the GIF proxy routes against random internet traffic — nothing else
+# lives in this Worker. Firestore is the real backend; see the main repo.
 [[kv_namespaces]]
 binding = "JWKS_CACHE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "681bf145d9ab4199b60e8a47fa38999b"
 
-# ── Durable Object bindings ──
-# Added incrementally as each class is built (PresenceHub in Phase 1,
-# RosterRoom in Phase 2, ChannelRoom in Phase 3, CallRoom in Phase 5).
-# Intentionally empty in Phase 0 — a binding here without a matching
-# exported class in src/index.js would break `wrangler dev`.
+# ── Auth / domain allowlist ──
+# KEEP IN SYNC with the matching VITE_* vars in .env.local / firestore.rules.
+[vars]
+FIREBASE_PROJECT_ID = "punx-msg"
+ALLOWED_EMAIL_DOMAIN = "punx.ai"
+ALLOWED_EXTRA_EMAILS = "perezjohnrey43@gmail.com"
+
+# ── CORS allowlist — add the Cloudflare Pages URL (and any custom domain) on deploy ──
+ALLOWED_ORIGINS = "http://localhost:5173,https://punx-messenger.vercel.app"
+
+# ── Klipy (GIF picker) — SECRET, not a var. Local dev reads it from
+# workers/.dev.vars (gitignored). On deploy: `wrangler secret put KLIPY_API_KEY`.
+# env.KLIPY_API_KEY

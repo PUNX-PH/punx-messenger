@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { doc, getDoc } from 'firebase/firestore'
-import { db } from '../lib/firebase'
 import { useAuth } from '../lib/auth'
+import { useUsers } from '../lib/users'
 import { dmConvoId, ensureDmConvo } from '../lib/db'
 import ChatSurface from '../components/ChatSurface'
 import Loading from '../components/Loading'
@@ -11,24 +10,19 @@ import CallButtons from '../components/calls/CallButtons'
 export default function DMConvo() {
   const { otherUid } = useParams()
   const { profile } = useAuth()
-  const [other, setOther] = useState(null)
+  const { users, byId } = useUsers()
+  const other = byId[otherUid] || null
   const [convoReady, setConvoReady] = useState(false)
   const [error, setError] = useState(null)
 
   useEffect(() => {
     setConvoReady(false)
-    setOther(null)
     setError(null)
-    if (!profile || !otherUid) return
+    if (!profile || !other) return
     let cancelled = false
     ;(async () => {
       try {
-        const snap = await getDoc(doc(db, 'users', otherUid))
-        if (cancelled) return
-        if (!snap.exists()) { setOther({ notFound: true }); return }
-        const o = { id: snap.id, ...snap.data() }
-        setOther(o)
-        await ensureDmConvo(profile, o)
+        await ensureDmConvo(profile, other)
         if (!cancelled) setConvoReady(true)
       } catch (e) {
         console.error('[DMConvo] failed to open:', e)
@@ -38,11 +32,16 @@ export default function DMConvo() {
       }
     })()
     return () => { cancelled = true }
-  }, [otherUid, profile])
+    // `other` is deliberately not a dependency — useUsers() hands back a
+    // fresh object reference on every presence tick, and re-running this
+    // (re-ensuring the DM convo, resetting to "Opening DM…") on every
+    // teammate's heartbeat is what caused the flicker. Re-run only when the
+    // *availability* of `other` changes (roster loads), not its identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otherUid, profile, Boolean(other)])
 
   if (error) return <Center>{error}</Center>
-  if (!other) return <Center>Loading conversation…</Center>
-  if (other.notFound) return <Center>That teammate doesn't exist.</Center>
+  if (!other) return <Center>{users.length ? "That teammate doesn't exist." : 'Loading conversation…'}</Center>
   if (!convoReady) return <Center>Opening DM…</Center>
 
   const path = `dms/${dmConvoId(profile.uid, other.id)}/messages`

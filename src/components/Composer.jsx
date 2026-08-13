@@ -78,6 +78,21 @@ export default function Composer({
     })
   }
 
+  // Picking a GIF sends it immediately (Discord-style), not inserted as text.
+  const sendGif = async (url, meta) => {
+    setEmojiOpen(false)
+    if (sending || disabled) return
+    setSending(true); setError(null)
+    try {
+      await onSend({ text: '', imageURL: url, imageMeta: meta })
+    } catch (err) {
+      console.error(err)
+      setError(err?.message || 'Failed to send.')
+    } finally {
+      setSending(false)
+    }
+  }
+
   // ---------- @mention autocomplete ----------
   const mentionCandidates = useMemo(() => {
     if (!mention) return []
@@ -322,6 +337,7 @@ export default function Composer({
             open={emojiOpen}
             onClose={() => setEmojiOpen(false)}
             onPick={insertAtCursor}
+            onPickGif={sendGif}
           />
         </div>
 

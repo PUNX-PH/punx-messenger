@@ -78,16 +78,17 @@ export function listenMyDmConvos(uid, cb) {
 // Accepts:
 //   text       — trimmed at send
 //   imageFile  — optional File (resized + base64 embedded)
+//   imageURL   — optional pre-existing URL (e.g. a picked GIF) — used as-is, skips the resize/embed step
 //   replyTo    — optional message obj we're replying to; a snapshot is embedded
-export async function sendMessage(path, { text, author, imageFile = null, replyTo = null }) {
+export async function sendMessage(path, { text, author, imageFile = null, imageURL: directImageURL = null, imageMeta: directImageMeta = null, replyTo = null }) {
   const trimmed = (text || '').trim()
-  if (!trimmed && !imageFile) return
+  if (!trimmed && !imageFile && !directImageURL) return
   const colRef = collection(db, ...path.split('/'))
 
   const msgRef = doc(colRef)
 
-  let imageURL = null
-  let imageMeta = null
+  let imageURL = directImageURL
+  let imageMeta = directImageMeta
   if (imageFile) {
     const out = await resizeToDataURL(imageFile, PRESETS.MESSAGE_IMAGE)
     imageURL = out.dataURL

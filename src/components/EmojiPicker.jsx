@@ -1,22 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth, isAdmin } from '../lib/auth'
 import { createEmoji, deleteEmoji, useEmojis } from '../lib/emojis'
+import GifPanel from './GifPanel'
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '🎉', '🔥', '😮', '😢', '🙏', '👀', '✅']
 
 /**
- * Floating emoji picker popover.
+ * Floating emoji/GIF picker popover.
  * Props:
  *   anchorRef: ref of the trigger button
  *   open:      boolean
  *   onClose:   () => void
- *   onPick:    (token: string) => void   // ":name:" for custom, "👍" for unicode
+ *   onPick:    (token: string) => void            // ":name:" for custom, "👍" for unicode — inserted into the composer
+ *   onPickGif: (url: string, meta: object) => void // sends immediately, Discord-style
  *   position:  'top-right' (default, above) | 'bottom-right' (below)
  */
-export default function EmojiPicker({ anchorRef, open, onClose, onPick, position = 'top-right' }) {
+export default function EmojiPicker({ anchorRef, open, onClose, onPick, onPickGif, position = 'top-right' }) {
   const popRef = useRef(null)
   const { profile } = useAuth()
   const { emojis } = useEmojis()
+  const [tab, setTab] = useState('emoji')
   const [filter, setFilter] = useState('')
   const [uploading, setUploading] = useState(false)
 
@@ -54,6 +57,15 @@ export default function EmojiPicker({ anchorRef, open, onClose, onPick, position
       className={`absolute ${posClass} w-[340px] bg-bg-raised border border-line-subtle rounded-lg shadow-elev2 overflow-hidden z-40 flex flex-col`}
       onMouseDown={(e) => e.stopPropagation()}
     >
+      <div className="flex border-b border-line-subtle bg-bg-deepest">
+        <TabButton active={tab === 'emoji'} onClick={() => setTab('emoji')}>Emoji</TabButton>
+        <TabButton active={tab === 'gif'} onClick={() => setTab('gif')}>GIF</TabButton>
+      </div>
+
+      {tab === 'gif' ? (
+        <GifPanel onPick={(url, meta) => { onPickGif?.(url, meta); onClose?.() }} />
+      ) : (
+      <>
       <div className="px-3 py-2 border-b border-line-subtle bg-bg-deepest">
         <input
           autoFocus
@@ -138,7 +150,24 @@ export default function EmojiPicker({ anchorRef, open, onClose, onPick, position
           </div>
         </details>
       )}
+      </>
+      )}
     </div>
+  )
+}
+
+function TabButton({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'flex-1 text-xs font-semibold uppercase tracking-wider py-2 transition-colors border-b-2',
+        active ? 'text-ink border-brand' : 'text-ink-dim border-transparent hover:text-ink',
+      ].join(' ')}
+    >
+      {children}
+    </button>
   )
 }
 
