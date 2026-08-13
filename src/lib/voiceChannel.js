@@ -78,6 +78,7 @@ export async function joinRoster(groupId, channelId, uid) {
     joinedAt: serverTimestamp(),
     lastHeartbeat: serverTimestamp(),
     muted: false,
+    deafened: false,
     cameraOn: false,
     screenSharing: false,
   })

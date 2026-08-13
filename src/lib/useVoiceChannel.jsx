@@ -19,6 +19,8 @@ import {
 } from './voiceChannel'
 import { createPeerConnection, getLocalStream, stopStream } from './webrtc'
 
+const clamp01 = (v) => Math.min(1, Math.max(0, v))
+
 const HEARTBEAT_MS = 15_000
 
 // ---- Speaking detection (Web Audio) ----
@@ -29,6 +31,27 @@ const SPEAKING_THRESHOLD = 12       // 0-255 avg frequency-bin level to count as
 const SPEAKING_HANGOVER_MS = 400    // keep the glow briefly after level drops, avoids flicker
 const SPEAKING_POLL_MS = 150
 
+// ---- Device/volume preferences (personal, not synced to Firestore) ----
+// Persisted so a device/volume choice survives a rejoin or reload, same
+// spirit as ChannelSidebar's collapsedCategories localStorage.
+const PREFS_KEY = 'punx.voicePrefs'
+function loadVoicePrefs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')
+    return {
+      inputDeviceId: raw.inputDeviceId ?? null,
+      outputDeviceId: raw.outputDeviceId ?? null,
+      inputVolume: typeof raw.inputVolume === 'number' ? raw.inputVolume : 1,
+      outputVolume: typeof raw.outputVolume === 'number' ? raw.outputVolume : 1,
+    }
+  } catch {
+    return { inputDeviceId: null, outputDeviceId: null, inputVolume: 1, outputVolume: 1 }
+  }
+}
+function saveVoicePrefs(prefs) {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)) } catch { /* non-fatal */ }
+}
+
 function useVoiceChannelEngine() {
   const { profile } = useAuth()
   const myUid = profile?.id
@@ -38,18 +61,24 @@ function useVoiceChannelEngine() {
   const [remoteStreams, setRemoteStreams] = useState({}) // { [peerUid]: MediaStream }
   const [speakingUids, setSpeakingUids] = useState(() => new Set())
   const [muted, setMuted] = useState(false)
+  const [deafened, setDeafened] = useState(false)
   const [connError, setConnError] = useState(null)
   const [joining, setJoining] = useState(false)
+  const [voicePrefs, setVoicePrefs] = useState(loadVoicePrefs) // {inputDeviceId, outputDeviceId, inputVolume, outputVolume}
+  const voicePrefsRef = useRef(voicePrefs) // read inside callbacks without needing voicePrefs in their deps
 
   // Mutable session state that must never go stale inside async callbacks —
   // kept in refs, mirrored to state only where the UI needs to re-render.
   const activeChannelRef = useRef(null)
-  const localStreamRef = useRef(null)
+  const localStreamRef = useRef(null) // raw mic capture — mute toggles this track, speaking analysis reads it
+  const gainNodeRef = useRef(null) // input-volume control, sits between the raw mic and what peers actually receive
+  const micSourceRef = useRef(null) // Web Audio node wrapping localStreamRef's track — swapped out on device change
+  const processedStreamRef = useRef(null) // gain node's output — THIS is what gets added to every peer connection
   const peersRef = useRef(new Map()) // peerUid -> { pc, unsubCandidates, pendingCandidates, appliedCandidateIds }
   const unsubRosterRef = useRef(null)
   const unsubSignalsRef = useRef(null)
   const heartbeatIntervalRef = useRef(null)
-  const audioCtxRef = useRef(null) // one shared AudioContext for every analyser (local + all peers)
+  const audioCtxRef = useRef(null) // one shared AudioContext for every analyser (local + all peers) + the gain graph
   const analysersRef = useRef(new Map()) // uid -> { source, analyser, data, lastLoudAt }
   const speakingIntervalRef = useRef(null)
   const speakingSetRef = useRef(new Set())
@@ -89,6 +118,38 @@ function useVoiceChannelEngine() {
     analysersRef.current.delete(uid)
   }, [])
 
+  // Builds (or rebuilds, on an input-device swap) the graph that actually
+  // gets sent to peers: raw mic -> GainNode (the input-volume slider) ->
+  // MediaStreamDestination. Peer connections receive the DESTINATION's
+  // track, whose identity never changes across a device swap — only what
+  // feeds it does — so switching microphones needs zero replaceTrack() /
+  // renegotiation on any existing peer connection.
+  const buildGainGraph = useCallback((rawStream) => {
+    if (!audioCtxRef.current) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext
+      audioCtxRef.current = new AudioCtx()
+    }
+    const ctx = audioCtxRef.current
+    ctx.resume().catch(() => {})
+    const source = ctx.createMediaStreamSource(rawStream)
+    const gain = ctx.createGain()
+    gain.gain.value = voicePrefsRef.current.inputVolume
+    source.connect(gain)
+    const dest = ctx.createMediaStreamDestination()
+    gain.connect(dest)
+    micSourceRef.current = source
+    gainNodeRef.current = gain
+    processedStreamRef.current = dest.stream
+  }, [])
+
+  const teardownGainGraph = useCallback(() => {
+    micSourceRef.current?.disconnect()
+    gainNodeRef.current?.disconnect()
+    micSourceRef.current = null
+    gainNodeRef.current = null
+    processedStreamRef.current = null
+  }, [])
+
   // Closes one peer's connection and tears down its signaling doc. Used both
   // for an explicit full leave (looped over every peer) and reactively when
   // the roster listener reports that peer has gone — either side may notice
@@ -121,6 +182,7 @@ function useVoiceChannelEngine() {
     const ch = activeChannelRef.current
     for (const peerUid of Array.from(peersRef.current.keys())) closePeer(peerUid)
     if (myUid) detachAnalyser(myUid)
+    teardownGainGraph()
     audioCtxRef.current?.close().catch(() => {})
     audioCtxRef.current = null
     stopStream(localStreamRef.current)
@@ -135,7 +197,8 @@ function useVoiceChannelEngine() {
     speakingSetRef.current = new Set()
     setSpeakingUids(new Set())
     setMuted(false)
-  }, [myUid, closePeer, detachAnalyser])
+    setDeafened(false)
+  }, [myUid, closePeer, detachAnalyser, teardownGainGraph])
 
   // Creates a peer connection for one participant, wired for both directions
   // of the offer/answer flow (this function is used whether I'm about to
@@ -147,7 +210,9 @@ function useVoiceChannelEngine() {
     const ch = activeChannelRef.current
     const pc = createPeerConnection()
     pc.addTransceiver('video', { direction: 'sendrecv' })
-    localStreamRef.current?.getTracks().forEach(t => pc.addTrack(t, localStreamRef.current))
+    // Send the gain-processed stream (raw mic -> input-volume GainNode),
+    // not the raw mic stream directly — see buildGainGraph.
+    processedStreamRef.current?.getTracks().forEach(t => pc.addTrack(t, processedStreamRef.current))
 
     const remote = new MediaStream()
     pc.ontrack = (e) => {
@@ -272,9 +337,17 @@ function useVoiceChannelEngine() {
     setConnError(null)
     setJoining(true)
     try {
-      const stream = await getLocalStream({ audio: true, video: false })
+      const preferredInput = voicePrefsRef.current.inputDeviceId
+      let stream
+      try {
+        stream = await getLocalStream({ audio: true, video: false, audioDeviceId: preferredInput || undefined })
+      } catch {
+        // Saved device may no longer exist (unplugged, etc.) — fall back to default.
+        stream = await getLocalStream({ audio: true, video: false })
+      }
       localStreamRef.current = stream
       attachAnalyser(myUid, stream)
+      buildGainGraph(stream)
 
       const ch = { groupId, channelId, channelName }
       activeChannelRef.current = ch
@@ -300,18 +373,99 @@ function useVoiceChannelEngine() {
     } finally {
       setJoining(false)
     }
-  }, [myUid, joining, teardown, handleSignalDocs, handleRosterChange, attachAnalyser])
+  }, [myUid, joining, teardown, handleSignalDocs, handleRosterChange, attachAnalyser, buildGainGraph])
 
   const leave = useCallback(() => teardown(), [teardown])
 
   const toggleMute = useCallback(() => {
     const track = localStreamRef.current?.getAudioTracks()[0]
     if (!track) return
-    track.enabled = !track.enabled
-    setMuted(!track.enabled)
+    const nextEnabled = !track.enabled
+    track.enabled = nextEnabled
+    setMuted(!nextEnabled)
+    // Unmuting while deafened also un-deafens (matches Discord) — being
+    // heard while unable to hear anyone isn't a state that makes sense.
+    const clearingDeafen = nextEnabled && deafened
+    if (clearingDeafen) setDeafened(false)
     const ch = activeChannelRef.current
-    if (ch && myUid) setRosterState(ch.groupId, ch.channelId, myUid, { muted: !track.enabled })
-  }, [myUid])
+    if (ch && myUid) {
+      setRosterState(ch.groupId, ch.channelId, myUid,
+        clearingDeafen ? { muted: false, deafened: false } : { muted: !nextEnabled })
+    }
+  }, [myUid, deafened])
+
+  // Deafening always mutes the mic too — can't be heard while you can't
+  // hear anyone. Un-deafening deliberately does NOT auto-unmute (matches
+  // Discord — you come back muted and have to explicitly unmute).
+  const toggleDeafen = useCallback(() => {
+    const next = !deafened
+    setDeafened(next)
+    if (next) {
+      const track = localStreamRef.current?.getAudioTracks()[0]
+      if (track) { track.enabled = false; setMuted(true) }
+    }
+    const ch = activeChannelRef.current
+    if (ch && myUid) {
+      setRosterState(ch.groupId, ch.channelId, myUid, next ? { deafened: true, muted: true } : { deafened: false })
+    }
+  }, [deafened, myUid])
+
+  const setInputVolume = useCallback((value) => {
+    const v = clamp01(value)
+    const next = { ...voicePrefsRef.current, inputVolume: v }
+    voicePrefsRef.current = next
+    setVoicePrefs(next)
+    saveVoicePrefs(next)
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = v
+  }, [])
+
+  const setOutputVolume = useCallback((value) => {
+    const v = clamp01(value)
+    const next = { ...voicePrefsRef.current, outputVolume: v }
+    voicePrefsRef.current = next
+    setVoicePrefs(next)
+    saveVoicePrefs(next)
+  }, [])
+
+  // Applied by VoiceStatusBar via HTMLMediaElement.setSinkId() on each
+  // remote <audio> sink — nothing to do at the WebRTC layer for this one.
+  const setOutputDevice = useCallback((deviceId) => {
+    const next = { ...voicePrefsRef.current, outputDeviceId: deviceId }
+    voicePrefsRef.current = next
+    setVoicePrefs(next)
+    saveVoicePrefs(next)
+  }, [])
+
+  // Swapping the input device does NOT touch any peer connection — see
+  // buildGainGraph: only the source feeding the shared GainNode changes,
+  // the destination track peers already have stays the same object.
+  const setInputDevice = useCallback(async (deviceId) => {
+    const next = { ...voicePrefsRef.current, inputDeviceId: deviceId }
+    voicePrefsRef.current = next
+    setVoicePrefs(next)
+    saveVoicePrefs(next)
+    if (!activeChannelRef.current || !myUid) return // just remembered for the next join
+    try {
+      const wasEnabled = localStreamRef.current?.getAudioTracks()[0]?.enabled ?? true
+      const newRaw = await getLocalStream({ audio: true, video: false, audioDeviceId: deviceId })
+      const newTrack = newRaw.getAudioTracks()[0]
+      if (newTrack) newTrack.enabled = wasEnabled // carry the current mute state to the new device
+
+      const oldRaw = localStreamRef.current
+      detachAnalyser(myUid)
+      micSourceRef.current?.disconnect()
+
+      const source = audioCtxRef.current.createMediaStreamSource(newRaw)
+      source.connect(gainNodeRef.current)
+      micSourceRef.current = source
+
+      localStreamRef.current = newRaw
+      attachAnalyser(myUid, newRaw)
+      stopStream(oldRaw)
+    } catch (e) {
+      setConnError(`Couldn't switch microphones: ${e.message}`)
+    }
+  }, [myUid, detachAnalyser, attachAnalyser])
 
   // Best-effort leave on tab close (may not always fire); staleness pruning
   // (see lib/voiceChannel.js) is the real safety net for crashes.
@@ -372,8 +526,10 @@ function useVoiceChannelEngine() {
   useEffect(() => () => { teardown() }, [teardown])
 
   return {
-    activeChannel, participants, remoteStreams, speakingUids, muted, connError, joining, myUid,
-    join, leave, toggleMute, clearConnError: () => setConnError(null),
+    activeChannel, participants, remoteStreams, speakingUids, muted, deafened, connError, joining, myUid,
+    voicePrefs, join, leave, toggleMute, toggleDeafen,
+    setInputDevice, setOutputDevice, setInputVolume, setOutputVolume,
+    clearConnError: () => setConnError(null),
   }
 }
 

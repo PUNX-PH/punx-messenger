@@ -25,10 +25,26 @@ export function createPeerConnection(iceServers = getIceServers()) {
   return new RTCPeerConnection({ iceServers })
 }
 
-export async function getLocalStream({ audio = true, video = true } = {}) {
-  return navigator.mediaDevices.getUserMedia({ audio, video })
+// audioDeviceId is optional — omitting it keeps the exact prior behavior
+// (browser default device), which is all the 1:1 call system ever passes.
+// Only lib/useVoiceChannel.jsx's input-device picker uses it.
+export async function getLocalStream({ audio = true, video = true, audioDeviceId } = {}) {
+  const audioConstraint = !audio ? false : (audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true)
+  return navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video })
 }
 
 export function stopStream(stream) {
   stream?.getTracks().forEach(t => t.stop())
+}
+
+// Device labels are only populated once mic permission has been granted at
+// least once this session (browser privacy rule) — fine here since this is
+// only ever called from the voice settings popover, reachable only while
+// already connected (so getUserMedia has already run).
+export async function listAudioDevices() {
+  const devices = await navigator.mediaDevices.enumerateDevices()
+  return {
+    inputs: devices.filter(d => d.kind === 'audioinput'),
+    outputs: devices.filter(d => d.kind === 'audiooutput'),
+  }
 }

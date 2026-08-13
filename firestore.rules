@@ -192,10 +192,10 @@ service cloud.firestore {
             && request.resource.data.uid == myUid()
             && get(/databases/$(database)/documents/groups/$(groupId)/channels/$(channelId)).data.type == 'voice';
 
-          // Self-updates only: heartbeat + my own mic/camera/screen-share state.
+          // Self-updates only: heartbeat + my own mic/deafen/camera/screen-share state.
           allow update: if isGroupMember(groupId) && uid == myUid()
             && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['lastHeartbeat', 'muted', 'cameraOn', 'screenSharing']);
+                 .hasOnly(['lastHeartbeat', 'muted', 'deafened', 'cameraOn', 'screenSharing']);
 
           // Self-leave, or anyone in the group may prune a doc whose
           // heartbeat is genuinely stale (server-verified via request.time).

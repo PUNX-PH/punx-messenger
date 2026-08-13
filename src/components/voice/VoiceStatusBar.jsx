@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useVoiceChannel } from '../../lib/useVoiceChannel'
+import VoiceSettingsPopover from './VoiceSettingsPopover'
+
+// Not every browser implements output-device routing (Safari doesn't) —
+// feature-detect once rather than letting setSinkId throw per <audio> el.
+const SUPPORTS_SINK_ID = typeof document !== 'undefined'
+  && typeof document.createElement('audio').setSinkId === 'function'
 
 /**
  * Persistent "you're connected to a voice channel" bar — Discord-style.
@@ -9,15 +15,17 @@ import { useVoiceChannel } from '../../lib/useVoiceChannel'
  *
  * Also the audio sink: each remote participant's stream is played through a
  * hidden <audio> element here, since Phase A has no video tiles to attach
- * streams to.
+ * streams to. Output device/volume and deafen are all applied at this one
+ * choke point — nothing about them touches the WebRTC layer.
  */
 export default function VoiceStatusBar() {
   const {
-    activeChannel, participants, remoteStreams, muted, connError,
-    leave, toggleMute, clearConnError,
+    activeChannel, participants, remoteStreams, muted, deafened, connError,
+    voicePrefs, leave, toggleMute, toggleDeafen, clearConnError,
   } = useVoiceChannel()
 
   const [autoplayBlocked, setAutoplayBlocked] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const audioElsRef = useRef({})
 
   useEffect(() => {
@@ -28,6 +36,20 @@ export default function VoiceStatusBar() {
       el.play().then(() => setAutoplayBlocked(false)).catch(() => setAutoplayBlocked(true))
     })
   }, [remoteStreams])
+
+  // Output device, output volume, and deafen all apply here — one loop over
+  // whatever <audio> sinks currently exist, re-run whenever any of the three
+  // (or the set of connected peers) changes.
+  useEffect(() => {
+    Object.values(audioElsRef.current).forEach(el => {
+      if (!el) return
+      el.volume = deafened ? 0 : voicePrefs.outputVolume
+      // '' resets to the system default — needed so switching back to
+      // "System default" in the popover actually takes effect, not just
+      // picking a specific device.
+      if (SUPPORTS_SINK_ID) el.setSinkId(voicePrefs.outputDeviceId || '').catch(() => {})
+    })
+  }, [deafened, voicePrefs.outputVolume, voicePrefs.outputDeviceId, remoteStreams])
 
   if (!activeChannel) return null
 
@@ -67,35 +89,48 @@ export default function VoiceStatusBar() {
         </button>
       )}
 
+      {settingsOpen && <VoiceSettingsPopover onClose={() => setSettingsOpen(false)} />}
+
       <div className="flex items-center gap-2 px-1">
         <VoiceIcon className="text-ok shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-ink truncate">{activeChannel.channelName}</div>
           <div className="text-xs text-ink-dim">{count} {count === 1 ? 'person' : 'people'} connected</div>
         </div>
-        <button
-          type="button"
-          onClick={toggleMute}
-          title={muted ? 'Unmute' : 'Mute'}
-          aria-label={muted ? 'Unmute' : 'Mute'}
-          className={[
-            'w-8 h-8 rounded-full grid place-items-center transition-colors shrink-0',
-            muted ? 'bg-bad text-white' : 'bg-bg-raised text-ink-muted hover:text-ink',
-          ].join(' ')}
-        >
+
+        <IconButton onClick={toggleMute} active={muted} label={muted ? 'Unmute' : 'Mute'}>
           {muted ? <MicOffIcon /> : <MicIcon />}
-        </button>
-        <button
-          type="button"
-          onClick={leave}
-          title="Disconnect"
-          aria-label="Disconnect"
-          className="w-8 h-8 rounded-full grid place-items-center bg-bg-raised text-ink-muted hover:bg-bad hover:text-white transition-colors shrink-0"
-        >
+        </IconButton>
+        <IconButton onClick={toggleDeafen} active={deafened} label={deafened ? 'Undeafen' : 'Deafen'}>
+          {deafened ? <DeafenedIcon /> : <HeadphonesIcon />}
+        </IconButton>
+        <IconButton onClick={() => setSettingsOpen(v => !v)} active={settingsOpen} label="Voice settings">
+          <GearIcon />
+        </IconButton>
+        <IconButton onClick={leave} label="Disconnect" danger>
           <HangupIcon />
-        </button>
+        </IconButton>
       </div>
     </div>
+  )
+}
+
+function IconButton({ onClick, active, danger, label, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={[
+        'w-8 h-8 rounded-full grid place-items-center transition-colors shrink-0',
+        danger ? 'bg-bg-raised text-ink-muted hover:bg-bad hover:text-white'
+          : active ? 'bg-bad text-white'
+          : 'bg-bg-raised text-ink-muted hover:text-ink',
+      ].join(' ')}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -127,6 +162,35 @@ function MicOffIcon() {
       <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/>
       <line x1="12" y1="19" x2="12" y2="23"/>
       <line x1="8" y1="23" x2="16" y2="23"/>
+    </svg>
+  )
+}
+
+function HeadphonesIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+      <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+    </svg>
+  )
+}
+
+function DeafenedIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="1" y1="1" x2="23" y2="23"/>
+      <path d="M3 18v-6a9 9 0 0 1 15.3-6.4" />
+      <path d="M21 15.3V12a9 9 0 0 0-.7-3.5" />
+      <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+    </svg>
+  )
+}
+
+function GearIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
   )
 }

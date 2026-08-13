@@ -44,31 +44,31 @@ export default function VoiceParticipants({ groupId, channelId }) {
         const user = byId[p.uid]
         const speaking = speakingUids?.has(p.uid)
         return compact
-          ? <CompactAvatar key={p.uid} user={user} muted={p.muted} speaking={speaking} />
-          : <ParticipantRow key={p.uid} user={user} muted={p.muted} speaking={speaking} />
+          ? <CompactAvatar key={p.uid} user={user} muted={p.muted} deafened={p.deafened} speaking={speaking} />
+          : <ParticipantRow key={p.uid} user={user} muted={p.muted} deafened={p.deafened} speaking={speaking} />
       })}
     </div>
   )
 }
 
-function ParticipantRow({ user, muted, speaking }) {
+function ParticipantRow({ user, muted, deafened, speaking }) {
   return (
     <div className="flex items-center gap-1.5 py-0.5 min-w-0">
-      <SpeakingAvatar user={user} size={20} speaking={speaking} muted={muted} />
+      <SpeakingAvatar user={user} size={20} speaking={speaking} muted={muted} deafened={deafened} />
       <span className="text-xs text-ink-muted truncate">{user?.name || 'Someone'}</span>
     </div>
   )
 }
 
-function CompactAvatar({ user, muted, speaking }) {
+function CompactAvatar({ user, muted, deafened, speaking }) {
   return (
     <div title={user?.name || 'Someone'} className="shrink-0">
-      <SpeakingAvatar user={user} size={16} speaking={speaking} muted={muted} />
+      <SpeakingAvatar user={user} size={16} speaking={speaking} muted={muted} deafened={deafened} />
     </div>
   )
 }
 
-function SpeakingAvatar({ user, size, speaking, muted }) {
+function SpeakingAvatar({ user, size, speaking, muted, deafened }) {
   return (
     <div
       className={[
@@ -77,9 +77,9 @@ function SpeakingAvatar({ user, size, speaking, muted }) {
       ].join(' ')}
     >
       <Avatar name={user?.name} src={user?.photoURL} size={size} />
-      {muted && (
+      {(muted || deafened) && (
         <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-bad grid place-items-center">
-          <MutedDotIcon />
+          {deafened ? <DeafenedDotIcon /> : <MutedDotIcon />}
         </span>
       )}
     </div>
@@ -92,6 +92,16 @@ function MutedDotIcon() {
       <line x1="1" y1="1" x2="23" y2="23"/>
       <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
       <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/>
+    </svg>
+  )
+}
+
+function DeafenedDotIcon() {
+  return (
+    <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
+      <line x1="1" y1="1" x2="23" y2="23"/>
+      <path d="M3 18v-6a9 9 0 0 1 15.3-6.4" />
+      <path d="M21 15.3V12a9 9 0 0 0-.7-3.5" />
     </svg>
   )
 }
