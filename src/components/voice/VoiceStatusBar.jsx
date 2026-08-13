@@ -22,7 +22,10 @@ const SUPPORTS_SINK_ID = typeof document !== 'undefined'
  * choke point — nothing about them touches the WebRTC layer.
  */
 export default function VoiceStatusBar() {
-  const { activeChannel, remoteStreams, deafened, connError, voicePrefs, leave, clearConnError } = useVoiceChannel()
+  const {
+    activeChannel, remoteStreams, deafened, connError, voicePrefs, leave, clearConnError,
+    cameraOn, screenSharing, toggleCamera, toggleScreenShare,
+  } = useVoiceChannel()
 
   const [autoplayBlocked, setAutoplayBlocked] = useState(false)
   const audioElsRef = useRef({})
@@ -104,7 +107,36 @@ export default function VoiceStatusBar() {
           <HangupIcon />
         </button>
       </div>
+
+      {/* Call-feature toggles — same spot Discord puts video/screen-share,
+          separate from mic/deafen (those live with your own avatar, see
+          UserPanel) since these are per-call, not personal audio settings. */}
+      <div className="flex items-center gap-1.5 px-1 mt-1.5">
+        <FeatureButton onClick={toggleCamera} active={cameraOn} label={cameraOn ? 'Turn off camera' : 'Turn on camera'}>
+          {cameraOn ? <VideoIcon /> : <VideoOffIcon />}
+        </FeatureButton>
+        <FeatureButton onClick={toggleScreenShare} active={screenSharing} label={screenSharing ? 'Stop screen share' : 'Share your screen'}>
+          <ScreenShareIcon />
+        </FeatureButton>
+      </div>
     </div>
+  )
+}
+
+function FeatureButton({ onClick, active, label, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={[
+        'w-8 h-8 rounded-full grid place-items-center transition-colors shrink-0',
+        active ? 'bg-brand text-white' : 'bg-bg-raised text-ink-muted hover:text-ink',
+      ].join(' ')}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -113,6 +145,36 @@ function VoiceIcon({ className = '' }) {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
       <path d="M11 5 6 9H2v6h4l5 4V5Z" />
       <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+    </svg>
+  )
+}
+
+function VideoIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polygon points="23 7 16 12 23 17 23 7"/>
+      <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+    </svg>
+  )
+}
+
+function VideoOffIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M16 16v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h1"/>
+      <path d="M9 6h5a2 2 0 0 1 2 2v5"/>
+      <polygon points="23 7 16 12 23 17 23 7"/>
+      <line x1="1" y1="1" x2="23" y2="23"/>
+    </svg>
+  )
+}
+
+function ScreenShareIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
     </svg>
   )
 }

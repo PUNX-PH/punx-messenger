@@ -62,6 +62,9 @@ function useVoiceChannelEngine() {
   const [speakingUids, setSpeakingUids] = useState(() => new Set())
   const [muted, setMuted] = useState(false)
   const [deafened, setDeafened] = useState(false)
+  const [cameraOn, setCameraOn] = useState(false)
+  const [screenSharing, setScreenSharing] = useState(false)
+  const [localVideoStream, setLocalVideoStream] = useState(null) // whichever of camera/screen is active, or null
   const [connError, setConnError] = useState(null)
   const [joining, setJoining] = useState(false)
   const [voicePrefs, setVoicePrefs] = useState(loadVoicePrefs) // {inputDeviceId, outputDeviceId, inputVolume, outputVolume}
@@ -74,7 +77,9 @@ function useVoiceChannelEngine() {
   const gainNodeRef = useRef(null) // input-volume control, sits between the raw mic and what peers actually receive
   const micSourceRef = useRef(null) // Web Audio node wrapping localStreamRef's track — swapped out on device change
   const processedStreamRef = useRef(null) // gain node's output — THIS is what gets added to every peer connection
-  const peersRef = useRef(new Map()) // peerUid -> { pc, unsubCandidates, pendingCandidates, appliedCandidateIds }
+  const cameraStreamRef = useRef(null) // raw getUserMedia video stream, only while cameraOn
+  const screenStreamRef = useRef(null) // raw getDisplayMedia stream, only while screenSharing — mutually exclusive with camera
+  const peersRef = useRef(new Map()) // peerUid -> { pc, videoSender, unsubCandidates, pendingCandidates, appliedCandidateIds }
   const unsubRosterRef = useRef(null)
   const unsubSignalsRef = useRef(null)
   const heartbeatIntervalRef = useRef(null)
@@ -187,6 +192,10 @@ function useVoiceChannelEngine() {
     audioCtxRef.current = null
     stopStream(localStreamRef.current)
     localStreamRef.current = null
+    stopStream(cameraStreamRef.current)
+    cameraStreamRef.current = null
+    stopStream(screenStreamRef.current)
+    screenStreamRef.current = null
 
     if (ch && myUid) leaveRoster(ch.groupId, ch.channelId, myUid).catch(() => {})
 
@@ -198,6 +207,9 @@ function useVoiceChannelEngine() {
     setSpeakingUids(new Set())
     setMuted(false)
     setDeafened(false)
+    setCameraOn(false)
+    setScreenSharing(false)
+    setLocalVideoStream(null)
   }, [myUid, closePeer, detachAnalyser, teardownGainGraph])
 
   // Creates a peer connection for one participant, wired for both directions
@@ -209,7 +221,13 @@ function useVoiceChannelEngine() {
   const createPeerFor = useCallback((peerUid) => {
     const ch = activeChannelRef.current
     const pc = createPeerConnection()
-    pc.addTransceiver('video', { direction: 'sendrecv' })
+    const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' })
+    // If my camera/screen-share was already on before this peer joined,
+    // give their sender a track immediately — same replaceTrack() path
+    // toggleCamera/toggleScreenShare use, just applied at connection setup
+    // instead of after the fact.
+    const activeVideoTrack = cameraStreamRef.current?.getVideoTracks()[0] || screenStreamRef.current?.getVideoTracks()[0] || null
+    if (activeVideoTrack) videoTransceiver.sender.replaceTrack(activeVideoTrack).catch(() => {})
     // Send the gain-processed stream (raw mic -> input-volume GainNode),
     // not the raw mic stream directly — see buildGainGraph.
     processedStreamRef.current?.getTracks().forEach(t => pc.addTrack(t, processedStreamRef.current))
@@ -231,7 +249,10 @@ function useVoiceChannelEngine() {
       if (pc.iceConnectionState === 'failed') closePeer(peerUid)
     }
 
-    const entry = { pc, unsubCandidates: null, pendingCandidates: [], appliedCandidateIds: new Set() }
+    const entry = {
+      pc, videoSender: videoTransceiver.sender,
+      unsubCandidates: null, pendingCandidates: [], appliedCandidateIds: new Set(),
+    }
     peersRef.current.set(peerUid, entry)
 
     if (ch && myUid) {
@@ -410,6 +431,77 @@ function useVoiceChannelEngine() {
     }
   }, [deafened, myUid])
 
+  // Unconditional "turn it off" helpers, deliberately not folded into the
+  // toggle functions below — the browser's own "Stop sharing" control ends
+  // the screen-share track directly (see toggleScreenShare's track.onended),
+  // and that has to land on correct behavior regardless of whatever
+  // `screenSharing` happened to be captured in that closure at the time.
+  const stopCameraTracks = useCallback(() => {
+    stopStream(cameraStreamRef.current)
+    cameraStreamRef.current = null
+    setCameraOn(false)
+    setLocalVideoStream(null)
+    peersRef.current.forEach(entry => entry.videoSender?.replaceTrack(null).catch(() => {}))
+    const ch = activeChannelRef.current
+    if (ch && myUid) setRosterState(ch.groupId, ch.channelId, myUid, { cameraOn: false })
+  }, [myUid])
+
+  const stopScreenShareTracks = useCallback(() => {
+    stopStream(screenStreamRef.current)
+    screenStreamRef.current = null
+    setScreenSharing(false)
+    setLocalVideoStream(null)
+    peersRef.current.forEach(entry => entry.videoSender?.replaceTrack(null).catch(() => {}))
+    const ch = activeChannelRef.current
+    if (ch && myUid) setRosterState(ch.groupId, ch.channelId, myUid, { screenSharing: false })
+  }, [myUid])
+
+  // Camera and screen-share are mutually exclusive in v1 and share the one
+  // video transceiver every peer connection already has (see createPeerFor)
+  // — turning either on/off is just a replaceTrack() per peer, never a
+  // renegotiation, which is the entire reason that transceiver was added
+  // empty back at join time.
+  const toggleCamera = useCallback(async () => {
+    if (cameraOn) { stopCameraTracks(); return }
+    try {
+      if (screenSharing) stopScreenShareTracks()
+      const camStream = await navigator.mediaDevices.getUserMedia({ video: true })
+      cameraStreamRef.current = camStream
+      const track = camStream.getVideoTracks()[0]
+      peersRef.current.forEach(entry => entry.videoSender?.replaceTrack(track).catch(() => {}))
+      setCameraOn(true)
+      setLocalVideoStream(camStream)
+      const ch = activeChannelRef.current
+      if (ch && myUid) setRosterState(ch.groupId, ch.channelId, myUid, { cameraOn: true })
+    } catch (e) {
+      setConnError(`Couldn't turn on your camera: ${e.message}`)
+    }
+  }, [cameraOn, screenSharing, stopCameraTracks, stopScreenShareTracks, myUid])
+
+  const toggleScreenShare = useCallback(async () => {
+    if (screenSharing) { stopScreenShareTracks(); return }
+    try {
+      if (cameraOn) stopCameraTracks()
+      // Video only — capturing system audio too would need a second audio
+      // transceiver (out of scope for v1; see the voice-channels plan).
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+      screenStreamRef.current = screenStream
+      const track = screenStream.getVideoTracks()[0]
+      peersRef.current.forEach(entry => entry.videoSender?.replaceTrack(track).catch(() => {}))
+      // The browser's own "Stop sharing" bar/button ends the track directly
+      // — catch that so our state doesn't get stuck showing "sharing".
+      track.onended = () => stopScreenShareTracks()
+      setScreenSharing(true)
+      setLocalVideoStream(screenStream)
+      const ch = activeChannelRef.current
+      if (ch && myUid) setRosterState(ch.groupId, ch.channelId, myUid, { screenSharing: true })
+    } catch (e) {
+      // Cancelling the "choose what to share" picker rejects with
+      // NotAllowedError — not a real error worth surfacing.
+      if (e.name !== 'NotAllowedError') setConnError(`Couldn't start screen share: ${e.message}`)
+    }
+  }, [screenSharing, cameraOn, stopScreenShareTracks, stopCameraTracks, myUid])
+
   const setInputVolume = useCallback((value) => {
     const v = clamp01(value)
     const next = { ...voicePrefsRef.current, inputVolume: v }
@@ -527,7 +619,8 @@ function useVoiceChannelEngine() {
 
   return {
     activeChannel, participants, remoteStreams, speakingUids, muted, deafened, connError, joining, myUid,
-    voicePrefs, join, leave, toggleMute, toggleDeafen,
+    cameraOn, screenSharing, localVideoStream,
+    voicePrefs, join, leave, toggleMute, toggleDeafen, toggleCamera, toggleScreenShare,
     setInputDevice, setOutputDevice, setInputVolume, setOutputVolume,
     clearConnError: () => setConnError(null),
   }

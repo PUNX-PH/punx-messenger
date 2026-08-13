@@ -4,6 +4,7 @@ import ServerRail from './ServerRail'
 import DMsSidebar from './DMsSidebar'
 import ChannelSidebar from './ChannelSidebar'
 import CallOverlay from './calls/CallOverlay'
+import VoiceChannelView from './voice/VoiceChannelView'
 
 const ShellContext = createContext({ openDrawer: () => {}, closeDrawer: () => {} })
 export const useShell = () => useContext(ShellContext)
@@ -61,6 +62,7 @@ export default function AppShell() {
         <div className="relative flex-1 min-w-0 flex">
           <Outlet />
           <CallOverlay />
+          <VoiceChannelView />
         </div>
       </div>
     </ShellContext.Provider>
