@@ -84,14 +84,14 @@ export async function createGroup({ name, avatarFile, owner }) {
   return { groupId, generalChannelId: generalRef.id }
 }
 
-export async function createChannel(groupId, { name, createdBy, categoryId = null }) {
+export async function createChannel(groupId, { name, createdBy, categoryId = null, type = 'text' }) {
   const colRef = collection(db, 'groups', groupId, 'channels')
   // Next position within the target category (or the uncategorized group).
   const existing = await getDocs(query(colRef, where('categoryId', '==', categoryId)))
   const maxOrder = existing.docs.reduce((m, d) => Math.max(m, d.data().order ?? -1), -1)
   const ref = await addDoc(colRef, {
     name: name.trim().toLowerCase().replace(/\s+/g, '-'),
-    type: 'text',
+    type,
     categoryId,
     order: maxOrder + 1,
     createdAt: serverTimestamp(),
@@ -155,6 +155,13 @@ export async function reorderChannelsInCategory(groupId, categoryId, orderedChan
 // category (in its own order) with its channels (in their own order).
 export function groupChannelsByCategory(channels, categories) {
   const sortByOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0)
+  // Voice channels always sort below text channels within a list — same
+  // Discord convention regardless of drag-reorder history, so type takes
+  // priority over `order` and only breaks ties within the same type.
+  const sortChannels = (a, b) => {
+    const typeRank = (c) => c.type === 'voice' ? 1 : 0
+    return typeRank(a) - typeRank(b) || sortByOrder(a, b)
+  }
   const byCategory = new Map()
   const uncategorized = []
   for (const c of channels) {
@@ -165,10 +172,10 @@ export function groupChannelsByCategory(channels, categories) {
       uncategorized.push(c)
     }
   }
-  uncategorized.sort(sortByOrder)
+  uncategorized.sort(sortChannels)
   const sortedCategories = [...categories].sort(sortByOrder).map(cat => ({
     ...cat,
-    channels: (byCategory.get(cat.id) || []).sort(sortByOrder),
+    channels: (byCategory.get(cat.id) || []).sort(sortChannels),
   }))
   return { uncategorized, categories: sortedCategories }
 }

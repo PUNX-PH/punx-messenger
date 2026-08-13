@@ -5,6 +5,7 @@ import { EmojisProvider } from './lib/emojis'
 import { PresenceHeartbeat, PresenceTickProvider } from './lib/presence'
 import { NotificationDaemon, NotificationsProvider } from './lib/notifications'
 import { CallProvider } from './lib/useCall'
+import { VoiceChannelProvider } from './lib/useVoiceChannel'
 import Login from './components/Login'
 import Loading from './components/Loading'
 import AppShell from './components/AppShell'
@@ -27,7 +28,9 @@ export default function App() {
               <NotificationDaemon />
               <CallProvider>
                 <CallManager />
-                <Gate />
+                <VoiceChannelProvider>
+                  <Gate />
+                </VoiceChannelProvider>
               </CallProvider>
             </EmojisProvider>
           </NotificationsProvider>

@@ -7,6 +7,7 @@ import { computeStatus, useTickNow } from '../lib/presence'
 import Avatar from './Avatar'
 import RoleBadge from './RoleBadge'
 import UserPanel from './UserPanel'
+import VoiceStatusBar from './voice/VoiceStatusBar'
 
 export default function DMsSidebar() {
   const { profile } = useAuth()
@@ -86,6 +87,7 @@ export default function DMsSidebar() {
         })}
       </div>
 
+      <VoiceStatusBar />
       <UserPanel />
     </aside>
   )

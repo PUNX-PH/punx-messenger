@@ -61,6 +61,11 @@ service cloud.firestore {
         myUid() in get(/databases/$(database)/documents/calls/$(callId)).data.members;
     }
 
+    function isVoicePairMember(groupId, channelId, pairKey) {
+      return signedIn() &&
+        myUid() in get(/databases/$(database)/documents/groups/$(groupId)/channels/$(channelId)/voiceSignals/$(pairKey)).data.uids;
+    }
+
     // ───────── Users (workspace directory) ─────────
 
     match /users/{uid} {
@@ -130,7 +135,8 @@ service cloud.firestore {
       match /channels/{channelId} {
         allow read: if isGroupMember(groupId);
         // Create: group admin (incl. during batched group creation) or workspace admin
-        allow create: if isWorkspaceAdmin() || isGroupAdminAfter(groupId);
+        allow create: if (isWorkspaceAdmin() || isGroupAdminAfter(groupId))
+          && request.resource.data.type in ['text', 'voice'];
         // Update: admins anything (incl. categoryId/order for drag-to-reorder);
         // any group member may bump `lastMessageAt` (unread state) and/or
         // write to `typing` (typing indicators).
@@ -161,6 +167,69 @@ service cloud.firestore {
           allow delete: if isWorkspaceAdmin()
             || isGroupAdmin(groupId)
             || (isGroupMember(groupId) && resource.data.author.uid == myUid());
+        }
+
+        // ───── Voice channel roster + mesh WebRTC signaling ─────
+        //
+        // Discord-style multi-person voice, mesh topology (every participant
+        // connects directly to every other — no media server). Doc id =
+        // participant's own uid, so join is an idempotent upsert and leave is
+        // a single-doc delete. Firestore has no onDisconnect() hook, so a
+        // stale-heartbeat doc may be pruned by ANY group member, not just its
+        // owner — see the `delete` clause below.
+        match /voiceParticipants/{uid} {
+          allow read: if isGroupMember(groupId);
+
+          allow create: if isGroupMember(groupId) && uid == myUid()
+            && request.resource.data.uid == myUid()
+            && get(/databases/$(database)/documents/groups/$(groupId)/channels/$(channelId)).data.type == 'voice';
+
+          // Self-updates only: heartbeat + my own mic/camera/screen-share state.
+          allow update: if isGroupMember(groupId) && uid == myUid()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['lastHeartbeat', 'muted', 'cameraOn', 'screenSharing']);
+
+          // Self-leave, or anyone in the group may prune a doc whose
+          // heartbeat is genuinely stale (server-verified via request.time).
+          // 2 minutes, matching lib/voiceChannel.js's STALE_MS — keep these
+          // in sync (tuned generously to tolerate browser timer throttling
+          // in backgrounded tabs, not just genuine crashes/disconnects).
+          allow delete: if isGroupMember(groupId)
+            && (uid == myUid() || request.time > resource.data.lastHeartbeat + duration.value(120, 's'));
+        }
+
+        // A `voiceSignals/{pairKey}` doc carries one pair's offer/answer SDP
+        // (pairKey = sorted `uidA__uidB`, same convention as dmConvoId/
+        // callPairKey). No ring/accept state machine — unlike `calls/{callId}`,
+        // participants just come and go, so the offerer is a deterministic
+        // function of the two uids (see lib/voiceChannel.js) rather than
+        // "whoever dialed." ICE candidates trickle via a subcollection, same
+        // shape as `calls/{callId}/candidates`.
+        match /voiceSignals/{pairKey} {
+          allow read: if isGroupMember(groupId) && myUid() in resource.data.uids;
+
+          allow create: if isGroupMember(groupId)
+            && myUid() in request.resource.data.uids
+            && request.resource.data.offererUid == myUid()
+            && request.resource.data.uids.size() == 2
+            && request.resource.data.offer != null
+            && request.resource.data.answer == null;
+
+          // Only the non-offerer may attach the answer, once.
+          allow update: if isGroupMember(groupId)
+            && myUid() in resource.data.uids
+            && myUid() != resource.data.offererUid
+            && resource.data.answer == null
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answer']);
+
+          // Either side tears the pair down when one of them leaves.
+          allow delete: if isGroupMember(groupId) && myUid() in resource.data.uids;
+
+          match /candidates/{candId} {
+            allow read:   if isVoicePairMember(groupId, channelId, pairKey);
+            allow create: if isVoicePairMember(groupId, channelId, pairKey) && request.resource.data.from == myUid();
+            allow delete: if isVoicePairMember(groupId, channelId, pairKey);
+          }
         }
       }
     }

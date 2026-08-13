@@ -13,9 +13,12 @@ import {
   reorderCategories, reorderChannelsInCategory,
 } from '../lib/groups'
 import { isUnread, pathToReadKey } from '../lib/db'
+import { useVoiceChannel } from '../lib/useVoiceChannel'
 import UserPanel from './UserPanel'
 import GroupSettingsModal from './GroupSettingsModal'
 import GroupContextMenu from './GroupContextMenu'
+import VoiceParticipants from './voice/VoiceParticipants'
+import VoiceStatusBar from './voice/VoiceStatusBar'
 
 export default function ChannelSidebar() {
   const { profile } = useAuth()
@@ -28,6 +31,7 @@ export default function ChannelSidebar() {
   const [categories, setCategories] = useState([])
   const [creatingIn, setCreatingIn] = useState(undefined) // undefined = none; null = uncategorized; categoryId = that category
   const [newName, setNewName] = useState('')
+  const [newType, setNewType] = useState('text')
   const [creatingCategory, setCreatingCategory] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState('overview')
@@ -84,9 +88,12 @@ export default function ChannelSidebar() {
     e.preventDefault()
     const v = newName.trim()
     if (!v || creatingIn === undefined) return
-    const id = await createChannel(groupId, { name: v, createdBy: profile.id, categoryId: creatingIn })
-    setNewName(''); setCreatingIn(undefined)
-    navigate(`/g/${groupId}/c/${id}`)
+    const id = await createChannel(groupId, { name: v, createdBy: profile.id, categoryId: creatingIn, type: newType })
+    const wasVoice = newType === 'voice'
+    setNewName(''); setCreatingIn(undefined); setNewType('text')
+    // Voice channels have no text-channel-style route to navigate to — Phase A
+    // is join-in-place from the sidebar (see SortableChannelRow below).
+    if (!wasVoice) navigate(`/g/${groupId}/c/${id}`)
   }
 
   const submitNewCategory = async (e) => {
@@ -219,6 +226,8 @@ export default function ChannelSidebar() {
             creating={creatingIn === null}
             newName={newName}
             setNewName={setNewName}
+            newType={newType}
+            setNewType={setNewType}
             onSubmitNew={submitNewChannel}
             onCancelNew={() => setCreatingIn(undefined)}
           />
@@ -243,6 +252,8 @@ export default function ChannelSidebar() {
                   creating={creatingIn === cat.id}
                   newName={newName}
                   setNewName={setNewName}
+                  newType={newType}
+                  setNewType={setNewType}
                   onSubmitNew={submitNewChannel}
                   onCancelNew={() => setCreatingIn(undefined)}
                 />
@@ -284,6 +295,7 @@ export default function ChannelSidebar() {
         )}
       </div>
 
+      <VoiceStatusBar />
       <UserPanel />
 
       <GroupSettingsModal
@@ -375,32 +387,38 @@ function CategorySection({ category, collapsed, onToggleCollapse, onContextMenu,
 
 function ChannelListBody({
   categoryId, channels, activeChannelId, groupId, lastRead,
-  creating, newName, setNewName, onSubmitNew, onCancelNew,
+  creating, newName, setNewName, newType, setNewType, onSubmitNew, onCancelNew,
 }) {
   const target = useDroppable({ id: `catdrop-body:${categoryId ?? 'none'}`, data: { type: 'category-target', categoryId } })
   return (
     <div ref={target.setNodeRef} className={['space-y-0.5 rounded-sm', target.isOver ? 'bg-bg-raised/50' : ''].join(' ')}>
       <SortableContext items={channels.map(c => c.id)} strategy={verticalListSortingStrategy}>
         {channels.map(c => (
-          <SortableChannelRow
-            key={c.id}
-            channel={c}
-            groupId={groupId}
-            active={c.id === activeChannelId}
-            unread={c.id !== activeChannelId && isUnread(c.lastMessageAt, lastRead[pathToReadKey(`groups/${groupId}/channels/${c.id}`)])}
-          />
+          <div key={c.id}>
+            <SortableChannelRow
+              channel={c}
+              groupId={groupId}
+              active={c.id === activeChannelId}
+              unread={c.id !== activeChannelId && isUnread(c.lastMessageAt, lastRead[pathToReadKey(`groups/${groupId}/channels/${c.id}`)])}
+            />
+            {c.type === 'voice' && <VoiceParticipants groupId={groupId} channelId={c.id} />}
+          </div>
         ))}
       </SortableContext>
 
       {creating && (
-        <form onSubmit={onSubmitNew} className="px-1">
+        <form onSubmit={onSubmitNew} className="px-1 space-y-1">
+          <div className="flex gap-1">
+            <TypePill active={newType === 'text'} onClick={() => setNewType('text')}>Text</TypePill>
+            <TypePill active={newType === 'voice'} onClick={() => setNewType('voice')}>Voice</TypePill>
+          </div>
           <input
             autoFocus
             value={newName}
             onChange={e => setNewName(e.target.value)}
             onBlur={() => !newName.trim() && onCancelNew()}
             onKeyDown={(e) => { if (e.key === 'Escape') onCancelNew() }}
-            placeholder="new-channel"
+            placeholder={newType === 'voice' ? 'new-voice-channel' : 'new-channel'}
             className="w-full bg-bg-deepest text-sm rounded-sm px-2 py-1 outline-none focus:ring-1 focus:ring-brand"
           />
         </form>
@@ -409,13 +427,52 @@ function ChannelListBody({
   )
 }
 
+function TypePill({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => e.preventDefault()} // keep focus on the name input
+      onClick={onClick}
+      className={[
+        'text-[11px] font-medium px-2 py-0.5 rounded-full transition-colors',
+        active ? 'bg-brand text-white' : 'bg-bg-deepest text-ink-dim hover:text-ink',
+      ].join(' ')}
+    >
+      {children}
+    </button>
+  )
+}
+
 function SortableChannelRow({ channel, groupId, active, unread }) {
   const sortable = useSortable({ id: channel.id, data: { type: 'channel', channel } })
+  const { activeChannel, join } = useVoiceChannel()
   const style = {
     transform: CSS.Transform.toString(sortable.transform),
     transition: sortable.transition,
     opacity: sortable.isDragging ? 0.4 : 1,
   }
+
+  if (channel.type === 'voice') {
+    const connected = activeChannel?.groupId === groupId && activeChannel?.channelId === channel.id
+    return (
+      <button
+        type="button"
+        ref={sortable.setNodeRef}
+        style={style}
+        {...sortable.attributes}
+        {...sortable.listeners}
+        onClick={() => join(groupId, channel.id, channel.name)}
+        className={[
+          'w-full text-left px-2 py-1.5 rounded-sm text-sm flex items-center gap-2 transition-colors duration-150',
+          connected ? 'bg-bg-hover text-ink' : 'text-ink-muted hover:bg-bg-raised hover:text-ink',
+        ].join(' ')}
+      >
+        <SpeakerIcon className="text-ink-dim shrink-0" />
+        <span className="truncate flex-1">{channel.name}</span>
+      </button>
+    )
+  }
+
   return (
     <NavLink
       ref={sortable.setNodeRef}
@@ -459,6 +516,14 @@ function saveCollapsed(groupId, set) {
 
 function UnreadDot() {
   return <span className="w-2 h-2 rounded-full bg-bad shrink-0" />
+}
+function SpeakerIcon({ className = '' }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M11 5 6 9H2v6h4l5 4V5Z" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+    </svg>
+  )
 }
 function PlusIcon() {
   return (
