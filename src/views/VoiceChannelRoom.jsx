@@ -66,6 +66,15 @@ export default function VoiceChannelRoom({ channel, groupId }) {
     }
   })
 
+  // Near-square grid from participant count (ceil(sqrt(n)): 1->1, 2->2,
+  // 3or4->2, 5or6->3, 9->3, ...), same heuristic most video-call apps use.
+  // Rows and columns both get 1fr tracks filling the FULL content area —
+  // this is what makes one person fill nearly the whole pane (matching
+  // Discord) instead of being capped at some fixed max size, while still
+  // shrinking every tile as more people join.
+  const cols = Math.max(1, Math.ceil(Math.sqrt(tiles.length)))
+  const rows = Math.max(1, Math.ceil(tiles.length / cols))
+
   return (
     <div className="flex-1 flex flex-col bg-bg-main min-w-0">
       <div className="h-12 px-4 flex items-center gap-2 border-b border-line-subtle shrink-0">
@@ -73,22 +82,12 @@ export default function VoiceChannelRoom({ channel, groupId }) {
         <span className="font-semibold truncate">{channel.name}</span>
       </div>
       <div className="flex-1 overflow-y-auto p-3">
-        {/* Column count comes from participant count (ceil(sqrt(n)): 1->1,
-            2->2, 3or4->2, 5or6->3, 9->3, ...) — a near-square grid, same
-            heuristic most video-call apps use. Each column is minmax(160,
-            480) so CSS does the actual pixel sizing responsively: fewer
-            people means fewer, wider columns (tiles grow toward 480px);
-            more people means more, narrower columns (tiles shrink toward
-            160px) — no fixed size, no JS measuring needed. justify-center
-            keeps a non-full last row centered instead of stretched to one
-            edge. Screen-share still spans 2 columns so it stays the one
-            thing that's actually meant to be read. */}
         <div
-          className="grid gap-3 justify-center content-start"
-          style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(Math.sqrt(tiles.length)))}, minmax(160px, 480px))` }}
+          className="grid gap-3 h-full"
+          style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}
         >
           {tiles.map(t => (
-            <ParticipantTile key={t.uid} {...t} span={t.isScreen ? Math.min(2, Math.max(1, Math.ceil(Math.sqrt(tiles.length)))) : 1} />
+            <ParticipantTile key={t.uid} {...t} span={t.isScreen ? Math.min(2, cols) : 1} />
           ))}
         </div>
       </div>
@@ -107,7 +106,7 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
     <div
       style={{ gridColumn: `span ${span}` }}
       className={[
-        'relative rounded-xl overflow-hidden bg-bg-raised flex items-center justify-center transition-shadow aspect-video',
+        'relative rounded-xl overflow-hidden bg-bg-raised flex items-center justify-center transition-shadow',
         speaking ? 'ring-2 ring-ok' : '',
       ].join(' ')}
     >
