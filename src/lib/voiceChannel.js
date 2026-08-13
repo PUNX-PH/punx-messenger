@@ -126,7 +126,14 @@ export async function pruneStaleParticipants(groupId, channelId) {
     const snap = await getDocs(participantsCol(groupId, channelId))
     const now = Date.now()
     await Promise.all(snap.docs.map(d => {
-      const hb = d.data().lastHeartbeat?.toMillis?.() ?? 0
+      const hb = d.data().lastHeartbeat?.toMillis?.()
+      // A serverTimestamp() write can briefly read back as unresolved right
+      // after someone joins — treating that as "epoch 0" (the old `?? 0`
+      // fallback) made a brand-new joiner look infinitely stale to whichever
+      // other client's prune sweep happened to run in that narrow window,
+      // deleting them within seconds of joining. Skip instead: an ambiguous
+      // timestamp means "don't know," not "definitely gone."
+      if (hb == null) return null
       return (now - hb > STALE_MS) ? deleteDoc(d.ref).catch(() => {}) : null
     }))
   } catch (e) {
