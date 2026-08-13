@@ -73,21 +73,30 @@ export default function VoiceChannelRoom({ channel, groupId }) {
         <span className="font-semibold truncate">{channel.name}</span>
       </div>
       <div className="flex-1 overflow-y-auto p-3">
-        {/* flex-wrap, not a stretchy grid — a grid's `1fr` tracks stretch to
-            fill the row even with just one or two tiles, which is why a
-            single person used to render as one giant box. Fixed-size boxes
-            that wrap keep everyone the same small size regardless of count;
-            only screen-share gets to be bigger, since that's the thing
-            people are actually trying to read. */}
-        <div className="flex flex-wrap content-start gap-3">
-          {tiles.map(t => <ParticipantTile key={t.uid} {...t} />)}
+        {/* Column count comes from participant count (ceil(sqrt(n)): 1->1,
+            2->2, 3or4->2, 5or6->3, 9->3, ...) — a near-square grid, same
+            heuristic most video-call apps use. Each column is minmax(160,
+            480) so CSS does the actual pixel sizing responsively: fewer
+            people means fewer, wider columns (tiles grow toward 480px);
+            more people means more, narrower columns (tiles shrink toward
+            160px) — no fixed size, no JS measuring needed. justify-center
+            keeps a non-full last row centered instead of stretched to one
+            edge. Screen-share still spans 2 columns so it stays the one
+            thing that's actually meant to be read. */}
+        <div
+          className="grid gap-3 justify-center content-start"
+          style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(Math.sqrt(tiles.length)))}, minmax(160px, 480px))` }}
+        >
+          {tiles.map(t => (
+            <ParticipantTile key={t.uid} {...t} span={t.isScreen ? Math.min(2, Math.max(1, Math.ceil(Math.sqrt(tiles.length)))) : 1} />
+          ))}
         </div>
       </div>
     </div>
   )
 }
 
-function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, stream, isSelf }) {
+function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, stream, isSelf, span }) {
   const videoRef = useRef(null)
 
   useEffect(() => {
@@ -96,11 +105,9 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
 
   return (
     <div
+      style={{ gridColumn: `span ${span}` }}
       className={[
-        'relative rounded-xl overflow-hidden bg-bg-raised flex items-center justify-center transition-shadow shrink-0',
-        // Screen-share stays big (the whole point is reading it); camera
-        // and audio-only tiles are small fixed boxes, same size either way.
-        isScreen ? 'w-full max-w-2xl aspect-video' : 'w-56 h-40',
+        'relative rounded-xl overflow-hidden bg-bg-raised flex items-center justify-center transition-shadow aspect-video',
         speaking ? 'ring-2 ring-ok' : '',
       ].join(' ')}
     >
