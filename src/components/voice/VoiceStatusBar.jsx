@@ -20,7 +20,7 @@ const SUPPORTS_SINK_ID = typeof document !== 'undefined'
  */
 export default function VoiceStatusBar() {
   const {
-    activeChannel, participants, remoteStreams, muted, deafened, connError,
+    activeChannel, remoteStreams, muted, deafened, connError,
     voicePrefs, leave, toggleMute, toggleDeafen, clearConnError,
   } = useVoiceChannel()
 
@@ -59,10 +59,8 @@ export default function VoiceStatusBar() {
     setAutoplayBlocked(false)
   }
 
-  const count = participants.length
-
   return (
-    <div className="shrink-0 border-t border-line-subtle bg-bg-dark px-2 py-2 relative">
+    <div className="shrink-0 border-t border-line-subtle bg-bg-dark px-2 py-1.5 relative">
       {Object.entries(remoteStreams).map(([uid, stream]) => (
         <audio
           key={uid}
@@ -96,13 +94,15 @@ export default function VoiceStatusBar() {
 
       <div className="flex items-center gap-2 px-1">
         <VoiceIcon className="text-ok shrink-0" />
+        {/* Participant count lives in VoiceParticipants' avatar stack under
+            the channel row already — repeating it here was redundant. */}
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-ink truncate">{activeChannel.channelName}</div>
-          <div className="text-xs text-ink-dim">{count} {count === 1 ? 'person' : 'people'} connected</div>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-ok leading-tight">Voice Connected</div>
+          <div className="text-sm text-ink truncate leading-tight">{activeChannel.channelName}</div>
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-1.5 px-1 mt-1.5">
+      <div className="flex items-center justify-end gap-1.5 px-1 mt-1">
         <IconButton onClick={toggleMute} active={muted} label={muted ? 'Unmute' : 'Mute'}>
           {muted ? <MicOffIcon /> : <MicIcon />}
         </IconButton>

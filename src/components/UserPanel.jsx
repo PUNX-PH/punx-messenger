@@ -1,18 +1,44 @@
-import { Link } from 'react-router-dom'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth, isSuperAdmin } from '../lib/auth'
 import Avatar from './Avatar'
 import { roleLabel } from '../lib/users'
 import { computeStatus, useTickNow } from '../lib/presence'
 import { useUsers } from '../lib/users'
 import { useNotifications } from '../lib/notifications'
+import GroupContextMenu from './GroupContextMenu'
 
+// Compact, Discord-style bottom bar: avatar + name/role, one settings icon.
+// Notifications and the admin panel used to be separate always-visible
+// icons here — moved behind this single menu (same component ServerRail
+// already uses for its own context menus) so this row doesn't compete with
+// VoiceStatusBar's controls for the sidebar's ~240px width.
 export default function UserPanel() {
   const { profile, signOut } = useAuth()
   const { byId } = useUsers()
   const { supported: notifSupported, permission: notifPerm, request: requestNotifPerm } = useNotifications()
+  const navigate = useNavigate()
   const now = useTickNow()
+  const [menu, setMenu] = useState({ open: false, x: 0, y: 0 })
   const me = byId[profile?.id] || profile
   const status = computeStatus(me, now)
+
+  const openMenu = (e) => setMenu({ open: true, x: e.clientX, y: e.clientY })
+
+  const items = [
+    ...(notifSupported ? [{
+      label: notifPerm === 'granted' ? 'Notifications: On'
+        : notifPerm === 'denied' ? 'Notifications blocked'
+        : 'Enable notifications',
+      icon: notifPerm === 'denied' ? <BellOffIcon /> : <BellIcon />,
+      onClick: notifPerm === 'default' ? requestNotifPerm : undefined,
+      disabled: notifPerm !== 'default',
+    }] : []),
+    ...(isSuperAdmin(profile) ? [{ label: 'Admin panel', icon: <ShieldIcon />, onClick: () => navigate('/admin') }] : []),
+    { separator: true },
+    { label: 'Sign out', icon: <SignOutIcon />, onClick: signOut, danger: true },
+  ]
+
   return (
     <div className="h-14 bg-bg-deepest border-t border-line-subtle px-2 flex items-center gap-2 shrink-0">
       <Avatar name={profile?.name} src={profile?.photoURL} size={32} status={status} ringColor="border-bg-deepest" />
@@ -21,47 +47,28 @@ export default function UserPanel() {
         <div className="text-xs text-ink-dim truncate">{roleLabel(profile?.role)}</div>
       </div>
 
-      {notifSupported && (
-        <button
-          onClick={notifPerm === 'default' ? requestNotifPerm : undefined}
-          title={
-            notifPerm === 'granted' ? 'Notifications on'
-            : notifPerm === 'denied' ? 'Notifications blocked (change in browser settings)'
-            : 'Enable notifications'
-          }
-          disabled={notifPerm === 'denied'}
-          className={[
-            'p-1.5 rounded hover:bg-bg-hover transition-colors',
-            notifPerm === 'granted' ? 'text-brand'
-              : notifPerm === 'denied' ? 'text-ink-dim opacity-50 cursor-not-allowed'
-              : 'text-ink-dim hover:text-ink',
-          ].join(' ')}
-        >
-          {notifPerm === 'denied' ? <BellOffIcon /> : <BellIcon />}
-        </button>
-      )}
-
-      {isSuperAdmin(profile) && (
-        <Link
-          to="/admin"
-          title="Admin panel"
-          className="text-ink-dim hover:text-warn p-1.5 rounded hover:bg-bg-hover transition-colors"
-        >
-          <ShieldIcon />
-        </Link>
-      )}
-
       <button
-        onClick={signOut}
-        title="Sign out"
+        onClick={openMenu}
+        title="Settings"
+        aria-label="Settings"
         className="text-ink-dim hover:text-ink p-1.5 rounded hover:bg-bg-hover transition-colors"
       >
-        <SignOutIcon />
+        <GearIcon />
       </button>
+
+      <GroupContextMenu open={menu.open} x={menu.x} y={menu.y} items={items} onClose={() => setMenu(m => ({ ...m, open: false }))} />
     </div>
   )
 }
 
+function GearIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  )
+}
 function ShieldIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
