@@ -84,15 +84,93 @@ export async function createGroup({ name, avatarFile, owner }) {
   return { groupId, generalChannelId: generalRef.id }
 }
 
-export async function createChannel(groupId, { name, createdBy }) {
+export async function createChannel(groupId, { name, createdBy, categoryId = null }) {
   const colRef = collection(db, 'groups', groupId, 'channels')
+  // Next position within the target category (or the uncategorized group).
+  const existing = await getDocs(query(colRef, where('categoryId', '==', categoryId)))
+  const maxOrder = existing.docs.reduce((m, d) => Math.max(m, d.data().order ?? -1), -1)
   const ref = await addDoc(colRef, {
     name: name.trim().toLowerCase().replace(/\s+/g, '-'),
     type: 'text',
+    categoryId,
+    order: maxOrder + 1,
     createdAt: serverTimestamp(),
     createdBy,
   })
   return ref.id
+}
+
+// ───────── Channel categories (Discord-style grouping) ─────────
+
+export function listenCategories(groupId, cb) {
+  const q = query(collection(db, 'groups', groupId, 'categories'), orderBy('order', 'asc'))
+  return onSnapshot(q, snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+}
+
+export async function createCategory(groupId, { name, createdBy }) {
+  const existing = await getDocs(collection(db, 'groups', groupId, 'categories'))
+  const maxOrder = existing.docs.reduce((m, d) => Math.max(m, d.data().order ?? -1), -1)
+  const ref = await addDoc(collection(db, 'groups', groupId, 'categories'), {
+    name: name.trim(),
+    order: maxOrder + 1,
+    createdAt: serverTimestamp(),
+    createdBy,
+  })
+  return ref.id
+}
+
+export async function renameCategory(groupId, categoryId, name) {
+  await updateDoc(doc(db, 'groups', groupId, 'categories', categoryId), { name: name.trim() })
+}
+
+// Channels in the deleted category fall back to uncategorized rather than
+// being deleted themselves.
+export async function deleteCategory(groupId, categoryId) {
+  const chSnap = await getDocs(query(collection(db, 'groups', groupId, 'channels'), where('categoryId', '==', categoryId)))
+  const batch = writeBatch(db)
+  chSnap.docs.forEach(d => batch.update(d.ref, { categoryId: null }))
+  batch.delete(doc(db, 'groups', groupId, 'categories', categoryId))
+  await batch.commit()
+}
+
+// orderedIds is the full list of category ids in their new top-to-bottom order.
+export async function reorderCategories(groupId, orderedIds) {
+  const batch = writeBatch(db)
+  orderedIds.forEach((id, i) => batch.update(doc(db, 'groups', groupId, 'categories', id), { order: i }))
+  await batch.commit()
+}
+
+// Moves a channel into `categoryId` (null = uncategorized) and persists the
+// full new order for every channel in that resulting list — used for both
+// "reorder within the same category" and "drag into a different category".
+export async function reorderChannelsInCategory(groupId, categoryId, orderedChannelIds) {
+  const batch = writeBatch(db)
+  orderedChannelIds.forEach((id, i) =>
+    batch.update(doc(db, 'groups', groupId, 'channels', id), { categoryId, order: i }))
+  await batch.commit()
+}
+
+// Groups + sorts channels for display: uncategorized channels first (fixed
+// position, not part of category reordering — matches Discord), then each
+// category (in its own order) with its channels (in their own order).
+export function groupChannelsByCategory(channels, categories) {
+  const sortByOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0)
+  const byCategory = new Map()
+  const uncategorized = []
+  for (const c of channels) {
+    if (c.categoryId) {
+      if (!byCategory.has(c.categoryId)) byCategory.set(c.categoryId, [])
+      byCategory.get(c.categoryId).push(c)
+    } else {
+      uncategorized.push(c)
+    }
+  }
+  uncategorized.sort(sortByOrder)
+  const sortedCategories = [...categories].sort(sortByOrder).map(cat => ({
+    ...cat,
+    channels: (byCategory.get(cat.id) || []).sort(sortByOrder),
+  }))
+  return { uncategorized, categories: sortedCategories }
 }
 
 export async function addMember(groupId, uid) {

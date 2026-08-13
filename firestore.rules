@@ -120,13 +120,20 @@ service cloud.firestore {
       allow delete: if (signedIn() && resource.data.ownerUid == myUid())
         || isWorkspaceAdmin();
 
+      // ───── Channel categories (Discord-style grouping) ─────
+      match /categories/{categoryId} {
+        allow read: if isGroupMember(groupId);
+        allow create, update, delete: if isWorkspaceAdmin() || isGroupAdmin(groupId);
+      }
+
       // ───── Channels ─────
       match /channels/{channelId} {
         allow read: if isGroupMember(groupId);
         // Create: group admin (incl. during batched group creation) or workspace admin
         allow create: if isWorkspaceAdmin() || isGroupAdminAfter(groupId);
-        // Update: admins anything; any group member may bump `lastMessageAt`
-        // (unread state) and/or write to `typing` (typing indicators).
+        // Update: admins anything (incl. categoryId/order for drag-to-reorder);
+        // any group member may bump `lastMessageAt` (unread state) and/or
+        // write to `typing` (typing indicators).
         allow update: if isWorkspaceAdmin() || isGroupAdmin(groupId)
           || (isGroupMember(groupId)
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'typing']));

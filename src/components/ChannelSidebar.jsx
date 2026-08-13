@@ -1,11 +1,21 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import {
+  DndContext, DragOverlay, PointerSensor, closestCenter, useDroppable, useSensor, useSensors,
+} from '@dnd-kit/core'
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useAuth, isAdmin } from '../lib/auth'
 import { useUsers } from '../lib/users'
-import { createChannel, listenChannels, listenGroup } from '../lib/groups'
+import {
+  createCategory, createChannel, deleteCategory, groupChannelsByCategory,
+  listenCategories, listenChannels, listenGroup, renameCategory,
+  reorderCategories, reorderChannelsInCategory,
+} from '../lib/groups'
 import { isUnread, pathToReadKey } from '../lib/db'
 import UserPanel from './UserPanel'
 import GroupSettingsModal from './GroupSettingsModal'
+import GroupContextMenu from './GroupContextMenu'
 
 export default function ChannelSidebar() {
   const { profile } = useAuth()
@@ -15,10 +25,16 @@ export default function ChannelSidebar() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [group, setGroup] = useState(null)
   const [channels, setChannels] = useState([])
-  const [creating, setCreating] = useState(false)
+  const [categories, setCategories] = useState([])
+  const [creatingIn, setCreatingIn] = useState(undefined) // undefined = none; null = uncategorized; categoryId = that category
   const [newName, setNewName] = useState('')
+  const [creatingCategory, setCreatingCategory] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState('overview')
+  const [addMenu, setAddMenu] = useState({ open: false, x: 0, y: 0 })
+  const [catMenu, setCatMenu] = useState({ open: false, x: 0, y: 0, category: null })
+  const [collapsed, setCollapsed] = useState(() => readCollapsed(groupId))
+  const [activeDrag, setActiveDrag] = useState(null)
 
   // Auto-open settings if URL has ?settings=1 (used by group context menu)
   useEffect(() => {
@@ -41,21 +57,102 @@ export default function ChannelSidebar() {
     return listenChannels(groupId, setChannels)
   }, [groupId])
 
+  useEffect(() => {
+    if (!groupId) return
+    return listenCategories(groupId, setCategories)
+  }, [groupId])
+
+  useEffect(() => { setCollapsed(readCollapsed(groupId)) }, [groupId])
+
   const me = usersById[profile?.id]
   const lastRead = me?.lastRead || {}
   const canManage = isAdmin(profile) || group?.adminUids?.includes(profile?.id)
 
+  const grouped = useMemo(() => groupChannelsByCategory(channels, categories), [channels, categories])
+
+  const toggleCollapsed = (categoryId) => {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(categoryId)) next.delete(categoryId)
+      else next.add(categoryId)
+      saveCollapsed(groupId, next)
+      return next
+    })
+  }
+
   const submitNewChannel = async (e) => {
     e.preventDefault()
     const v = newName.trim()
-    if (!v) return
-    const id = await createChannel(groupId, { name: v, createdBy: profile.id })
-    setNewName(''); setCreating(false)
+    if (!v || creatingIn === undefined) return
+    const id = await createChannel(groupId, { name: v, createdBy: profile.id, categoryId: creatingIn })
+    setNewName(''); setCreatingIn(undefined)
     navigate(`/g/${groupId}/c/${id}`)
+  }
+
+  const submitNewCategory = async (e) => {
+    e.preventDefault()
+    const v = newName.trim()
+    if (!v) return
+    await createCategory(groupId, { name: v, createdBy: profile.id })
+    setNewName(''); setCreatingCategory(false)
   }
 
   const openOverviewSettings = () => { setSettingsInitialTab('overview'); setSettingsOpen(true) }
   const openMembersSettings = () => { setSettingsInitialTab('members'); setSettingsOpen(true) }
+
+  const openAddMenu = (e) => setAddMenu({ open: true, x: e.clientX, y: e.clientY })
+  const openCategoryMenu = (e, category) => {
+    e.preventDefault()
+    setCatMenu({ open: true, x: e.clientX, y: e.clientY, category })
+  }
+
+  // ── Drag and drop ──
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+
+  const onDragStart = ({ active }) => setActiveDrag(active.data.current)
+  const onDragCancel = () => setActiveDrag(null)
+
+  const onDragEnd = ({ active, over }) => {
+    setActiveDrag(null)
+    if (!over) return
+    const activeData = active.data.current
+    const overData = over.data.current
+    if (!activeData || active.id === over.id) return
+
+    if (activeData.type === 'category') {
+      if (overData?.type !== 'category') return
+      const ids = grouped.categories.map(c => c.id)
+      const oldIndex = ids.indexOf(activeData.category.id)
+      const newIndex = ids.indexOf(overData.category.id)
+      if (oldIndex === -1 || newIndex === -1) return
+      const reordered = arrayMove(grouped.categories, oldIndex, newIndex).map(c => c.id)
+      reorderCategories(groupId, reordered).catch(err => console.error('[ChannelSidebar] reorderCategories failed:', err))
+      return
+    }
+
+    if (activeData.type === 'channel') {
+      const channelId = activeData.channel.id
+      let targetCategoryId
+      if (overData?.type === 'channel') targetCategoryId = overData.channel.categoryId ?? null
+      else if (overData?.type === 'category-target') targetCategoryId = overData.categoryId
+      else return
+
+      const listFor = (catId) => catId === null
+        ? grouped.uncategorized
+        : (grouped.categories.find(c => c.id === catId)?.channels || [])
+
+      const targetList = listFor(targetCategoryId).filter(c => c.id !== channelId)
+      if (overData?.type === 'channel') {
+        const overIndex = targetList.findIndex(c => c.id === overData.channel.id)
+        targetList.splice(overIndex === -1 ? targetList.length : overIndex, 0, { id: channelId })
+      } else {
+        targetList.push({ id: channelId })
+      }
+
+      reorderChannelsInCategory(groupId, targetCategoryId, targetList.map(c => c.id))
+        .catch(err => console.error('[ChannelSidebar] reorderChannelsInCategory failed:', err))
+    }
+  }
 
   return (
     <aside className="w-60 bg-bg-dark flex flex-col border-r border-line-subtle">
@@ -97,59 +194,92 @@ export default function ChannelSidebar() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin py-3 px-2 space-y-0.5">
-        <div className="px-2 pt-1 pb-1 flex items-center justify-between">
-          <span className="text-[11px] font-semibold tracking-wider uppercase text-ink-dim">Text channels</span>
-          {canManage && (
-            <button
-              onClick={() => setCreating(v => !v)}
-              title="Create channel"
-              className="text-ink-dim hover:text-ink"
-            >
+      <div className="flex-1 overflow-y-auto scrollbar-thin py-3 px-2 space-y-3">
+        {canManage && (
+          <div className="px-1 flex justify-end">
+            <button onClick={openAddMenu} title="Add channel or category" className="text-ink-dim hover:text-ink">
               <PlusIcon />
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
-        {creating && (
-          <form onSubmit={submitNewChannel} className="px-2 pb-2">
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={onDragStart}
+          onDragCancel={onDragCancel}
+          onDragEnd={onDragEnd}
+        >
+          <ChannelListBody
+            categoryId={null}
+            channels={grouped.uncategorized}
+            activeChannelId={activeChannelId}
+            groupId={groupId}
+            lastRead={lastRead}
+            creating={creatingIn === null}
+            newName={newName}
+            setNewName={setNewName}
+            onSubmitNew={submitNewChannel}
+            onCancelNew={() => setCreatingIn(undefined)}
+          />
+
+          <SortableContext items={grouped.categories.map(c => c.id)} strategy={verticalListSortingStrategy}>
+            {grouped.categories.map(cat => (
+              <CategorySection
+                key={cat.id}
+                category={cat}
+                collapsed={collapsed.has(cat.id)}
+                onToggleCollapse={() => toggleCollapsed(cat.id)}
+                onContextMenu={(e) => canManage && openCategoryMenu(e, cat)}
+                canManage={canManage}
+                onAddChannel={() => { setCreatingIn(cat.id); setNewName('') }}
+              >
+                <ChannelListBody
+                  categoryId={cat.id}
+                  channels={cat.channels}
+                  activeChannelId={activeChannelId}
+                  groupId={groupId}
+                  lastRead={lastRead}
+                  creating={creatingIn === cat.id}
+                  newName={newName}
+                  setNewName={setNewName}
+                  onSubmitNew={submitNewChannel}
+                  onCancelNew={() => setCreatingIn(undefined)}
+                />
+              </CategorySection>
+            ))}
+          </SortableContext>
+
+          <DragOverlay>
+            {activeDrag?.type === 'channel' && (
+              <div className="px-2 py-1.5 rounded-sm text-sm bg-bg-raised shadow-elev2 flex items-center gap-2">
+                <span className="text-ink-dim">#</span>
+                <span className="truncate">{activeDrag.channel.name}</span>
+              </div>
+            )}
+            {activeDrag?.type === 'category' && (
+              <div className="px-2 py-1 rounded-sm text-[11px] font-semibold uppercase tracking-wider bg-bg-raised shadow-elev2">
+                {activeDrag.category.name}
+              </div>
+            )}
+          </DragOverlay>
+        </DndContext>
+
+        {creatingCategory && (
+          <form onSubmit={submitNewCategory} className="px-1">
             <input
               autoFocus
               value={newName}
               onChange={e => setNewName(e.target.value)}
-              onBlur={() => !newName.trim() && setCreating(false)}
-              onKeyDown={(e) => { if (e.key === 'Escape') setCreating(false) }}
-              placeholder="new-channel"
+              onBlur={() => !newName.trim() && setCreatingCategory(false)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setCreatingCategory(false) }}
+              placeholder="New category name"
               className="w-full bg-bg-deepest text-sm rounded-sm px-2 py-1 outline-none focus:ring-1 focus:ring-brand"
             />
           </form>
         )}
 
-        {channels.map(c => {
-          const key = pathToReadKey(`groups/${groupId}/channels/${c.id}`)
-          const active = c.id === activeChannelId
-          const unread = !active && isUnread(c.lastMessageAt, lastRead[key])
-          return (
-            <NavLink
-              key={c.id}
-              to={`/g/${groupId}/c/${c.id}`}
-              className={({ isActive }) => [
-                'w-full text-left px-2 py-1.5 rounded-sm text-sm flex items-center gap-2 transition-colors duration-150',
-                isActive
-                  ? 'bg-bg-hover text-ink'
-                  : unread
-                    ? 'text-ink font-semibold hover:bg-bg-raised'
-                    : 'text-ink-muted hover:bg-bg-raised hover:text-ink',
-              ].join(' ')}
-            >
-              <span className="text-ink-dim">#</span>
-              <span className="truncate flex-1">{c.name}</span>
-              {unread && <UnreadDot />}
-            </NavLink>
-          )
-        })}
-
-        {channels.length === 0 && (
+        {channels.length === 0 && categories.length === 0 && (
           <div className="px-2 py-3 text-xs text-ink-dim">No channels yet.</div>
         )}
       </div>
@@ -162,9 +292,170 @@ export default function ChannelSidebar() {
         group={group}
         initialTab={settingsInitialTab}
       />
+
+      <GroupContextMenu
+        open={addMenu.open}
+        x={addMenu.x}
+        y={addMenu.y}
+        onClose={() => setAddMenu(m => ({ ...m, open: false }))}
+        items={[
+          { label: 'Create channel', icon: <PlusIcon />, onClick: () => { setCreatingIn(null); setNewName('') } },
+          { label: 'Create category', icon: <PlusIcon />, onClick: () => { setCreatingCategory(true); setNewName('') } },
+        ]}
+      />
+
+      <GroupContextMenu
+        open={catMenu.open}
+        x={catMenu.x}
+        y={catMenu.y}
+        onClose={() => setCatMenu(m => ({ ...m, open: false }))}
+        items={catMenu.category ? [
+          { label: 'Add channel here', icon: <PlusIcon />, onClick: () => { setCreatingIn(catMenu.category.id); setNewName('') } },
+          { label: 'Rename category', icon: <ChevronDown />, onClick: () => {
+              const name = prompt('Rename category', catMenu.category.name)
+              if (name?.trim()) renameCategory(groupId, catMenu.category.id, name)
+            } },
+          { separator: true },
+          { label: 'Delete category', icon: <ChevronDown />, danger: true, onClick: () => {
+              if (confirm(`Delete category "${catMenu.category.name}"? Its channels move back to uncategorized.`)) {
+                deleteCategory(groupId, catMenu.category.id)
+              }
+            } },
+        ] : []}
+      />
     </aside>
   )
 }
+
+// ───────── Sub-components ─────────
+
+function CategorySection({ category, collapsed, onToggleCollapse, onContextMenu, canManage, onAddChannel, children }) {
+  const sortable = useSortable({ id: category.id, data: { type: 'category', category } })
+  const target = useDroppable({ id: `catdrop-header:${category.id}`, data: { type: 'category-target', categoryId: category.id } })
+
+  const style = {
+    transform: CSS.Transform.toString(sortable.transform),
+    transition: sortable.transition,
+    opacity: sortable.isDragging ? 0.4 : 1,
+  }
+
+  return (
+    <div ref={sortable.setNodeRef} style={style}>
+      <div
+        ref={target.setNodeRef}
+        {...sortable.attributes}
+        {...sortable.listeners}
+        onContextMenu={onContextMenu}
+        onClick={onToggleCollapse}
+        className={[
+          'px-2 pt-1 pb-1 flex items-center justify-between cursor-pointer select-none rounded-sm group/cat',
+          target.isOver ? 'bg-bg-raised' : '',
+        ].join(' ')}
+      >
+        <span className="flex items-center gap-1 text-[11px] font-semibold tracking-wider uppercase text-ink-dim">
+          <ChevronDown className={collapsed ? '-rotate-90 transition-transform' : 'transition-transform'} />
+          {category.name}
+        </span>
+        {canManage && (
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onAddChannel() }}
+            title="Add channel"
+            className="text-ink-dim hover:text-ink opacity-0 group-hover/cat:opacity-100 transition-opacity"
+          >
+            <PlusIcon />
+          </button>
+        )}
+      </div>
+      {!collapsed && <div className="space-y-0.5">{children}</div>}
+    </div>
+  )
+}
+
+function ChannelListBody({
+  categoryId, channels, activeChannelId, groupId, lastRead,
+  creating, newName, setNewName, onSubmitNew, onCancelNew,
+}) {
+  const target = useDroppable({ id: `catdrop-body:${categoryId ?? 'none'}`, data: { type: 'category-target', categoryId } })
+  return (
+    <div ref={target.setNodeRef} className={['space-y-0.5 rounded-sm', target.isOver ? 'bg-bg-raised/50' : ''].join(' ')}>
+      <SortableContext items={channels.map(c => c.id)} strategy={verticalListSortingStrategy}>
+        {channels.map(c => (
+          <SortableChannelRow
+            key={c.id}
+            channel={c}
+            groupId={groupId}
+            active={c.id === activeChannelId}
+            unread={c.id !== activeChannelId && isUnread(c.lastMessageAt, lastRead[pathToReadKey(`groups/${groupId}/channels/${c.id}`)])}
+          />
+        ))}
+      </SortableContext>
+
+      {creating && (
+        <form onSubmit={onSubmitNew} className="px-1">
+          <input
+            autoFocus
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            onBlur={() => !newName.trim() && onCancelNew()}
+            onKeyDown={(e) => { if (e.key === 'Escape') onCancelNew() }}
+            placeholder="new-channel"
+            className="w-full bg-bg-deepest text-sm rounded-sm px-2 py-1 outline-none focus:ring-1 focus:ring-brand"
+          />
+        </form>
+      )}
+    </div>
+  )
+}
+
+function SortableChannelRow({ channel, groupId, active, unread }) {
+  const sortable = useSortable({ id: channel.id, data: { type: 'channel', channel } })
+  const style = {
+    transform: CSS.Transform.toString(sortable.transform),
+    transition: sortable.transition,
+    opacity: sortable.isDragging ? 0.4 : 1,
+  }
+  return (
+    <NavLink
+      ref={sortable.setNodeRef}
+      style={style}
+      {...sortable.attributes}
+      {...sortable.listeners}
+      to={`/g/${groupId}/c/${channel.id}`}
+      className={[
+        'w-full text-left px-2 py-1.5 rounded-sm text-sm flex items-center gap-2 transition-colors duration-150',
+        active
+          ? 'bg-bg-hover text-ink'
+          : unread
+            ? 'text-ink font-semibold hover:bg-bg-raised'
+            : 'text-ink-muted hover:bg-bg-raised hover:text-ink',
+      ].join(' ')}
+    >
+      <span className="text-ink-dim">#</span>
+      <span className="truncate flex-1">{channel.name}</span>
+      {unread && <UnreadDot />}
+    </NavLink>
+  )
+}
+
+// ───────── Collapsed-category persistence (localStorage, per group) ─────────
+
+function collapsedKey(groupId) { return `punx.collapsedCategories.${groupId}` }
+
+function readCollapsed(groupId) {
+  if (!groupId) return new Set()
+  try { return new Set(JSON.parse(localStorage.getItem(collapsedKey(groupId)) || '[]')) }
+  catch { return new Set() }
+}
+
+function saveCollapsed(groupId, set) {
+  if (!groupId) return
+  try { localStorage.setItem(collapsedKey(groupId), JSON.stringify([...set])) }
+  catch { /* non-fatal */ }
+}
+
+// ───────── Icons ─────────
 
 function UnreadDot() {
   return <span className="w-2 h-2 rounded-full bg-bad shrink-0" />
