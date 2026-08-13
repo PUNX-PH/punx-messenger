@@ -446,6 +446,7 @@ function TypePill({ active, onClick, children }) {
 function SortableChannelRow({ channel, groupId, active, unread }) {
   const sortable = useSortable({ id: channel.id, data: { type: 'channel', channel } })
   const { activeChannel, join } = useVoiceChannel()
+  const navigate = useNavigate()
   const style = {
     transform: CSS.Transform.toString(sortable.transform),
     transition: sortable.transition,
@@ -461,7 +462,14 @@ function SortableChannelRow({ channel, groupId, active, unread }) {
         style={style}
         {...sortable.attributes}
         {...sortable.listeners}
-        onClick={() => join(groupId, channel.id, channel.name)}
+        onClick={() => {
+          // join() no-ops if already connected here; navigating is what
+          // actually shows the tile grid (VoiceChannelRoom), matching
+          // Discord — clicking a voice channel takes you to its own view,
+          // it doesn't just connect silently in the background.
+          join(groupId, channel.id, channel.name)
+          navigate(`/g/${groupId}/c/${channel.id}`)
+        }}
         className={[
           'w-full text-left px-2 py-1.5 rounded-sm text-sm flex items-center gap-2 transition-colors duration-150',
           connected ? 'bg-bg-hover text-ink' : 'text-ink-muted hover:bg-bg-raised hover:text-ink',

@@ -4,6 +4,7 @@ import { useAuth, isAdmin } from '../lib/auth'
 import { listenChannels, listenGroup } from '../lib/groups'
 import ChatSurface from '../components/ChatSurface'
 import MembersPanel, { MembersToggle } from '../components/MembersPanel'
+import VoiceChannelRoom from './VoiceChannelRoom'
 
 export default function Channel() {
   const { groupId, channelId } = useParams()
@@ -33,6 +34,8 @@ export default function Channel() {
 
   if (!channel) return <Center>Loading channel…</Center>
   if (channel.notFound) return <Center>Channel not found.</Center>
+
+  if (channel.type === 'voice') return <VoiceChannelRoom channel={channel} groupId={groupId} />
 
   const elevated = isAdmin(profile) || group?.adminUids?.includes(profile?.id)
   const path = `groups/${groupId}/channels/${channelId}/messages`

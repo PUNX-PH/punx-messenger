@@ -43,32 +43,33 @@ export default function VoiceParticipants({ groupId, channelId }) {
       {participants.map(p => {
         const user = byId[p.uid]
         const speaking = speakingUids?.has(p.uid)
+        const hasVideo = p.cameraOn || p.screenSharing
         return compact
-          ? <CompactAvatar key={p.uid} user={user} muted={p.muted} deafened={p.deafened} speaking={speaking} />
-          : <ParticipantRow key={p.uid} user={user} muted={p.muted} deafened={p.deafened} speaking={speaking} />
+          ? <CompactAvatar key={p.uid} user={user} muted={p.muted} deafened={p.deafened} speaking={speaking} hasVideo={hasVideo} />
+          : <ParticipantRow key={p.uid} user={user} muted={p.muted} deafened={p.deafened} speaking={speaking} hasVideo={hasVideo} />
       })}
     </div>
   )
 }
 
-function ParticipantRow({ user, muted, deafened, speaking }) {
+function ParticipantRow({ user, muted, deafened, speaking, hasVideo }) {
   return (
     <div className="flex items-center gap-1.5 py-0.5 min-w-0">
-      <SpeakingAvatar user={user} size={20} speaking={speaking} muted={muted} deafened={deafened} />
+      <SpeakingAvatar user={user} size={20} speaking={speaking} muted={muted} deafened={deafened} hasVideo={hasVideo} />
       <span className="text-xs text-ink-muted truncate">{user?.name || 'Someone'}</span>
     </div>
   )
 }
 
-function CompactAvatar({ user, muted, deafened, speaking }) {
+function CompactAvatar({ user, muted, deafened, speaking, hasVideo }) {
   return (
     <div title={user?.name || 'Someone'} className="shrink-0">
-      <SpeakingAvatar user={user} size={16} speaking={speaking} muted={muted} deafened={deafened} />
+      <SpeakingAvatar user={user} size={16} speaking={speaking} muted={muted} deafened={deafened} hasVideo={hasVideo} />
     </div>
   )
 }
 
-function SpeakingAvatar({ user, size, speaking, muted, deafened }) {
+function SpeakingAvatar({ user, size, speaking, muted, deafened, hasVideo }) {
   return (
     <div
       className={[
@@ -77,12 +78,26 @@ function SpeakingAvatar({ user, size, speaking, muted, deafened }) {
       ].join(' ')}
     >
       <Avatar name={user?.name} src={user?.photoURL} size={size} />
+      {hasVideo && (
+        <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-ok grid place-items-center">
+          <CameraDotIcon />
+        </span>
+      )}
       {(muted || deafened) && (
         <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-bad grid place-items-center">
           {deafened ? <DeafenedDotIcon /> : <MutedDotIcon />}
         </span>
       )}
     </div>
+  )
+}
+
+function CameraDotIcon() {
+  return (
+    <svg width="7" height="7" viewBox="0 0 24 24" fill="white" stroke="none" aria-hidden="true">
+      <polygon points="23 7 16 12 23 17 23 7"/>
+      <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+    </svg>
   )
 }
 

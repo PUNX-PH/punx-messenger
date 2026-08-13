@@ -94,7 +94,9 @@ export default function VoiceStatusBar() {
         {/* Participant count lives in VoiceParticipants' avatar stack under
             the channel row already — repeating it here was redundant. */}
         <div className="flex-1 min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-ok leading-tight">Voice Connected</div>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-ok leading-tight">
+            {cameraOn || screenSharing ? 'Video Connected' : 'Voice Connected'}
+          </div>
           <div className="text-sm text-ink truncate leading-tight">{activeChannel.channelName}</div>
         </div>
         <button
