@@ -61,9 +61,17 @@ service cloud.firestore {
         myUid() in get(/databases/$(database)/documents/calls/$(callId)).data.members;
     }
 
-    function isVoicePairMember(groupId, channelId, pairKey) {
-      return signedIn() &&
-        myUid() in get(/databases/$(database)/documents/groups/$(groupId)/channels/$(channelId)/voiceSignals/$(pairKey)).data.uids;
+    // Deliberately NOT a get() on the voiceSignals/{pairKey} doc — the
+    // offerer's client attaches its candidates listener before that parent
+    // doc is written (it needs the RTCPeerConnection to exist first to
+    // generate the offer SDP that goes into the doc), so a get()-based check
+    // denies the very first read with "missing or insufficient permissions"
+    // and Firestore listeners don't recover from a permission error once
+    // thrown — the listener just dies. pairKey is always the two uids sorted
+    // and joined with "__" (see voicePairKey in lib/voiceChannel.js), so
+    // membership is checkable straight from the path, no parent doc needed.
+    function isVoicePairMember(pairKey) {
+      return signedIn() && myUid() in pairKey.split('__');
     }
 
     // ───────── Users (workspace directory) ─────────
@@ -226,9 +234,9 @@ service cloud.firestore {
           allow delete: if isGroupMember(groupId) && myUid() in resource.data.uids;
 
           match /candidates/{candId} {
-            allow read:   if isVoicePairMember(groupId, channelId, pairKey);
-            allow create: if isVoicePairMember(groupId, channelId, pairKey) && request.resource.data.from == myUid();
-            allow delete: if isVoicePairMember(groupId, channelId, pairKey);
+            allow read:   if isVoicePairMember(pairKey);
+            allow create: if isVoicePairMember(pairKey) && request.resource.data.from == myUid();
+            allow delete: if isVoicePairMember(pairKey);
           }
         }
       }
