@@ -1,18 +1,36 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useVoiceChannel } from '../../lib/useVoiceChannel'
 import { listAudioDevices } from '../../lib/webrtc'
+
+const PANEL_WIDTH = 300
 
 /**
  * Discord-style voice settings popover — Input/Output device pickers (each
  * a clickable row that expands into a radio-select list, not a native
- * <select>) plus input/output volume sliders. Anchored above VoiceStatusBar
- * via `absolute bottom-full` on its `relative` parent.
+ * <select>) plus input/output volume sliders.
+ *
+ * Rendered through a portal at a fixed viewport position rather than
+ * inline in the (240px-wide) sidebar — device labels like "Microphone
+ * (HyperX SoloCast)" just don't fit in that column without truncating
+ * into illegibility. `anchorRef` is the settings gear button; the panel
+ * floats above it, width capped independent of the sidebar.
  */
-export default function VoiceSettingsPopover({ onClose }) {
+export default function VoiceSettingsPopover({ anchorRef, onClose }) {
   const { voicePrefs, setInputDevice, setOutputDevice, setInputVolume, setOutputVolume } = useVoiceChannel()
   const [devices, setDevices] = useState({ inputs: [], outputs: [] })
   const [expanded, setExpanded] = useState(null) // 'input' | 'output' | null
+  const [pos, setPos] = useState(null) // { left, bottom } in viewport px, or null until measured
   const ref = useRef(null)
+
+  useLayoutEffect(() => {
+    const rect = anchorRef?.current?.getBoundingClientRect()
+    if (!rect) return
+    let left = rect.left + rect.width / 2 - PANEL_WIDTH / 2
+    left = Math.max(8, Math.min(left, window.innerWidth - PANEL_WIDTH - 8))
+    const bottom = window.innerHeight - rect.top + 8
+    setPos({ left, bottom })
+  }, [anchorRef])
 
   useEffect(() => {
     const refresh = () => listAudioDevices().then(setDevices).catch(() => {})
@@ -23,7 +41,9 @@ export default function VoiceSettingsPopover({ onClose }) {
   }, [])
 
   useEffect(() => {
-    const onMouseDown = (e) => { if (!ref.current?.contains(e.target)) onClose?.() }
+    const onMouseDown = (e) => {
+      if (!ref.current?.contains(e.target) && !anchorRef?.current?.contains(e.target)) onClose?.()
+    }
     const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
     window.addEventListener('mousedown', onMouseDown)
     window.addEventListener('keydown', onKey)
@@ -31,17 +51,20 @@ export default function VoiceSettingsPopover({ onClose }) {
       window.removeEventListener('mousedown', onMouseDown)
       window.removeEventListener('keydown', onKey)
     }
-  }, [onClose])
+  }, [onClose, anchorRef])
 
   const inputLabel = devices.inputs.find(d => d.deviceId === voicePrefs.inputDeviceId)?.label
     || (voicePrefs.inputDeviceId ? 'Unknown device' : 'System default')
   const outputLabel = devices.outputs.find(d => d.deviceId === voicePrefs.outputDeviceId)?.label
     || (voicePrefs.outputDeviceId ? 'Unknown device' : 'System default')
 
-  return (
+  if (!pos) return null
+
+  return createPortal(
     <div
       ref={ref}
-      className="absolute bottom-full left-2 right-2 mb-2 bg-bg-raised border border-line-subtle rounded-lg shadow-elev2 p-3 space-y-3 text-sm z-20 max-h-[70vh] overflow-y-auto scrollbar-thin"
+      style={{ left: pos.left, bottom: pos.bottom, width: PANEL_WIDTH }}
+      className="fixed bg-bg-raised border border-line-subtle rounded-lg shadow-elev2 p-3 space-y-3 text-sm z-[70] max-h-[70vh] overflow-y-auto scrollbar-thin"
     >
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold uppercase tracking-wider text-ink-dim">Voice Settings</span>
@@ -73,7 +96,8 @@ export default function VoiceSettingsPopover({ onClose }) {
         onSelect={(id) => { setOutputDevice(id); setExpanded(null) }}
       />
       <VolumeSlider label="Output Volume" value={voicePrefs.outputVolume} onChange={setOutputVolume} />
-    </div>
+    </div>,
+    document.body
   )
 }
 

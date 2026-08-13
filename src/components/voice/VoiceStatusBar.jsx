@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useRef, useState } from 'react'
 import { useVoiceChannel } from '../../lib/useVoiceChannel'
 import VoiceSettingsPopover from './VoiceSettingsPopover'
 
@@ -27,6 +27,7 @@ export default function VoiceStatusBar() {
   const [autoplayBlocked, setAutoplayBlocked] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const audioElsRef = useRef({})
+  const gearBtnRef = useRef(null)
 
   useEffect(() => {
     Object.entries(remoteStreams).forEach(([uid, stream]) => {
@@ -89,7 +90,9 @@ export default function VoiceStatusBar() {
         </button>
       )}
 
-      {settingsOpen && <VoiceSettingsPopover onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <VoiceSettingsPopover anchorRef={gearBtnRef} onClose={() => setSettingsOpen(false)} />
+      )}
 
       <div className="flex items-center gap-2 px-1">
         <VoiceIcon className="text-ok shrink-0" />
@@ -97,14 +100,16 @@ export default function VoiceStatusBar() {
           <div className="text-sm font-medium text-ink truncate">{activeChannel.channelName}</div>
           <div className="text-xs text-ink-dim">{count} {count === 1 ? 'person' : 'people'} connected</div>
         </div>
+      </div>
 
+      <div className="flex items-center justify-end gap-1.5 px-1 mt-1.5">
         <IconButton onClick={toggleMute} active={muted} label={muted ? 'Unmute' : 'Mute'}>
           {muted ? <MicOffIcon /> : <MicIcon />}
         </IconButton>
         <IconButton onClick={toggleDeafen} active={deafened} label={deafened ? 'Undeafen' : 'Deafen'}>
           {deafened ? <DeafenedIcon /> : <HeadphonesIcon />}
         </IconButton>
-        <IconButton onClick={() => setSettingsOpen(v => !v)} active={settingsOpen} label="Voice settings">
+        <IconButton ref={gearBtnRef} onClick={() => setSettingsOpen(v => !v)} active={settingsOpen} label="Voice settings">
           <GearIcon />
         </IconButton>
         <IconButton onClick={leave} label="Disconnect" danger>
@@ -115,9 +120,10 @@ export default function VoiceStatusBar() {
   )
 }
 
-function IconButton({ onClick, active, danger, label, children }) {
+const IconButton = forwardRef(function IconButton({ onClick, active, danger, label, children }, ref) {
   return (
     <button
+      ref={ref}
       type="button"
       onClick={onClick}
       title={label}
@@ -132,7 +138,7 @@ function IconButton({ onClick, active, danger, label, children }) {
       {children}
     </button>
   )
-}
+})
 
 function VoiceIcon({ className = '' }) {
   return (
