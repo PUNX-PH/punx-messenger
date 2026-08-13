@@ -73,7 +73,13 @@ export default function VoiceChannelRoom({ channel, groupId }) {
         <span className="font-semibold truncate">{channel.name}</span>
       </div>
       <div className="flex-1 overflow-y-auto p-3">
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+        {/* flex-wrap, not a stretchy grid — a grid's `1fr` tracks stretch to
+            fill the row even with just one or two tiles, which is why a
+            single person used to render as one giant box. Fixed-size boxes
+            that wrap keep everyone the same small size regardless of count;
+            only screen-share gets to be bigger, since that's the thing
+            people are actually trying to read. */}
+        <div className="flex flex-wrap content-start gap-3">
           {tiles.map(t => <ParticipantTile key={t.uid} {...t} />)}
         </div>
       </div>
@@ -91,7 +97,10 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
   return (
     <div
       className={[
-        'relative rounded-xl overflow-hidden bg-bg-raised min-h-[200px] flex items-center justify-center transition-shadow',
+        'relative rounded-xl overflow-hidden bg-bg-raised flex items-center justify-center transition-shadow shrink-0',
+        // Screen-share stays big (the whole point is reading it); camera
+        // and audio-only tiles are small fixed boxes, same size either way.
+        isScreen ? 'w-full max-w-2xl aspect-video' : 'w-56 h-40',
         speaking ? 'ring-2 ring-ok' : '',
       ].join(' ')}
     >
@@ -99,7 +108,7 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
         <video ref={videoRef} autoPlay playsInline muted={isSelf} className="w-full h-full object-cover" />
       ) : (
         <div className="w-full h-full flex items-center justify-center" style={{ background: colorFromName(name) }}>
-          <Avatar name={name} src={photoURL} size={80} />
+          <Avatar name={name} src={photoURL} size={64} />
         </div>
       )}
       <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/50 rounded px-2 py-1 max-w-[calc(100%-1rem)]">
