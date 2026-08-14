@@ -62,10 +62,14 @@ export default function VoiceStatusBar() {
 
   return (
     <div className="shrink-0 border-t border-line-subtle bg-bg-dark px-2 py-1.5 relative">
-      {Object.entries(remoteStreams).map(([uid, stream]) => (
+      {/* The ref callback drops its entry on unmount as well as recording it on
+          mount — without that else branch, a peer who left leaves a detached
+          <audio> behind that every later volume/sinkId/unlock pass still
+          loops over. */}
+      {Object.entries(remoteStreams).map(([uid]) => (
         <audio
           key={uid}
-          ref={el => { if (el) audioElsRef.current[uid] = el }}
+          ref={el => { if (el) audioElsRef.current[uid] = el; else delete audioElsRef.current[uid] }}
           autoPlay
           playsInline
         />

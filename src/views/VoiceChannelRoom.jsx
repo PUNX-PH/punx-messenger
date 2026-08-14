@@ -133,7 +133,6 @@ export default function VoiceChannelRoom({ channel, groupId }) {
       hasVideo: isSelf ? (cameraOn || screenSharing) : (p.cameraOn || p.screenSharing),
       isScreen: isSelf ? screenSharing : p.screenSharing,
       stream: isSelf ? localVideoStream : remoteStreams[p.uid],
-      isSelf,
     }
   })
 
@@ -208,11 +207,45 @@ export default function VoiceChannelRoom({ channel, groupId }) {
   )
 }
 
-function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, stream, isSelf, span = 1, onClick }) {
+function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, stream, span = 1, onClick }) {
   const videoRef = useRef(null)
 
+  // Only the VIDEO track goes on this element, and it stays muted forever —
+  // both parts matter:
+  //  - A peer's `stream` here is their whole connection (audio + video, see
+  //    ontrack in useVoiceChannel). Their audio is already playing through
+  //    VoiceStatusBar's <audio> sinks, which is the single choke point where
+  //    deafen / output volume / output device get applied — letting it play
+  //    here too would double it AND escape all three (deafen wouldn't silence
+  //    anyone whose camera was on).
+  //  - An unmuted autoplaying element is subject to the browser's autoplay
+  //    policy, which silently refuses to start without a recent user gesture
+  //    and leaves the tile black. That's why remote tiles could come up blank
+  //    while your own — muted, so always exempt — never did.
   useEffect(() => {
-    if (videoRef.current) videoRef.current.srcObject = hasVideo ? (stream || null) : null
+    const el = videoRef.current
+    if (!el) return
+    const track = hasVideo ? stream?.getVideoTracks?.()[0] : null
+    if (!track) { el.srcObject = null; return }
+
+    const attach = () => {
+      el.srcObject = new MediaStream([track])
+      // Belt-and-braces alongside the autoPlay attribute — a muted element is
+      // always allowed to start, so a rejection here is genuinely exceptional.
+      el.play().catch(() => {})
+    }
+    attach()
+
+    // Every peer connection carries a video transceiver from the moment it's
+    // built (see createPeerFor — that's what makes camera/screen-share a
+    // renegotiation-free replaceTrack later), so ontrack hands us a video
+    // track long before anyone actually shares anything. That track sits
+    // `muted` — no RTP behind it — and only unmutes once real frames start
+    // flowing. Chrome will happily leave the element blank forever if
+    // srcObject was assigned during that muted window, so re-attach on unmute
+    // instead of trusting the first assignment to catch up on its own.
+    track.addEventListener('unmute', attach)
+    return () => track.removeEventListener('unmute', attach)
   }, [stream, hasVideo])
 
   return (
@@ -225,12 +258,18 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
         speaking ? 'ring-2 ring-ok' : '',
       ].join(' ')}
     >
-      {hasVideo ? (
-        <video ref={videoRef} autoPlay playsInline muted={isSelf} className="w-full h-full object-cover" />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center" style={{ background: colorFromName(name) }}>
-          <Avatar name={name} src={photoURL} size={64} />
-        </div>
+      {/* The avatar placeholder always renders, with any video layered on top
+          of it rather than swapped in for it. A <video> paints nothing until
+          its first frame arrives, so this is what's behind it in the gap
+          between "they flipped their camera on" (a roster flag, instant) and
+          "their frames are actually arriving here" (a real network round
+          trip) — the person's avatar, rather than an empty grey tile that
+          reads as broken. */}
+      <div className="absolute inset-0 flex items-center justify-center" style={{ background: colorFromName(name) }}>
+        <Avatar name={name} src={photoURL} size={64} />
+      </div>
+      {hasVideo && (
+        <video ref={videoRef} autoPlay playsInline muted className="relative w-full h-full object-cover" />
       )}
       <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/50 rounded px-2 py-1 max-w-[calc(100%-1rem)]">
         {muted && <MicOffIcon className="text-bad shrink-0" />}
