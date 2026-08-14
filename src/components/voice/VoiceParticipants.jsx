@@ -43,33 +43,32 @@ export default function VoiceParticipants({ groupId, channelId }) {
       {participants.map(p => {
         const user = byId[p.uid]
         const speaking = speakingUids?.has(p.uid)
-        const hasVideo = p.cameraOn || p.screenSharing
         return compact
-          ? <CompactAvatar key={p.uid} user={user} muted={p.muted} deafened={p.deafened} speaking={speaking} hasVideo={hasVideo} />
-          : <ParticipantRow key={p.uid} user={user} muted={p.muted} deafened={p.deafened} speaking={speaking} hasVideo={hasVideo} />
+          ? <CompactAvatar key={p.uid} user={user} muted={p.muted} deafened={p.deafened} speaking={speaking} cameraOn={p.cameraOn} screenSharing={p.screenSharing} />
+          : <ParticipantRow key={p.uid} user={user} muted={p.muted} deafened={p.deafened} speaking={speaking} cameraOn={p.cameraOn} screenSharing={p.screenSharing} />
       })}
     </div>
   )
 }
 
-function ParticipantRow({ user, muted, deafened, speaking, hasVideo }) {
+function ParticipantRow({ user, muted, deafened, speaking, cameraOn, screenSharing }) {
   return (
     <div className="flex items-center gap-1.5 py-0.5 min-w-0">
-      <SpeakingAvatar user={user} size={20} speaking={speaking} muted={muted} deafened={deafened} hasVideo={hasVideo} />
+      <SpeakingAvatar user={user} size={20} speaking={speaking} muted={muted} deafened={deafened} cameraOn={cameraOn} screenSharing={screenSharing} />
       <span className="text-xs text-ink-muted truncate">{user?.name || 'Someone'}</span>
     </div>
   )
 }
 
-function CompactAvatar({ user, muted, deafened, speaking, hasVideo }) {
+function CompactAvatar({ user, muted, deafened, speaking, cameraOn, screenSharing }) {
   return (
     <div title={user?.name || 'Someone'} className="shrink-0">
-      <SpeakingAvatar user={user} size={16} speaking={speaking} muted={muted} deafened={deafened} hasVideo={hasVideo} />
+      <SpeakingAvatar user={user} size={16} speaking={speaking} muted={muted} deafened={deafened} cameraOn={cameraOn} screenSharing={screenSharing} />
     </div>
   )
 }
 
-function SpeakingAvatar({ user, size, speaking, muted, deafened, hasVideo }) {
+function SpeakingAvatar({ user, size, speaking, muted, deafened, cameraOn, screenSharing }) {
   return (
     <div
       className={[
@@ -78,8 +77,21 @@ function SpeakingAvatar({ user, size, speaking, muted, deafened, hasVideo }) {
       ].join(' ')}
     >
       <Avatar name={user?.name} src={user?.photoURL} size={size} />
-      {hasVideo && (
-        <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-ok grid place-items-center">
+      {/* Screen-share gets its own red "LIVE" badge, distinct from camera's
+          green one — mutually exclusive in this app (see useVoiceChannel's
+          toggleCamera/toggleScreenShare), so at most one ever shows. */}
+      {screenSharing ? (
+        <span
+          title="Screen sharing"
+          className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-bad grid place-items-center"
+        >
+          <ScreenShareDotIcon />
+        </span>
+      ) : cameraOn && (
+        <span
+          title="Camera on"
+          className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-ok grid place-items-center"
+        >
           <CameraDotIcon />
         </span>
       )}
@@ -97,6 +109,16 @@ function CameraDotIcon() {
     <svg width="7" height="7" viewBox="0 0 24 24" fill="white" stroke="none" aria-hidden="true">
       <polygon points="23 7 16 12 23 17 23 7"/>
       <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+    </svg>
+  )
+}
+
+function ScreenShareDotIcon() {
+  return (
+    <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
     </svg>
   )
 }

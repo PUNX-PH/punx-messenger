@@ -178,10 +178,15 @@ function GroupRailLink({ group, isMuted, hasUnread, onContextMenu }) {
           ? <img src={group.imageURL} alt="" draggable={false} className="w-full h-full object-cover pointer-events-none" />
           : <span>{group.name?.[0]?.toUpperCase() || '?'}</span>}
         <Pill active={isActive} hasUnread={hasUnread && !isActive} />
-        {hasUnread && !isActive && (
-          <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-bad border-2 border-bg-deepest" />
-        )}
       </NavLink>
+      {/* Rendered outside the NavLink deliberately — that element has
+          overflow-hidden (to clip the group image to its rounded shape),
+          which was clipping this badge's own edge since its negative
+          offset positions it partially outside that same box. This outer
+          wrapper has no overflow-hidden, so the badge renders in full. */}
+      {hasUnread && !isActive && (
+        <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-bad border-2 border-bg-deepest pointer-events-none" />
+      )}
     </div>
   )
 }
