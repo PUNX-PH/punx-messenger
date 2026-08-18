@@ -70,9 +70,25 @@ function logListenerError(name, err) {
 
 // ---------- Roster ----------
 
-// Doc id = the joiner's own uid, so this is an idempotent upsert (a rejoin
-// after a crash just overwrites the stale doc rather than erroring).
+// Doc id = the joiner's own uid, so a rejoin needs to survive finding a stale
+// doc of its own already sitting there (crashed tab, or a `pagehide` that
+// never fired).
+//
+// setDoc alone does NOT achieve that, however much it looks like an upsert:
+// Firestore evaluates a write to an ALREADY-EXISTING doc against the `update`
+// rule, not `create`, and voiceParticipants' update rule is deliberately
+// narrow — heartbeat and mute/deafen/camera flags only. A full join payload
+// carries `uid` and `joinedAt` too, so it gets denied, joinRoster throws, and
+// useVoiceChannel's join() tears the whole session down. That reads as
+// "joining instantly kicks me out", and it never recovers on its own:
+// pruneStaleParticipants only runs from clients connected to that channel, so
+// once a channel is empty there is nobody left to clear the doc blocking you.
+//
+// Deleting first sidesteps it entirely — self-delete is always permitted, and
+// on a nonexistent doc it's a no-op — so the write that follows is genuinely
+// always a create.
 export async function joinRoster(groupId, channelId, uid) {
+  await deleteDoc(participantDoc(groupId, channelId, uid)).catch(() => {})
   await setDoc(participantDoc(groupId, channelId, uid), {
     uid,
     joinedAt: serverTimestamp(),

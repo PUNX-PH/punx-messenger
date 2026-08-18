@@ -53,7 +53,23 @@ export default function VoiceStatusBar() {
     })
   }, [deafened, voicePrefs.outputVolume, voicePrefs.outputDeviceId, remoteStreams])
 
-  if (!activeChannel) return null
+  // A failed join tears the session down before this renders, so bailing out
+  // on !activeChannel used to swallow the very error explaining why — you'd
+  // get dropped out of the channel with no visible reason. Keep showing the
+  // error even with nothing connected; it's the only surface it has.
+  if (!activeChannel) {
+    return connError ? (
+      <div className="shrink-0 border-t border-line-subtle bg-bg-dark px-2 py-1.5">
+        <div
+          onClick={clearConnError}
+          className="bg-bad/90 text-white text-xs px-2 py-1.5 rounded-md cursor-pointer"
+          title="Dismiss"
+        >
+          {connError}
+        </div>
+      </div>
+    ) : null
+  }
 
   const unlockAudio = () => {
     Object.values(audioElsRef.current).forEach(el => el?.play().catch(() => {}))

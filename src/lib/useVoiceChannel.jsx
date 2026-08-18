@@ -415,6 +415,11 @@ function useVoiceChannelEngine() {
       unsubRosterRef.current = listenParticipants(groupId, channelId, handleRosterChange, (err) =>
         setConnError(`Couldn't load who's in this voice channel: ${err?.message || err}`))
     } catch (e) {
+      // Logged as well as surfaced: this path tears the session down, and a
+      // permission-denied from joinRoster is otherwise completely silent —
+      // the Firestore SDK doesn't log a rejected write the way it logs a
+      // failed listener, and the caught error has nowhere else to go.
+      console.error('[useVoiceChannel] join failed:', e)
       setConnError(e.message || 'Could not join the voice channel.')
       await teardown()
     } finally {

@@ -38,8 +38,13 @@ service cloud.firestore {
     // `enabled` is re-read on every request rather than trusted from the
     // token, so switching a bot off in the admin panel cuts it off within
     // seconds instead of whenever its hour-long token happens to expire.
+    // The `'bot' in ...` guard is not redundant: it means this never depends
+    // on how missing-key access on the token map behaves, so a human — who has
+    // no such claim — short-circuits to false here with certainty, and every
+    // botCan() below waves them straight through.
     function isBot() {
       return request.auth != null
+        && 'bot' in request.auth.token
         && request.auth.token.bot == true
         && get(/databases/$(database)/documents/bots/$(request.auth.uid)).data.enabled == true;
     }
