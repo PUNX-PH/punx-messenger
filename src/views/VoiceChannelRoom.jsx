@@ -153,7 +153,7 @@ export default function VoiceChannelRoom({ channel, groupId }) {
   const tileGrid = pinned ? (
     <div className="flex flex-col gap-3 h-full">
       <div className="flex-1 min-h-0">
-        <ParticipantTile {...pinned} onClick={() => setPinnedUid(null)} />
+        <ParticipantTile {...pinned} zoomable onClick={() => setPinnedUid(null)} />
       </div>
       {others.length > 0 && (
         <div className="h-24 flex gap-2 overflow-x-auto shrink-0">
@@ -207,8 +207,99 @@ export default function VoiceChannelRoom({ channel, groupId }) {
   )
 }
 
-function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, stream, span = 1, onClick }) {
+// Zoom range for a spotlighted screen share. 4x is roughly where Discord's
+// own viewer tops out — enough to read small text on someone's shared 1440p
+// screen, before the upscale turns to mush.
+const ZOOM_MIN = 1
+const ZOOM_MAX = 4
+const ZOOM_STEP = 0.25
+const clampZoom = (z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100))
+
+function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, stream, span = 1, zoomable = false, onClick }) {
   const videoRef = useRef(null)
+  const frameRef = useRef(null)
+  // Whether frames are actually arriving, as opposed to the roster merely
+  // claiming this person is sharing — drives the placeholder underneath, and
+  // gates the zoom controls so they can't appear over an empty tile.
+  const [videoLive, setVideoLive] = useState(false)
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const dragRef = useRef(null)
+  const draggedRef = useRef(false)
+
+  const canZoom = zoomable && isScreen && videoLive
+
+  // How far the scaled-up picture may be dragged before its own edge would
+  // pull inside the tile. Approximate for a letterboxed screen share (the
+  // picture is narrower than the tile holding it), but cheap and predictable
+  // — the point is just that panning can't fling the content off into nowhere.
+  const clampPan = (next, z) => {
+    const el = frameRef.current
+    if (!el) return { x: 0, y: 0 }
+    const maxX = Math.max(0, (el.clientWidth * (z - 1)) / 2)
+    const maxY = Math.max(0, (el.clientHeight * (z - 1)) / 2)
+    return {
+      x: Math.min(maxX, Math.max(-maxX, next.x)),
+      y: Math.min(maxY, Math.max(-maxY, next.y)),
+    }
+  }
+
+  const applyZoom = (next) => {
+    const z = clampZoom(next)
+    setZoom(z)
+    setPan(p => clampPan(p, z))
+  }
+
+  // Back to 1x whenever this stops being the spotlighted tile, or the person
+  // swaps what they're sharing — a zoom level from the last thing you looked
+  // at is never what you want carried into the next one.
+  useEffect(() => {
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
+  }, [zoomable, stream, isScreen])
+
+  useEffect(() => {
+    const el = frameRef.current
+    if (!el || !canZoom) return
+    const onWheel = (e) => {
+      e.preventDefault()
+      applyZoom(zoom + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP))
+    }
+    // Registered natively rather than through React's onWheel: React routes
+    // wheel events via a passive root listener, where preventDefault() is
+    // ignored, and without it the room scrolls behind the zoom.
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [canZoom, zoom])
+
+  const onPointerDown = (e) => {
+    if (zoom <= ZOOM_MIN) return
+    draggedRef.current = false
+    dragRef.current = { x: e.clientX, y: e.clientY, origin: pan }
+    frameRef.current?.setPointerCapture?.(e.pointerId)
+  }
+
+  const onPointerMove = (e) => {
+    const drag = dragRef.current
+    if (!drag) return
+    const dx = e.clientX - drag.x
+    const dy = e.clientY - drag.y
+    // A few pixels of slop so a slightly-shaky click still reads as a click
+    // and un-spotlights, rather than being swallowed as a pan.
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) draggedRef.current = true
+    setPan(clampPan({ x: drag.origin.x + dx, y: drag.origin.y + dy }, zoom))
+  }
+
+  const endPan = (e) => {
+    if (!dragRef.current) return
+    dragRef.current = null
+    frameRef.current?.releasePointerCapture?.(e.pointerId)
+  }
+
+  const handleActivate = () => {
+    if (draggedRef.current) { draggedRef.current = false; return } // that was a pan
+    onClick?.()
+  }
 
   // Only the VIDEO track goes on this element, and it stays muted forever —
   // both parts matter:
@@ -224,9 +315,9 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
   //    while your own — muted, so always exempt — never did.
   useEffect(() => {
     const el = videoRef.current
-    if (!el) return
+    if (!el) { setVideoLive(false); return }
     const track = hasVideo ? stream?.getVideoTracks?.()[0] : null
-    if (!track) { el.srcObject = null; return }
+    if (!track) { el.srcObject = null; setVideoLive(false); return }
 
     const attach = () => {
       el.srcObject = new MediaStream([track])
@@ -235,6 +326,12 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
       el.play().catch(() => {})
     }
     attach()
+
+    const onPlaying = () => setVideoLive(true)
+    const onStopped = () => setVideoLive(false)
+    el.addEventListener('playing', onPlaying)
+    el.addEventListener('emptied', onStopped)
+    track.addEventListener('mute', onStopped)
 
     // Every peer connection carries a video transceiver from the moment it's
     // built (see createPeerFor — that's what makes camera/screen-share a
@@ -245,37 +342,112 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
     // srcObject was assigned during that muted window, so re-attach on unmute
     // instead of trusting the first assignment to catch up on its own.
     track.addEventListener('unmute', attach)
-    return () => track.removeEventListener('unmute', attach)
+    return () => {
+      el.removeEventListener('playing', onPlaying)
+      el.removeEventListener('emptied', onStopped)
+      track.removeEventListener('mute', onStopped)
+      track.removeEventListener('unmute', attach)
+    }
   }, [stream, hasVideo])
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    // A div rather than a button: the zoom bar below puts real buttons and a
+    // slider inside this, and nesting interactive elements in a <button> is
+    // invalid and behaves inconsistently across browsers.
+    <div
+      ref={frameRef}
+      role="button"
+      tabIndex={0}
+      onClick={handleActivate}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleActivate() } }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endPan}
+      onPointerCancel={endPan}
       style={{ gridColumn: `span ${span}` }}
       className={[
-        'relative rounded-xl overflow-hidden bg-bg-raised flex items-center justify-center transition-shadow w-full h-full cursor-pointer',
+        'relative rounded-xl overflow-hidden bg-bg-raised flex items-center justify-center transition-shadow w-full h-full',
+        zoom > ZOOM_MIN ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
         speaking ? 'ring-2 ring-ok' : '',
       ].join(' ')}
     >
-      {/* The avatar placeholder always renders, with any video layered on top
-          of it rather than swapped in for it. A <video> paints nothing until
-          its first frame arrives, so this is what's behind it in the gap
-          between "they flipped their camera on" (a roster flag, instant) and
-          "their frames are actually arriving here" (a real network round
-          trip) — the person's avatar, rather than an empty grey tile that
-          reads as broken. */}
-      <div className="absolute inset-0 flex items-center justify-center" style={{ background: colorFromName(name) }}>
-        <Avatar name={name} src={photoURL} size={64} />
-      </div>
-      {hasVideo && (
-        <video ref={videoRef} autoPlay playsInline muted className="relative w-full h-full object-cover" />
+      {/* Layers, back to front: a black bed so a letterboxed screen share sits
+          in bars rather than on someone's avatar colour; the avatar itself for
+          as long as no frames are arriving (a <video> paints nothing until its
+          first one lands, and the roster flag flips a whole network round trip
+          before that); then the video over both. */}
+      {hasVideo && isScreen && <div className="absolute inset-0 bg-black" />}
+      {!videoLive && (
+        <div className="absolute inset-0 flex items-center justify-center" style={{ background: colorFromName(name) }}>
+          <Avatar name={name} src={photoURL} size={64} />
+        </div>
       )}
+      {hasVideo && (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="relative w-full h-full"
+          style={{
+            // Screen shares are fitted, not cropped — losing the edges of
+            // someone's shared screen (which is what object-cover did, and
+            // what read as "zoomed in") is much worse than a pair of black
+            // bars. Cameras still fill their tile, same as Discord.
+            objectFit: isScreen ? 'contain' : 'cover',
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+          }}
+        />
+      )}
+
       <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/50 rounded px-2 py-1 max-w-[calc(100%-1rem)]">
         {muted && <MicOffIcon className="text-bad shrink-0" />}
         {isScreen && <ScreenIcon className="text-white shrink-0" />}
         <span className="text-xs text-white truncate">{name}</span>
       </div>
+
+      {/* Bottom-centre, not bottom-right: the room's own full-screen/pop-out
+          buttons sit in that corner, and a spotlighted tile fills the room. */}
+      {canZoom && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/70 rounded-full px-2.5 py-1.5"
+        >
+          <ZoomButton onClick={() => applyZoom(zoom - ZOOM_STEP)} disabled={zoom <= ZOOM_MIN} label="Zoom out">
+            <ZoomOutIcon />
+          </ZoomButton>
+          <input
+            type="range"
+            min={ZOOM_MIN}
+            max={ZOOM_MAX}
+            step={ZOOM_STEP}
+            value={zoom}
+            onChange={(e) => applyZoom(Number(e.target.value))}
+            aria-label="Zoom"
+            className="w-24 accent-brand cursor-pointer"
+          />
+          <ZoomButton onClick={() => applyZoom(zoom + ZOOM_STEP)} disabled={zoom >= ZOOM_MAX} label="Zoom in">
+            <ZoomInIcon />
+          </ZoomButton>
+          <span className="text-[10px] text-white/70 tabular-nums w-8 text-right">{zoom.toFixed(1)}x</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ZoomButton({ onClick, disabled, label, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      className="p-1 rounded text-white/80 hover:text-white hover:bg-white/15 disabled:opacity-35 disabled:hover:bg-transparent transition-colors"
+    >
+      {children}
     </button>
   )
 }
@@ -322,6 +494,27 @@ function ScreenIcon({ className = '' }) {
       <rect x="2" y="3" width="20" height="14" rx="2" />
       <line x1="8" y1="21" x2="16" y2="21" />
       <line x1="12" y1="17" x2="12" y2="21" />
+    </svg>
+  )
+}
+
+function ZoomInIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <line x1="20" y1="20" x2="16.2" y2="16.2" />
+      <line x1="11" y1="8" x2="11" y2="14" />
+      <line x1="8" y1="11" x2="14" y2="11" />
+    </svg>
+  )
+}
+
+function ZoomOutIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <line x1="20" y1="20" x2="16.2" y2="16.2" />
+      <line x1="8" y1="11" x2="14" y2="11" />
     </svg>
   )
 }
