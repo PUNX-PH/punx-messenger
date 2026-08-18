@@ -38,26 +38,50 @@ service cloud.firestore {
     // `enabled` is re-read on every request rather than trusted from the
     // token, so switching a bot off in the admin panel cuts it off within
     // seconds instead of whenever its hour-long token happens to expire.
-    // The `'bot' in ...` guard is not redundant: it means this never depends
-    // on how missing-key access on the token map behaves, so a human — who has
-    // no such claim — short-circuits to false here with certainty, and every
-    // botCan() below waves them straight through.
-    function isBot() {
+    // These three are split apart very deliberately, and the split is
+    // load-bearing — collapsing them back into one isBot() broke voice-channel
+    // joins for every human on the workspace.
+    //
+    // The rule that matters: an expression that ERRORS during evaluation denies
+    // the whole rule, it does not evaluate to false. A human has no `bot` claim
+    // and no bots/{uid} document, so any helper that reaches for either while
+    // deciding "is this a bot" turns every rule it appears in into a denial for
+    // real people.
+    //
+    // So: isBotToken() reads ONLY the token, behind an `in` guard, and never
+    // performs a get(). That is what lets botCan() rule a human out without
+    // touching — or needing to exist in — the registry at all.
+    function isBotToken() {
       return request.auth != null
         && 'bot' in request.auth.token
-        && request.auth.token.bot == true
-        && get(/databases/$(database)/documents/bots/$(request.auth.uid)).data.enabled == true;
+        && request.auth.token.bot == true;
     }
 
-    function signedIn() { return isHuman() || isBot(); }
+    function botRegistration() {
+      return get(/databases/$(database)/documents/bots/$(request.auth.uid)).data;
+    }
+
+    // `enabled` is re-read here on every request rather than trusted from the
+    // token, so switching a bot off in the admin panel cuts it off within
+    // seconds instead of whenever its hour-long token happens to expire. The
+    // exists() check keeps a deleted registration from erroring instead of
+    // simply denying — deleting the doc is how a bot gets revoked.
+    function isRegisteredBot() {
+      return isBotToken()
+        && exists(/databases/$(database)/documents/bots/$(request.auth.uid))
+        && botRegistration().enabled == true;
+    }
+
+    function signedIn() { return isHuman() || isRegisteredBot(); }
 
     // Gates one capability for bots and waves humans through untouched, so
     // every call site below reads as "the existing rule, plus a scope check
-    // that only applies to bots". Scopes live on the bot's registry doc; the
-    // admin panel is what grants them.
+    // that only applies to bots". Note the human path short-circuits on the
+    // token alone — no reads, nothing that can error. Scopes live on the bot's
+    // registry doc; the admin panel is what grants them.
     function botCan(scope) {
-      return !isBot()
-        || scope in get(/databases/$(database)/documents/bots/$(request.auth.uid)).data.scopes;
+      return !isBotToken()
+        || (isRegisteredBot() && scope in botRegistration().scopes);
     }
 
     // Admin-tier capabilities a bot can be granted. Written as their own
@@ -65,11 +89,13 @@ service cloud.firestore {
     // isGroupAdmin()` in existing rules, where a bare botCan() would read as
     // if it applied to humans too — these are strictly bot-only additions,
     // and always still require the bot to be a member of the group.
+    // isBotToken() first in both, so a human short-circuits out before any
+    // read happens at all.
     function botCanManageChannels(groupId) {
-      return isBot() && isGroupMember(groupId) && botCan('channels:manage');
+      return isBotToken() && isRegisteredBot() && isGroupMember(groupId) && botCan('channels:manage');
     }
     function botCanManageMembers(groupId) {
-      return isBot() && isGroupMember(groupId) && botCan('members:manage');
+      return isBotToken() && isRegisteredBot() && isGroupMember(groupId) && botCan('members:manage');
     }
 
     function myUid() { return request.auth.uid; }
@@ -238,7 +264,7 @@ service cloud.firestore {
             // Pinning is otherwise admin-only, but a bot with the react/pin
             // scope gets it too — pinning its own output is how a bot
             // acknowledges a command without posting more noise.
-            || (isGroupMember(groupId) && isBot() && botCan('reactions:write')
+            || (isBotToken() && isRegisteredBot() && isGroupMember(groupId) && botCan('reactions:write')
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pinned']));
 
           // Delete: author, group admin, or workspace admin
@@ -328,8 +354,8 @@ service cloud.firestore {
 
     // ───────── Bot registry ─────────
     //
-    // One doc per bot, id == the bot's Firebase Auth uid, so isBot()/botCan()
-    // above can find it straight from request.auth.uid with no indirection.
+    // One doc per bot, id == the bot's Firebase Auth uid, so isRegisteredBot()/
+    // botCan() above can find it straight from request.auth.uid, no indirection.
     // Each bot also gets a matching /users/{uid} doc with type:'bot', which is
     // what makes it render as a normal author / member / voice participant
     // everywhere in the app without any component knowing about bots.
