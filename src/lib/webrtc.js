@@ -25,11 +25,27 @@ export function createPeerConnection(iceServers = getIceServers()) {
   return new RTCPeerConnection({ iceServers })
 }
 
-// audioDeviceId is optional — omitting it keeps the exact prior behavior
-// (browser default device), which is all the 1:1 call system ever passes.
-// Only lib/useVoiceChannel.jsx's input-device picker uses it.
-export async function getLocalStream({ audio = true, video = true, audioDeviceId } = {}) {
-  const audioConstraint = !audio ? false : (audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true)
+// audioDeviceId and audioProcessing are both optional — omitting them keeps
+// the exact prior behavior (browser default device, browser default
+// processing), which is all the 1:1 call system ever passes. Only
+// lib/useVoiceChannel.jsx's device picker and mic-processing toggles use them.
+//
+// audioProcessing is a plain object of the standard WebRTC audio constraints
+// — { noiseSuppression, echoCancellation, autoGainControl } — i.e. the same
+// knobs behind Discord's own noise-suppression settings. They're passed as
+// plain values rather than { exact: ... } on purpose: a browser that can't
+// honour one should quietly ignore it, not fail the whole getUserMedia call
+// and leave someone with no microphone at all.
+export async function getLocalStream({ audio = true, video = true, audioDeviceId, audioProcessing } = {}) {
+  let audioConstraint = false
+  if (audio) {
+    audioConstraint = {}
+    if (audioDeviceId) audioConstraint.deviceId = { exact: audioDeviceId }
+    if (audioProcessing) Object.assign(audioConstraint, audioProcessing)
+    // Collapse back to the bare `true` every existing caller effectively asked
+    // for when there's nothing to actually constrain.
+    if (!Object.keys(audioConstraint).length) audioConstraint = true
+  }
   return navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video })
 }
 

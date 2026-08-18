@@ -17,7 +17,9 @@ const PANEL_WIDTH = 300
  * floats above it, width capped independent of the sidebar.
  */
 export default function VoiceSettingsPopover({ anchorRef, onClose }) {
-  const { voicePrefs, setInputDevice, setOutputDevice, setInputVolume, setOutputVolume } = useVoiceChannel()
+  const {
+    voicePrefs, setInputDevice, setOutputDevice, setInputVolume, setOutputVolume, setAudioProcessing,
+  } = useVoiceChannel()
   const [devices, setDevices] = useState({ inputs: [], outputs: [] })
   const [expanded, setExpanded] = useState(null) // 'input' | 'output' | null
   const [pos, setPos] = useState(null) // { left, bottom } in viewport px, or null until measured
@@ -96,8 +98,64 @@ export default function VoiceSettingsPopover({ anchorRef, onClose }) {
         onSelect={(id) => { setOutputDevice(id); setExpanded(null) }}
       />
       <VolumeSlider label="Output Volume" value={voicePrefs.outputVolume} onChange={setOutputVolume} />
+
+      <div className="h-px bg-line-subtle" />
+
+      {/* The browser's own mic processing. Changes apply to the live mic
+          immediately — no need to rejoin — and are remembered for next time. */}
+      <div>
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim mb-1.5">Mic Processing</div>
+        <ToggleRow
+          label="Noise Suppression"
+          hint="Filters steady background noise — fans, aircon, keyboard clatter."
+          checked={voicePrefs.noiseSuppression}
+          onChange={(v) => setAudioProcessing({ noiseSuppression: v })}
+        />
+        <ToggleRow
+          label="Echo Cancellation"
+          hint="Stops others hearing themselves back through your speakers."
+          checked={voicePrefs.echoCancellation}
+          onChange={(v) => setAudioProcessing({ echoCancellation: v })}
+        />
+        <ToggleRow
+          label="Automatic Gain Control"
+          hint="Evens out your level as you lean toward or away from the mic."
+          checked={voicePrefs.autoGainControl}
+          onChange={(v) => setAudioProcessing({ autoGainControl: v })}
+        />
+      </div>
     </div>,
     document.body
+  )
+}
+
+function ToggleRow({ label, hint, checked, onChange }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="w-full flex items-start justify-between gap-3 py-1.5 text-left group/toggle"
+    >
+      <span className="min-w-0">
+        <span className="block text-ink">{label}</span>
+        <span className="block text-[11px] text-ink-dim leading-snug">{hint}</span>
+      </span>
+      <span
+        className={[
+          'mt-0.5 w-9 h-5 rounded-full shrink-0 relative transition-colors',
+          checked ? 'bg-brand' : 'bg-bg-deepest border border-line-subtle',
+        ].join(' ')}
+      >
+        <span
+          className={[
+            'absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white transition-[left]',
+            checked ? 'left-[1.125rem]' : 'left-0.5',
+          ].join(' ')}
+        />
+      </span>
+    </button>
   )
 }
 

@@ -35,7 +35,23 @@ const SPEAKING_POLL_MS = 150
 // Persisted so a device/volume choice survives a rejoin or reload, same
 // spirit as ChannelSidebar's collapsedCategories localStorage.
 const PREFS_KEY = 'punx.voicePrefs'
+
+// Mic processing defaults to fully on, matching both the browser's own
+// default for a bare `audio: true` capture and Discord's out-of-the-box
+// settings — someone who never opens the popover should get the filtered
+// mic, not the raw one.
+const PROCESSING_DEFAULTS = { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
+
+// The subset of prefs that are getUserMedia audio constraints, in the exact
+// shape getLocalStream/applyConstraints want.
+const audioProcessingFrom = (prefs) => ({
+  noiseSuppression: prefs.noiseSuppression,
+  echoCancellation: prefs.echoCancellation,
+  autoGainControl: prefs.autoGainControl,
+})
+
 function loadVoicePrefs() {
+  const bool = (v, fallback) => typeof v === 'boolean' ? v : fallback
   try {
     const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')
     return {
@@ -43,9 +59,15 @@ function loadVoicePrefs() {
       outputDeviceId: raw.outputDeviceId ?? null,
       inputVolume: typeof raw.inputVolume === 'number' ? raw.inputVolume : 1,
       outputVolume: typeof raw.outputVolume === 'number' ? raw.outputVolume : 1,
+      noiseSuppression: bool(raw.noiseSuppression, PROCESSING_DEFAULTS.noiseSuppression),
+      echoCancellation: bool(raw.echoCancellation, PROCESSING_DEFAULTS.echoCancellation),
+      autoGainControl: bool(raw.autoGainControl, PROCESSING_DEFAULTS.autoGainControl),
     }
   } catch {
-    return { inputDeviceId: null, outputDeviceId: null, inputVolume: 1, outputVolume: 1 }
+    return {
+      inputDeviceId: null, outputDeviceId: null, inputVolume: 1, outputVolume: 1,
+      ...PROCESSING_DEFAULTS,
+    }
   }
 }
 function saveVoicePrefs(prefs) {
@@ -359,12 +381,16 @@ function useVoiceChannelEngine() {
     setJoining(true)
     try {
       const preferredInput = voicePrefsRef.current.inputDeviceId
+      const audioProcessing = audioProcessingFrom(voicePrefsRef.current)
       let stream
       try {
-        stream = await getLocalStream({ audio: true, video: false, audioDeviceId: preferredInput || undefined })
+        stream = await getLocalStream({
+          audio: true, video: false, audioDeviceId: preferredInput || undefined, audioProcessing,
+        })
       } catch {
-        // Saved device may no longer exist (unplugged, etc.) — fall back to default.
-        stream = await getLocalStream({ audio: true, video: false })
+        // Saved device may no longer exist (unplugged, etc.) — fall back to
+        // the default device, but keep the processing preferences.
+        stream = await getLocalStream({ audio: true, video: false, audioProcessing })
       }
       localStreamRef.current = stream
       attachAnalyser(myUid, stream)
@@ -528,9 +554,34 @@ function useVoiceChannelEngine() {
     saveVoicePrefs(next)
   }, [])
 
+  // Re-opens the mic with different constraints and splices the new capture
+  // into the existing gain graph. Nothing at the WebRTC layer moves: peers
+  // hold the gain node's DESTINATION track (see buildGainGraph), whose
+  // identity doesn't depend on whatever is feeding it — so no replaceTrack,
+  // no renegotiation, no audible gap for anyone else in the channel.
+  const swapMicStream = useCallback(async ({ deviceId, audioProcessing }) => {
+    const wasEnabled = localStreamRef.current?.getAudioTracks()[0]?.enabled ?? true
+    const newRaw = await getLocalStream({
+      audio: true, video: false, audioDeviceId: deviceId || undefined, audioProcessing,
+    })
+    const newTrack = newRaw.getAudioTracks()[0]
+    if (newTrack) newTrack.enabled = wasEnabled // carry the current mute state over
+
+    const oldRaw = localStreamRef.current
+    detachAnalyser(myUid)
+    micSourceRef.current?.disconnect()
+
+    const source = audioCtxRef.current.createMediaStreamSource(newRaw)
+    source.connect(gainNodeRef.current)
+    micSourceRef.current = source
+
+    localStreamRef.current = newRaw
+    attachAnalyser(myUid, newRaw)
+    stopStream(oldRaw)
+  }, [myUid, detachAnalyser, attachAnalyser])
+
   // Swapping the input device does NOT touch any peer connection — see
-  // buildGainGraph: only the source feeding the shared GainNode changes,
-  // the destination track peers already have stays the same object.
+  // swapMicStream/buildGainGraph.
   const setInputDevice = useCallback(async (deviceId) => {
     const next = { ...voicePrefsRef.current, inputDeviceId: deviceId }
     voicePrefsRef.current = next
@@ -538,26 +589,40 @@ function useVoiceChannelEngine() {
     saveVoicePrefs(next)
     if (!activeChannelRef.current || !myUid) return // just remembered for the next join
     try {
-      const wasEnabled = localStreamRef.current?.getAudioTracks()[0]?.enabled ?? true
-      const newRaw = await getLocalStream({ audio: true, video: false, audioDeviceId: deviceId })
-      const newTrack = newRaw.getAudioTracks()[0]
-      if (newTrack) newTrack.enabled = wasEnabled // carry the current mute state to the new device
-
-      const oldRaw = localStreamRef.current
-      detachAnalyser(myUid)
-      micSourceRef.current?.disconnect()
-
-      const source = audioCtxRef.current.createMediaStreamSource(newRaw)
-      source.connect(gainNodeRef.current)
-      micSourceRef.current = source
-
-      localStreamRef.current = newRaw
-      attachAnalyser(myUid, newRaw)
-      stopStream(oldRaw)
+      await swapMicStream({ deviceId, audioProcessing: audioProcessingFrom(next) })
     } catch (e) {
       setConnError(`Couldn't switch microphones: ${e.message}`)
     }
-  }, [myUid, detachAnalyser, attachAnalyser])
+  }, [myUid, swapMicStream])
+
+  // Noise suppression / echo cancellation / auto gain — the browser's own
+  // mic processing, which is the same set of WebRTC constraints behind
+  // Discord's equivalent toggles. `patch` carries just the one being changed.
+  //
+  // applyConstraints is the fast path: it retunes the live track in place, so
+  // the Web Audio source feeding the gain graph stays valid and nothing needs
+  // rewiring. Browsers don't all honour it on an already-open track though,
+  // so fall back to reopening the mic — the same renegotiation-free swap a
+  // device change does.
+  const setAudioProcessing = useCallback(async (patch) => {
+    const next = { ...voicePrefsRef.current, ...patch }
+    voicePrefsRef.current = next
+    setVoicePrefs(next)
+    saveVoicePrefs(next)
+    if (!activeChannelRef.current || !myUid) return // just remembered for the next join
+    const audioProcessing = audioProcessingFrom(next)
+    try {
+      const track = localStreamRef.current?.getAudioTracks()[0]
+      if (!track) return
+      await track.applyConstraints(audioProcessing)
+    } catch {
+      try {
+        await swapMicStream({ deviceId: next.inputDeviceId, audioProcessing })
+      } catch (e) {
+        setConnError(`Couldn't change your microphone processing: ${e.message}`)
+      }
+    }
+  }, [myUid, swapMicStream])
 
   // Best-effort leave on tab close (may not always fire); staleness pruning
   // (see lib/voiceChannel.js) is the real safety net for crashes.
@@ -621,7 +686,7 @@ function useVoiceChannelEngine() {
     activeChannel, participants, remoteStreams, speakingUids, muted, deafened, connError, joining, myUid,
     cameraOn, screenSharing, localVideoStream,
     voicePrefs, join, leave, toggleMute, toggleDeafen, toggleCamera, toggleScreenShare,
-    setInputDevice, setOutputDevice, setInputVolume, setOutputVolume,
+    setInputDevice, setOutputDevice, setInputVolume, setOutputVolume, setAudioProcessing,
     clearConnError: () => setConnError(null),
   }
 }
