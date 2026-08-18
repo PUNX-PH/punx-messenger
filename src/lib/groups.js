@@ -1,6 +1,6 @@
 import {
-  addDoc, arrayRemove, arrayUnion, collection, doc, getDocs, onSnapshot, orderBy, query,
-  serverTimestamp, setDoc, updateDoc, where, writeBatch,
+  addDoc, arrayRemove, arrayUnion, collection, deleteDoc, doc, getDocs, limit as fbLimit,
+  onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 import { pathToReadKey } from './db'
 import { db } from './firebase'
@@ -98,6 +98,55 @@ export async function createChannel(groupId, { name, createdBy, categoryId = nul
     createdBy,
   })
   return ref.id
+}
+
+// Firestore has no cascading delete: dropping a channel doc on its own would
+// orphan everything nested under it. Those docs stay live at a path group
+// members can still read, and still count against storage — they're just
+// invisible in the UI, which is the worst of both. So clear the
+// subcollections first, then the channel itself.
+const DELETE_PAGE = 400 // a write batch caps out at 500
+
+// Paged rather than one getDocs of everything, so deleting a channel with a
+// long history doesn't try to hold every message in memory at once.
+async function deleteAllDocs(colRef) {
+  for (;;) {
+    const snap = await getDocs(query(colRef, fbLimit(DELETE_PAGE)))
+    if (snap.empty) return
+    const batch = writeBatch(db)
+    snap.docs.forEach(d => batch.delete(d.ref))
+    await batch.commit()
+    if (snap.size < DELETE_PAGE) return
+  }
+}
+
+/**
+ * Delete a channel and everything under it. Callers must gate this on admin
+ * rights themselves for the UI's sake; `firestore.rules` enforces it for
+ * real (group admin or workspace admin, same check as channel create).
+ *
+ * The voice subcollections are best-effort: they're ephemeral signaling
+ * state that connected clients clean up for themselves on leave, so failing
+ * to clear them is not worth aborting the delete over — losing the channel
+ * but keeping its messages would be the genuinely bad outcome.
+ */
+export async function deleteChannel(groupId, channelId) {
+  const channelRef = doc(db, 'groups', groupId, 'channels', channelId)
+
+  await deleteAllDocs(collection(channelRef, 'messages'))
+
+  try {
+    await deleteAllDocs(collection(channelRef, 'voiceParticipants'))
+    // Each signaling doc carries its own `candidates` subcollection, which
+    // has to go before the parent or it's orphaned in turn.
+    const signals = await getDocs(collection(channelRef, 'voiceSignals'))
+    for (const sig of signals.docs) await deleteAllDocs(collection(sig.ref, 'candidates'))
+    await deleteAllDocs(collection(channelRef, 'voiceSignals'))
+  } catch (e) {
+    console.warn('[groups] voice signaling cleanup failed (non-fatal):', e.message)
+  }
+
+  await deleteDoc(channelRef)
 }
 
 // ───────── Channel categories (Discord-style grouping) ─────────

@@ -202,8 +202,12 @@ service cloud.firestore {
           // 2 minutes, matching lib/voiceChannel.js's STALE_MS — keep these
           // in sync (tuned generously to tolerate browser timer throttling
           // in backgrounded tabs, not just genuine crashes/disconnects).
-          allow delete: if isGroupMember(groupId)
-            && (uid == myUid() || request.time > resource.data.lastHeartbeat + duration.value(120, 's'));
+          // Admins are also allowed through so deleting a channel can clear
+          // its roster (see deleteChannel in lib/groups.js) — otherwise a
+          // still-connected participant's doc outlives the channel itself.
+          allow delete: if isWorkspaceAdmin() || isGroupAdmin(groupId)
+            || (isGroupMember(groupId)
+                && (uid == myUid() || request.time > resource.data.lastHeartbeat + duration.value(120, 's')));
         }
 
         // A `voiceSignals/{pairKey}` doc carries one pair's offer/answer SDP
@@ -230,13 +234,15 @@ service cloud.firestore {
             && resource.data.answer == null
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answer']);
 
-          // Either side tears the pair down when one of them leaves.
-          allow delete: if isGroupMember(groupId) && myUid() in resource.data.uids;
+          // Either side tears the pair down when one of them leaves — plus
+          // admins, so deleting the channel can clear leftover signaling.
+          allow delete: if isWorkspaceAdmin() || isGroupAdmin(groupId)
+            || (isGroupMember(groupId) && myUid() in resource.data.uids);
 
           match /candidates/{candId} {
             allow read:   if isVoicePairMember(pairKey);
             allow create: if isVoicePairMember(pairKey) && request.resource.data.from == myUid();
-            allow delete: if isVoicePairMember(pairKey);
+            allow delete: if isVoicePairMember(pairKey) || isWorkspaceAdmin() || isGroupAdmin(groupId);
           }
         }
       }

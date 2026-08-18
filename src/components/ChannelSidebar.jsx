@@ -8,7 +8,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useAuth, isAdmin } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import {
-  createCategory, createChannel, deleteCategory, groupChannelsByCategory,
+  createCategory, createChannel, deleteCategory, deleteChannel, groupChannelsByCategory,
   listenCategories, listenChannels, listenGroup, renameCategory,
   reorderCategories, reorderChannelsInCategory,
 } from '../lib/groups'
@@ -37,8 +37,11 @@ export default function ChannelSidebar() {
   const [settingsInitialTab, setSettingsInitialTab] = useState('overview')
   const [addMenu, setAddMenu] = useState({ open: false, x: 0, y: 0 })
   const [catMenu, setCatMenu] = useState({ open: false, x: 0, y: 0, category: null })
+  const [chMenu, setChMenu] = useState({ open: false, x: 0, y: 0, channel: null })
   const [collapsed, setCollapsed] = useState(() => readCollapsed(groupId))
   const [activeDrag, setActiveDrag] = useState(null)
+  const [channelsLoaded, setChannelsLoaded] = useState(false)
+  const { activeChannel: activeVoice, leave: leaveVoice } = useVoiceChannel()
 
   // Auto-open settings if URL has ?settings=1 (used by group context menu)
   useEffect(() => {
@@ -58,8 +61,18 @@ export default function ChannelSidebar() {
 
   useEffect(() => {
     if (!groupId) return
-    return listenChannels(groupId, setChannels)
+    setChannelsLoaded(false)
+    return listenChannels(groupId, (list) => { setChannels(list); setChannelsLoaded(true) })
   }, [groupId])
+
+  // If the voice channel you're sitting in gets deleted out from under you,
+  // disconnect — otherwise you stay in a room that no longer exists, still
+  // holding a mic and peer connections nobody can see. Gated on
+  // channelsLoaded so the empty first render doesn't read as "deleted".
+  useEffect(() => {
+    if (!channelsLoaded || !activeVoice || activeVoice.groupId !== groupId) return
+    if (!channels.some(c => c.id === activeVoice.channelId)) leaveVoice()
+  }, [channelsLoaded, channels, activeVoice, groupId, leaveVoice])
 
   useEffect(() => {
     if (!groupId) return
@@ -111,6 +124,29 @@ export default function ChannelSidebar() {
   const openCategoryMenu = (e, category) => {
     e.preventDefault()
     setCatMenu({ open: true, x: e.clientX, y: e.clientY, category })
+  }
+  const openChannelMenu = (e, channel) => {
+    e.preventDefault()
+    setChMenu({ open: true, x: e.clientX, y: e.clientY, channel })
+  }
+
+  // Admins only — both the menu that reaches this and firestore.rules'
+  // channel delete rule check group-admin or workspace-admin.
+  const removeChannel = async (channel) => {
+    const ok = confirm(
+      `Delete ${channel.type === 'voice' ? '' : '#'}${channel.name}?\n\n` +
+      'Every message in it is permanently deleted too. This cannot be undone.'
+    )
+    if (!ok) return
+    try {
+      await deleteChannel(groupId, channel.id)
+      // The listener drops it from the sidebar on its own, but anyone who was
+      // *reading* it is now on a dead route — step back to the group.
+      if (channel.id === activeChannelId) navigate(`/g/${groupId}`)
+    } catch (err) {
+      console.error('[ChannelSidebar] deleteChannel failed:', err)
+      alert(`Couldn't delete ${channel.name}: ${err.message}`)
+    }
   }
 
   // ── Drag and drop ──
@@ -223,6 +259,8 @@ export default function ChannelSidebar() {
             activeChannelId={activeChannelId}
             groupId={groupId}
             lastRead={lastRead}
+            canManage={canManage}
+            onChannelContextMenu={openChannelMenu}
             creating={creatingIn === null}
             newName={newName}
             setNewName={setNewName}
@@ -249,6 +287,8 @@ export default function ChannelSidebar() {
                   activeChannelId={activeChannelId}
                   groupId={groupId}
                   lastRead={lastRead}
+                  canManage={canManage}
+                  onChannelContextMenu={openChannelMenu}
                   creating={creatingIn === cat.id}
                   newName={newName}
                   setNewName={setNewName}
@@ -335,6 +375,24 @@ export default function ChannelSidebar() {
             } },
         ] : []}
       />
+
+      {/* Channel right-click menu. Only ever opened when canManage is true
+          (see ChannelListBody), matching firestore.rules' channel delete
+          rule — group admin or workspace admin. */}
+      <GroupContextMenu
+        open={chMenu.open}
+        x={chMenu.x}
+        y={chMenu.y}
+        onClose={() => setChMenu(m => ({ ...m, open: false }))}
+        items={chMenu.channel ? [
+          {
+            label: `Delete ${chMenu.channel.type === 'voice' ? 'voice ' : ''}channel`,
+            icon: <TrashIcon />,
+            danger: true,
+            onClick: () => removeChannel(chMenu.channel),
+          },
+        ] : []}
+      />
     </aside>
   )
 }
@@ -386,7 +444,7 @@ function CategorySection({ category, collapsed, onToggleCollapse, onContextMenu,
 }
 
 function ChannelListBody({
-  categoryId, channels, activeChannelId, groupId, lastRead,
+  categoryId, channels, activeChannelId, groupId, lastRead, canManage, onChannelContextMenu,
   creating, newName, setNewName, newType, setNewType, onSubmitNew, onCancelNew,
 }) {
   const target = useDroppable({ id: `catdrop-body:${categoryId ?? 'none'}`, data: { type: 'category-target', categoryId } })
@@ -400,6 +458,7 @@ function ChannelListBody({
               groupId={groupId}
               active={c.id === activeChannelId}
               unread={c.id !== activeChannelId && isUnread(c.lastMessageAt, lastRead[pathToReadKey(`groups/${groupId}/channels/${c.id}`)])}
+              onContextMenu={canManage ? (e) => onChannelContextMenu(e, c) : undefined}
             />
             {c.type === 'voice' && <VoiceParticipants groupId={groupId} channelId={c.id} />}
           </div>
@@ -443,7 +502,7 @@ function TypePill({ active, onClick, children }) {
   )
 }
 
-function SortableChannelRow({ channel, groupId, active, unread }) {
+function SortableChannelRow({ channel, groupId, active, unread, onContextMenu }) {
   const sortable = useSortable({ id: channel.id, data: { type: 'channel', channel } })
   const { activeChannel, join } = useVoiceChannel()
   const navigate = useNavigate()
@@ -462,6 +521,7 @@ function SortableChannelRow({ channel, groupId, active, unread }) {
         style={style}
         {...sortable.attributes}
         {...sortable.listeners}
+        onContextMenu={onContextMenu}
         onClick={() => {
           // join() no-ops if already connected here; navigating is what
           // actually shows the tile grid (VoiceChannelRoom), matching
@@ -487,6 +547,7 @@ function SortableChannelRow({ channel, groupId, active, unread }) {
       style={style}
       {...sortable.attributes}
       {...sortable.listeners}
+      onContextMenu={onContextMenu}
       to={`/g/${groupId}/c/${channel.id}`}
       className={[
         'w-full text-left px-2 py-1.5 rounded-sm text-sm flex items-center gap-2 transition-colors duration-150',
@@ -544,6 +605,16 @@ function ChevronDown({ className = '' }) {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
       <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="10" y1="11" x2="10" y2="17" />
+      <line x1="14" y1="11" x2="14" y2="17" />
     </svg>
   )
 }
