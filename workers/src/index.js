@@ -1,11 +1,16 @@
-// Punx Messenger — Klipy GIF proxy Worker.
+// Punx Messenger — Klipy GIF proxy + bot token issuer.
 //
-// This is intentionally small: the only reason a server exists at all is to
-// keep the Klipy API key off the browser (it's a URL path segment, not a
-// header — see src/lib/gifs.js on the client). Firebase/Firestore is the
-// real backend for everything else; this Worker holds no app data.
+// This stays intentionally small. There are exactly two reasons a server
+// exists at all, and neither of them holds app data:
+//   1. Keeping the Klipy API key off the browser (it's a URL path segment,
+//      not a header — see src/lib/gifs.js on the client).
+//   2. Minting Firebase custom tokens for bots, which needs a service-account
+//      key that obviously can't ship to a client (see routes/bots.js and
+//      docs/BOTS.md).
+// Firebase/Firestore remains the real backend for everything else.
 
 import { AuthError } from './auth.js'
+import * as bots from './routes/bots.js'
 import * as gifs from './routes/gifs.js'
 
 function corsHeaders(request, env) {
@@ -14,7 +19,7 @@ function corsHeaders(request, env) {
   if (!allowed.includes(origin)) return {}
   return {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
     'Access-Control-Max-Age': '86400',
   }
@@ -42,6 +47,11 @@ export default {
       }
       if (url.pathname === '/gifs/trending' && request.method === 'GET') {
         return withCors(await gifs.trendingGifs(request, env), cors)
+      }
+      // Bots call this server-to-server, so CORS is irrelevant to them — but
+      // it's echoed anyway so the endpoint stays testable from a browser.
+      if (url.pathname === '/bot/token' && request.method === 'POST') {
+        return withCors(await bots.issueBotToken(request, env), cors)
       }
     } catch (err) {
       if (err instanceof AuthError) return withCors(Response.json({ error: err.message }, { status: err.status }), cors)

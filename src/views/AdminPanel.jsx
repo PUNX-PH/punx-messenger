@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth, isSuperAdmin } from '../lib/auth'
 import { listenAllUsers, roleLabel, ROLES, setUserRole } from '../lib/users'
 import Avatar from '../components/Avatar'
+import BotsAdmin from '../components/BotsAdmin'
 import RoleBadge from '../components/RoleBadge'
 import { MenuButton } from '../components/AppShell'
 
@@ -138,6 +139,8 @@ export default function AdminPanel() {
             <strong className="text-ink-muted">Hierarchy:</strong> Super admins manage the workspace and other admins.
             Admins can pin in any channel and manage any group. Employees join groups by invitation.
           </p>
+
+          <BotsAdmin />
         </div>
       </div>
     </main>
