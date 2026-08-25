@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
-import { getAuth, GoogleAuthProvider } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import { connectAuthEmulator, getAuth, GoogleAuthProvider } from 'firebase/auth'
+import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore'
 import { getStorage } from 'firebase/storage'
 
 const cfg = {
@@ -18,6 +18,34 @@ export const app  = firebaseConfigured ? initializeApp(cfg) : null
 export const auth = firebaseConfigured ? getAuth(app)       : null
 export const db   = firebaseConfigured ? getFirestore(app)  : null
 export const storage = firebaseConfigured ? getStorage(app) : null
+
+/**
+ * Local emulator mode — opt in with VITE_USE_EMULATORS=1 (see .env.example).
+ *
+ * This is how firestore.rules gets exercised through the real UI instead of by
+ * reasoning about it: the Auth emulator's sign-in flow needs no password, and
+ * the Firestore emulator loads this repo's firestore.rules verbatim, so a rule
+ * that denies something shows up as the actual broken screen rather than as a
+ * console line nobody reads.
+ *
+ * Guarded on a `demo-` project id, deliberately and non-negotiably. Firebase
+ * treats that prefix as "never talks to a real backend", so a mistyped flag
+ * can't point a seeding script or a destructive test at production data. If the
+ * flag is set with a real project id we refuse and warn rather than connect.
+ */
+const useEmulators = import.meta.env.VITE_USE_EMULATORS === '1'
+if (useEmulators && app) {
+  if (!cfg.projectId?.startsWith('demo-')) {
+    console.error(
+      `[firebase] VITE_USE_EMULATORS=1 but projectId is "${cfg.projectId}", not a demo- project. ` +
+      'Refusing to connect the emulators — this guard exists so emulator runs can never reach live data.'
+    )
+  } else {
+    connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true })
+    connectFirestoreEmulator(db, '127.0.0.1', 8080)
+    console.info('[firebase] emulator mode:', cfg.projectId)
+  }
+}
 
 export const googleProvider = new GoogleAuthProvider()
 googleProvider.setCustomParameters({
