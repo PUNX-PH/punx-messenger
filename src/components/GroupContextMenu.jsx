@@ -21,11 +21,31 @@ export default function GroupContextMenu({ open, x, y, onClose, items = [] }) {
     }
     const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
     const onScroll = () => onClose?.()
-    window.addEventListener('mousedown', onClick)
-    window.addEventListener('contextmenu', onClick)
-    window.addEventListener('keydown', onKey)
-    window.addEventListener('scroll', onScroll, true)
+
+    // Deferred by a macrotask, and that is the whole reason this menu works.
+    //
+    // These listeners sit on `window`, which is ABOVE React's root container.
+    // The right-click that opens this menu is still propagating when this
+    // effect runs — React flushes discrete events synchronously, so the state
+    // update, the commit and this effect all happen while the event is on its
+    // way up. Registering immediately meant the opening `contextmenu` reached
+    // window a moment later, looked like a click outside, and closed the menu
+    // about 3ms after it appeared. Right-click menus simply never opened; the
+    // rail's long-press worked only because it fires from a timer, long after
+    // the event is done.
+    //
+    // setTimeout(0) lands after the event has finished dispatching, so the
+    // menu survives the click that created it and still closes on the next one.
+    const id = setTimeout(() => {
+      window.addEventListener('mousedown', onClick)
+      window.addEventListener('contextmenu', onClick)
+      window.addEventListener('keydown', onKey)
+      window.addEventListener('scroll', onScroll, true)
+    }, 0)
+
     return () => {
+      clearTimeout(id)
+      // No-ops if the timeout hadn't fired yet, which is exactly what we want.
       window.removeEventListener('mousedown', onClick)
       window.removeEventListener('contextmenu', onClick)
       window.removeEventListener('keydown', onKey)
