@@ -234,22 +234,77 @@ function useVoiceChannelEngine() {
     setLocalVideoStream(null)
   }, [myUid, closePeer, detachAnalyser, teardownGainGraph])
 
-  // Creates a peer connection for one participant, wired for both directions
-  // of the offer/answer flow (this function is used whether I'm about to
-  // send an offer or about to answer one). Always adds an empty video
-  // transceiver up front — even though Phase A never puts a track on it —
-  // so a later camera/screen-share toggle is a renegotiation-free
-  // replaceTrack() call instead of a fresh SDP round per peer.
-  const createPeerFor = useCallback((peerUid) => {
+  // The video track I'm currently sending, if any — camera and screen-share
+  // are mutually exclusive and share the one video transceiver per peer.
+  // Reads only refs, so an empty dep list is genuinely stable rather than a
+  // stale closure waiting to happen.
+  const activeVideoTrack = useCallback(
+    () => cameraStreamRef.current?.getVideoTracks()[0] || screenStreamRef.current?.getVideoTracks()[0] || null,
+    [],
+  )
+
+  /**
+   * Adopt the video transceiver that setRemoteDescription(offer) created, and
+   * open it for sending. ANSWERER ONLY, and it must run after
+   * setRemoteDescription but before createAnswer.
+   *
+   * Why this exists at all — this was a real bug, don't undo it:
+   * `addTransceiver('video')` on the answerer BEFORE applying the offer does
+   * NOT get associated with the offer's video m-line. Chrome leaves that
+   * transceiver orphaned (mid null, currentDirection null) and creates a
+   * second, `recvonly` one to carry the offer's m-line. Two things then break,
+   * in opposite directions:
+   *   - the answerer's stored videoSender points at the orphan, so every
+   *     replaceTrack() on it goes nowhere and NOBODY ever sees that person's
+   *     camera or screen share;
+   *   - the answer advertises `a=recvonly` for video, which drops the OFFERER
+   *     to `sendonly` — so the offerer can never receive anyone's video either.
+   * Self-view keeps working throughout, because that renders localVideoStream
+   * directly and never touches a peer connection. That is the whole "mine
+   * works, theirs doesn't" shape.
+   * Verified against two live RTCPeerConnections: with this, both ends
+   * negotiate `video:sendrecv`, ontrack delivers a video track to both, and a
+   * post-negotiation replaceTrack() reaches the far side.
+   */
+  const adoptVideoTransceiver = useCallback((pc, entry) => {
+    const tx = pc.getTransceivers().find(t => t.receiver?.track?.kind === 'video')
+    if (!tx) {
+      // No video m-line in the offer at all — leave videoSender null rather
+      // than inventing a transceiver here, which would need renegotiation.
+      // Every send site is `videoSender?.`-guarded, so this degrades to
+      // audio-only with that one peer instead of throwing.
+      console.warn('[useVoiceChannel] offer carried no video m-line; video disabled for this peer')
+      return
+    }
+    // Without this the answer says recvonly and BOTH directions of video die.
+    tx.direction = 'sendrecv'
+    entry.videoSender = tx.sender
+    // Also covers a toggle that landed during the await above, which would
+    // have skipped this peer while its videoSender was still null.
+    const track = activeVideoTrack()
+    if (track) tx.sender.replaceTrack(track).catch(() => {})
+  }, [activeVideoTrack])
+
+  // Creates a peer connection for one participant. `isOfferer` decides who
+  // sets up the video transceiver: the offerer adds it up front (empty, so a
+  // later camera/screen-share toggle is a renegotiation-free replaceTrack()
+  // rather than a fresh SDP round), while the answerer must NOT — it adopts
+  // the one the offer creates, via adoptVideoTransceiver above. Adding it on
+  // both sides is what caused remote video to fail in one direction.
+  const createPeerFor = useCallback((peerUid, { isOfferer }) => {
     const ch = activeChannelRef.current
     const pc = createPeerConnection()
-    const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' })
-    // If my camera/screen-share was already on before this peer joined,
-    // give their sender a track immediately — same replaceTrack() path
-    // toggleCamera/toggleScreenShare use, just applied at connection setup
-    // instead of after the fact.
-    const activeVideoTrack = cameraStreamRef.current?.getVideoTracks()[0] || screenStreamRef.current?.getVideoTracks()[0] || null
-    if (activeVideoTrack) videoTransceiver.sender.replaceTrack(activeVideoTrack).catch(() => {})
+    let videoSender = null
+    if (isOfferer) {
+      const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' })
+      videoSender = videoTransceiver.sender
+      // If my camera/screen-share was already on before this peer joined,
+      // give their sender a track immediately — same replaceTrack() path
+      // toggleCamera/toggleScreenShare use, just applied at connection setup
+      // instead of after the fact.
+      const track = activeVideoTrack()
+      if (track) videoSender.replaceTrack(track).catch(() => {})
+    }
     // Send the gain-processed stream (raw mic -> input-volume GainNode),
     // not the raw mic stream directly — see buildGainGraph.
     processedStreamRef.current?.getTracks().forEach(t => pc.addTrack(t, processedStreamRef.current))
@@ -272,7 +327,8 @@ function useVoiceChannelEngine() {
     }
 
     const entry = {
-      pc, videoSender: videoTransceiver.sender,
+      // null for the answerer until adoptVideoTransceiver() fills it in.
+      pc, videoSender,
       unsubCandidates: null, pendingCandidates: [], appliedCandidateIds: new Set(),
     }
     peersRef.current.set(peerUid, entry)
@@ -292,7 +348,7 @@ function useVoiceChannelEngine() {
     }
 
     return { pc, entry }
-  }, [myUid, closePeer, attachAnalyser])
+  }, [myUid, closePeer, attachAnalyser, activeVideoTrack])
 
   const flushPending = (pc, entry) => {
     const pending = entry.pendingCandidates
@@ -307,7 +363,7 @@ function useVoiceChannelEngine() {
     const ch = activeChannelRef.current
     if (!ch || !myUid || peersRef.current.has(peerUid)) return
     try {
-      const { pc } = createPeerFor(peerUid)
+      const { pc } = createPeerFor(peerUid, { isOfferer: true })
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
       await createVoiceOffer(ch.groupId, ch.channelId, myUid, peerUid, { sdp: offer.sdp, type: offer.type })
@@ -331,8 +387,11 @@ function useVoiceChannelEngine() {
         // I've already answered (or am mid-flight answering) this pair.
         if (peersRef.current.has(peerUid) || !sig.offer) continue
         try {
-          const { pc, entry } = createPeerFor(peerUid)
+          const { pc, entry } = createPeerFor(peerUid, { isOfferer: false })
           await pc.setRemoteDescription(new RTCSessionDescription(sig.offer))
+          // Must sit between setRemoteDescription and createAnswer: it's what
+          // makes the answer advertise sendrecv for video instead of recvonly.
+          adoptVideoTransceiver(pc, entry)
           flushPending(pc, entry)
           const answer = await pc.createAnswer()
           await pc.setLocalDescription(answer)
@@ -352,7 +411,7 @@ function useVoiceChannelEngine() {
         }
       }
     }
-  }, [myUid, createPeerFor])
+  }, [myUid, createPeerFor, adoptVideoTransceiver])
 
   // Roster listener's added/removed lists drive peer-connection lifecycle
   // directly — this fires identically whether "added" means a genuinely new
