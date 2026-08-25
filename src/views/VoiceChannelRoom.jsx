@@ -42,6 +42,17 @@ export default function VoiceChannelRoom({ channel, groupId, readOnly = false })
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [pipWindow, setPipWindow] = useState(null)
   const containerRef = useRef(null)
+  // The uid we spotlighted on our own initiative, so we know whether the
+  // current spotlight is ours to move. Cleared the moment the user picks a
+  // tile themselves — after that we stop steering until a NEW share starts.
+  const autoPinnedRef = useRef(null)
+  // Who was screen-sharing on the previous render, to spot a share that has
+  // just begun (as opposed to one that has merely been running a while).
+  const prevSharersRef = useRef(new Set())
+
+  // Any tile click is the user taking over: give up automatic spotlighting so
+  // we never yank the view back out from under them.
+  const choosePinned = (uid) => { autoPinnedRef.current = null; setPinnedUid(uid) }
 
   const isThisChannel = activeChannel?.groupId === groupId && activeChannel?.channelId === channel.id
 
@@ -50,6 +61,48 @@ export default function VoiceChannelRoom({ channel, groupId, readOnly = false })
   useEffect(() => {
     if (pinnedUid && !participants.some(p => p.uid === pinnedUid)) setPinnedUid(null)
   }, [pinnedUid, participants])
+
+  // Who is presenting right now. Self is deliberately excluded: you are
+  // already looking at your own screen, and spotlighting it here gives you the
+  // hall-of-mirrors when you've shared a whole display. Google Meet makes the
+  // same call — the presenter gets a "you're presenting" badge, not their own
+  // output played back at them.
+  const remoteSharerUids = participants
+    .filter(p => p.uid !== myUid && p.screenSharing)
+    .map(p => p.uid)
+  const sharerKey = remoteSharerUids.join('|')
+
+  // Meet-style presenting: a share that starts becomes the main view for
+  // everyone automatically, and when it ends the grid comes back. Without
+  // this a screen share was just another tile in an NxN grid — at four or
+  // five people it's a thumbnail of somebody's IDE, which reads as "screen
+  // sharing is broken" long before anyone thinks to click it.
+  useEffect(() => {
+    const prev = prevSharersRef.current
+    const current = new Set(remoteSharerUids)
+    const started = remoteSharerUids.filter(uid => !prev.has(uid))
+    prevSharersRef.current = current
+
+    // Someone just began presenting — focus them, newest wins if two start at
+    // once. Overrides a manual spotlight on purpose: a new share is new
+    // information, and it's what Meet does too.
+    if (started.length > 0) {
+      const next = started[started.length - 1]
+      autoPinnedRef.current = next
+      setPinnedUid(next)
+      return
+    }
+
+    // The share WE spotlighted has stopped: hand the view back to the grid.
+    // Only ever touches a spotlight we set ourselves, so a manual pick made
+    // during the share survives it.
+    const auto = autoPinnedRef.current
+    if (auto && !current.has(auto)) {
+      autoPinnedRef.current = null
+      setPinnedUid(p => (p === auto ? null : p))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharerKey])
 
   useEffect(() => {
     const onFsChange = () => setIsFullscreen(document.fullscreenElement === containerRef.current)
@@ -143,8 +196,9 @@ export default function VoiceChannelRoom({ channel, groupId, readOnly = false })
       photoURL: user?.photoURL,
       speaking: speakingUids?.has(p.uid),
       muted: p.muted,
-      hasVideo: isSelf ? (cameraOn || screenSharing) : (p.cameraOn || p.screenSharing),
       isScreen: isSelf ? screenSharing : p.screenSharing,
+      presenting: isSelf ? screenSharing : !!p.screenSharing,
+      isSelf,
       stream: isSelf ? localVideoStream : remoteStreams[p.uid],
     }
   })
@@ -166,13 +220,13 @@ export default function VoiceChannelRoom({ channel, groupId, readOnly = false })
   const tileGrid = pinned ? (
     <div className="flex flex-col gap-3 h-full">
       <div className="flex-1 min-h-0">
-        <ParticipantTile {...pinned} zoomable onClick={() => setPinnedUid(null)} />
+        <ParticipantTile {...pinned} zoomable onClick={() => choosePinned(null)} />
       </div>
       {others.length > 0 && (
         <div className="h-24 flex gap-2 overflow-x-auto shrink-0">
           {others.map(t => (
             <div key={t.uid} className="h-24 w-36 shrink-0">
-              <ParticipantTile {...t} onClick={() => setPinnedUid(t.uid)} />
+              <ParticipantTile {...t} onClick={() => choosePinned(t.uid)} />
             </div>
           ))}
         </div>
@@ -184,7 +238,7 @@ export default function VoiceChannelRoom({ channel, groupId, readOnly = false })
       style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}
     >
       {tiles.map(t => (
-        <ParticipantTile key={t.uid} {...t} span={t.isScreen ? Math.min(2, cols) : 1} onClick={() => setPinnedUid(t.uid)} />
+        <ParticipantTile key={t.uid} {...t} span={t.isScreen ? Math.min(2, cols) : 1} onClick={() => choosePinned(t.uid)} />
       ))}
     </div>
   )
@@ -228,7 +282,11 @@ const ZOOM_MAX = 4
 const ZOOM_STEP = 0.25
 const clampZoom = (z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100))
 
-function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, stream, span = 1, zoomable = false, onClick }) {
+function ParticipantTile({
+  name, photoURL, speaking, muted, isScreen, stream,
+  presenting = false, isSelf = false,
+  span = 1, zoomable = false, onClick,
+}) {
   const videoRef = useRef(null)
   const frameRef = useRef(null)
   // Whether frames are actually arriving, as opposed to the roster merely
@@ -239,6 +297,11 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const dragRef = useRef(null)
   const draggedRef = useRef(false)
+
+  // Whether this peer connection is carrying a video track at all. Present
+  // from negotiation onward (the transceiver is added empty at join time), so
+  // this is NOT the same question as "is anything being shared" — videoLive is.
+  const hasTrack = !!stream?.getVideoTracks?.().length
 
   const canZoom = zoomable && isScreen && videoLive
 
@@ -326,10 +389,19 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
   //    policy, which silently refuses to start without a recent user gesture
   //    and leaves the tile black. That's why remote tiles could come up blank
   //    while your own — muted, so always exempt — never did.
+  // NOTE the track comes from the stream, NOT from any roster flag. That
+  // distinction is the fix for screen shares appearing unreliably: the
+  // cameraOn/screenSharing flags are Firestore documents written by the
+  // sharer, so they arrive on their own schedule relative to the RTP, and if
+  // one of those writes were lost the far side would never render video at all
+  // even though frames were arriving the whole time. The track is ground
+  // truth. `isScreen` still comes from the roster, but only to choose
+  // contain-vs-cover, so lag there is cosmetic rather than the difference
+  // between seeing a screen share and not.
   useEffect(() => {
     const el = videoRef.current
     if (!el) { setVideoLive(false); return }
-    const track = hasVideo ? stream?.getVideoTracks?.()[0] : null
+    const track = stream?.getVideoTracks?.()[0] || null
     if (!track) { el.srcObject = null; setVideoLive(false); return }
 
     const attach = () => {
@@ -340,11 +412,19 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
     }
     attach()
 
-    const onPlaying = () => setVideoLive(true)
+    // Liveness is deliberately decided by "does this element have real pixel
+    // dimensions", checked on every event that could mean frames arrived —
+    // not by `playing` alone. `playing` is a single edge, and anything that
+    // makes us miss it (a re-attach while already playing, an element that
+    // was already started) used to leave the avatar placeholder covering a
+    // perfectly good picture, permanently, with no way back.
+    const markLive = () => { if (el.videoWidth > 0) setVideoLive(true) }
     const onStopped = () => setVideoLive(false)
-    el.addEventListener('playing', onPlaying)
+    const LIVE_EVENTS = ['playing', 'canplay', 'loadedmetadata', 'resize', 'timeupdate']
+    LIVE_EVENTS.forEach(ev => el.addEventListener(ev, markLive))
     el.addEventListener('emptied', onStopped)
     track.addEventListener('mute', onStopped)
+    markLive() // in case frames were already flowing before we got here
 
     // Every peer connection carries a video transceiver from the moment it's
     // built (see createPeerFor — that's what makes camera/screen-share a
@@ -356,12 +436,12 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
     // instead of trusting the first assignment to catch up on its own.
     track.addEventListener('unmute', attach)
     return () => {
-      el.removeEventListener('playing', onPlaying)
+      LIVE_EVENTS.forEach(ev => el.removeEventListener(ev, markLive))
       el.removeEventListener('emptied', onStopped)
       track.removeEventListener('mute', onStopped)
       track.removeEventListener('unmute', attach)
     }
-  }, [stream, hasVideo])
+  }, [stream])
 
   return (
     // A div rather than a button: the zoom bar below puts real buttons and a
@@ -389,13 +469,16 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
           as long as no frames are arriving (a <video> paints nothing until its
           first one lands, and the roster flag flips a whole network round trip
           before that); then the video over both. */}
-      {hasVideo && isScreen && <div className="absolute inset-0 bg-black" />}
+      {videoLive && isScreen && <div className="absolute inset-0 bg-black" />}
       {!videoLive && (
         <div className="absolute inset-0 flex items-center justify-center" style={{ background: colorFromName(name) }}>
           <Avatar name={name} src={photoURL} size={64} />
         </div>
       )}
-      {hasVideo && (
+      {/* Always mounted when a peer connection exists — see the effect above
+          for why this must not wait on the roster flag. Until frames actually
+          arrive it is an invisible zero-size element behind the placeholder. */}
+      {hasTrack && (
         <video
           ref={videoRef}
           autoPlay
@@ -416,6 +499,11 @@ function ParticipantTile({ name, photoURL, speaking, muted, hasVideo, isScreen, 
       <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/50 rounded px-2 py-1 max-w-[calc(100%-1rem)]">
         {muted && <MicOffIcon className="text-bad shrink-0" />}
         {isScreen && <ScreenIcon className="text-white shrink-0" />}
+        {presenting && (
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-ok shrink-0">
+            {isSelf ? "You're presenting" : 'Presenting'}
+          </span>
+        )}
         <span className="text-xs text-white truncate">{name}</span>
       </div>
 
