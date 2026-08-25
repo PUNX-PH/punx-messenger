@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useAuth } from '../lib/auth'
+import { useAuth, isGuest } from '../lib/auth'
 import { listenChannels } from '../lib/groups'
 
 /**
@@ -28,6 +28,10 @@ export default function GroupHome() {
           ? "You don't have access to this group (or it no longer exists)."
           : err?.message || 'Failed to open this group.'
       ),
+      // Guests can only query channels that name them; the unfiltered query
+      // would be denied and they'd never reach the channel they were invited
+      // to. See listenChannels.
+      isGuest(profile) ? profile?.id : null,
     )
   }, [groupId, profile, navigate])
 

@@ -101,6 +101,11 @@ export const useAuth = () => useContext(AuthCtx)
 export const isSuperAdmin = (p) => p?.role === 'super_admin'
 export const isDeveloper = (p) => p?.role === 'developer'
 
+// Bottom of the hierarchy. A guest is a group member whose channel access is
+// explicit-only: they see nothing in a group except channels whose allowUids
+// names them. Mirrors isGuest() in firestore.rules.
+export const isGuest = (p) => p?.role === 'guest'
+
 // "Runs the workspace itself": role administration, the bot registry, and
 // see-all-channels oversight.
 export const isTopTier = (p) => isDeveloper(p) || isSuperAdmin(p)
@@ -136,6 +141,27 @@ export const canGrantDeveloper = (p) =>
  */
 export const isOversightExempt = (group, usersById) =>
   !!group && usersById?.[group.ownerUid]?.role === 'developer'
+
+/**
+ * Whether `profile` may see `channel`. Mirrors channelVisible() in
+ * firestore.rules — keep the two in step, since this one decides what the
+ * sidebar renders and that one decides what Firestore will actually serve.
+ *
+ *   guest      → only channels whose allowUids names them, private or not.
+ *   anyone else→ every channel except private ones they aren't listed in;
+ *                group and workspace admins see private ones too.
+ *
+ * A channel with no `private` field is public — channels created before this
+ * feature have no such field and must keep working.
+ */
+export const canSeeChannel = (profile, channel, group) => {
+  if (!channel) return false
+  const uid = uidOf(profile)
+  const listed = (channel.allowUids || []).includes(uid)
+  if (isGuest(profile)) return listed
+  if (!channel.private) return true
+  return listed || isAdmin(profile) || !!group?.adminUids?.includes(uid)
+}
 
 /**
  * Super-admin oversight ("ghost") viewing — reading a group you were never

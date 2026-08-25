@@ -5,6 +5,10 @@ export default function RoleBadge({ role, size = 'sm' }) {
     super_admin: { label: 'Super admin', cls: 'bg-warn/15 text-warn border-warn/30' },
     admin:       { label: 'Admin',       cls: 'bg-brand/15 text-brand border-brand/30' },
     developer:   { label: 'Developer',   cls: 'bg-ok/15 text-ok border-ok/30' },
+    // Worth showing rather than hiding like 'employee': a guest can only see
+    // the channels they were invited to, and everyone else benefits from
+    // knowing that when they appear in a channel.
+    guest:       { label: 'Guest',       cls: 'bg-bg-raised text-ink-dim border-line-strong' },
   }[role]
   if (!cfg) return null
 

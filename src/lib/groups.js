@@ -45,15 +45,29 @@ export function listenAllGroups(cb, onError) {
   )
 }
 
-// Listen to channels in a group
-export function listenChannels(groupId, cb, onError) {
-  const q = query(
-    collection(db, 'groups', groupId, 'channels'),
-    orderBy('createdAt', 'asc'),
-  )
+/**
+ * Listen to channels in a group.
+ *
+ * `guestUid` switches to the narrow query a guest is allowed to run. This is
+ * not an optimisation — a Firestore list query is denied WHOLE if it matches
+ * even one unreadable document, and firestore.rules denies a guest every
+ * channel that doesn't name them. So an unfiltered query returns nothing at
+ * all for a guest, while `allowUids array-contains me` returns exactly the
+ * readable set. Single-field filter, so no composite index is needed; sorted
+ * client-side for the same reason listenMyGroups is.
+ */
+export function listenChannels(groupId, cb, onError, guestUid = null) {
+  const col = collection(db, 'groups', groupId, 'channels')
+  const q = guestUid
+    ? query(col, where('allowUids', 'array-contains', guestUid))
+    : query(col, orderBy('createdAt', 'asc'))
   return onSnapshot(
     q,
-    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    snap => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      if (guestUid) list.sort(byCreatedAt)
+      cb(list)
+    },
     err => {
       // Without this, a denied/broken query here just hangs GroupHome.jsx's
       // "Opening group…" screen forever with zero feedback.
@@ -61,6 +75,22 @@ export function listenChannels(groupId, cb, onError) {
       onError?.(err)
     },
   )
+}
+
+/**
+ * Replace a channel's access list.
+ *
+ * `allowUids` is what both the rules and the sidebar read. `isPrivate` only
+ * matters for non-guests: a public channel is visible to every group member
+ * regardless of the list, while a private one is visible only to those on it
+ * (plus admins). Guests are governed by the list alone, so inviting a guest to
+ * a public channel works without making it private.
+ */
+export async function setChannelAccess(groupId, channelId, { isPrivate, allowUids }) {
+  await updateDoc(doc(db, 'groups', groupId, 'channels', channelId), {
+    private: !!isPrivate,
+    allowUids: Array.from(new Set(allowUids || [])),
+  })
 }
 
 // Listen to a single group doc
@@ -105,16 +135,25 @@ export async function createGroup({ name, avatarFile, owner }) {
   return { groupId, generalChannelId: generalRef.id }
 }
 
-export async function createChannel(groupId, { name, createdBy, categoryId = null, type = 'text' }) {
+export async function createChannel(
+  groupId,
+  { name, createdBy, categoryId = null, type = 'text', isPrivate = false, allowUids = [] },
+) {
   const colRef = collection(db, 'groups', groupId, 'channels')
   // Next position within the target category (or the uncategorized group).
   const existing = await getDocs(query(colRef, where('categoryId', '==', categoryId)))
   const maxOrder = existing.docs.reduce((m, d) => Math.max(m, d.data().order ?? -1), -1)
+  // `private` and `allowUids` are always written, even for a plain public
+  // channel, so the access UI never has to special-case a channel that predates
+  // this feature. The creator is always on the list: a private channel nobody
+  // can open is only ever a mistake.
   const ref = await addDoc(colRef, {
     name: name.trim().toLowerCase().replace(/\s+/g, '-'),
     type,
     categoryId,
     order: maxOrder + 1,
+    private: !!isPrivate,
+    allowUids: Array.from(new Set([...(allowUids || []), createdBy].filter(Boolean))),
     createdAt: serverTimestamp(),
     createdBy,
   })

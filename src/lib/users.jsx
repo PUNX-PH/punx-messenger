@@ -7,13 +7,14 @@ import { useAuth } from './auth'
 // `developer` is the TOP role: everything super_admin has, plus the one thing
 // super_admin doesn't have, which is that groups a developer owns are hidden
 // from super admins. See lib/auth for who may grant it (developers only).
-export const ROLES = ['employee', 'admin', 'super_admin', 'developer']
+export const ROLES = ['guest', 'employee', 'admin', 'super_admin', 'developer']
 
 export const roleLabel = (r) =>
   r === 'super_admin' ? 'Super admin'
     : r === 'admin' ? 'Admin'
       : r === 'developer' ? 'Developer'
-        : 'Employee'
+        : r === 'guest' ? 'Guest'
+          : 'Employee'
 
 export function listenAllUsers(cb) {
   const q = query(collection(db, 'users'), orderBy('name'))

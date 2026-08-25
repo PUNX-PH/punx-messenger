@@ -5,7 +5,7 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useAuth, canOversee, isAdmin, isGhost } from '../lib/auth'
+import { useAuth, canOversee, canSeeChannel, isAdmin, isGhost, isGuest } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import {
   createCategory, createChannel, deleteCategory, deleteChannel, groupChannelsByCategory,
@@ -17,6 +17,7 @@ import { useVoiceChannel } from '../lib/useVoiceChannel'
 import UserPanel from './UserPanel'
 import GroupSettingsModal from './GroupSettingsModal'
 import GroupContextMenu from './GroupContextMenu'
+import ChannelAccessModal from './ChannelAccessModal'
 import VoiceParticipants from './voice/VoiceParticipants'
 import VoiceStatusBar from './voice/VoiceStatusBar'
 
@@ -40,6 +41,8 @@ export default function ChannelSidebar() {
   const [addMenu, setAddMenu] = useState({ open: false, x: 0, y: 0 })
   const [catMenu, setCatMenu] = useState({ open: false, x: 0, y: 0, category: null })
   const [chMenu, setChMenu] = useState({ open: false, x: 0, y: 0, channel: null })
+  const [accessFor, setAccessFor] = useState(null)
+  const [newPrivate, setNewPrivate] = useState(false)
   const [collapsed, setCollapsed] = useState(() => readCollapsed(groupId))
   const [activeDrag, setActiveDrag] = useState(null)
   const [channelsLoaded, setChannelsLoaded] = useState(false)
@@ -67,8 +70,16 @@ export default function ChannelSidebar() {
   useEffect(() => {
     if (!groupId) return
     setChannelsLoaded(false)
-    return listenChannels(groupId, (list) => { setChannels(list); setChannelsLoaded(true) })
-  }, [groupId])
+    // A guest may only read channels naming them, and a list query that
+    // matches even one unreadable document is denied outright — so guests get
+    // the array-contains query instead of the unfiltered one.
+    return listenChannels(
+      groupId,
+      (list) => { setChannels(list); setChannelsLoaded(true) },
+      undefined,
+      isGuest(profile) ? profile?.id : null,
+    )
+  }, [groupId, profile])
 
   // If the voice channel you're sitting in gets deleted out from under you,
   // disconnect — otherwise you stay in a room that no longer exists, still
@@ -97,7 +108,22 @@ export default function ChannelSidebar() {
   const ghost = group === undefined ? canOversee(profile) : isGhost(profile, group)
   const canManage = !ghost && (isAdmin(profile) || group?.adminUids?.includes(profile?.id))
 
-  const grouped = useMemo(() => groupChannelsByCategory(channels, categories), [channels, categories])
+  // The rules are the real boundary; this is what stops the sidebar listing a
+  // private channel the viewer would be denied on opening. Mirrors
+  // channelVisible() in firestore.rules via canSeeChannel().
+  const visibleChannels = useMemo(
+    () => channels.filter(c => canSeeChannel(profile, c, group)),
+    [channels, profile, group],
+  )
+
+  const grouped = useMemo(() => {
+    const g = groupChannelsByCategory(visibleChannels, categories)
+    // Someone who can't add channels has no use for an empty category header,
+    // and for a guest it would leak the shape of a group they can only see one
+    // corner of. Admins keep them, since that's where new channels go.
+    if (canManage) return g
+    return { ...g, categories: g.categories.filter(c => c.channels.length > 0) }
+  }, [visibleChannels, categories, canManage])
 
   const toggleCollapsed = (categoryId) => {
     setCollapsed(prev => {
@@ -113,9 +139,12 @@ export default function ChannelSidebar() {
     e.preventDefault()
     const v = newName.trim()
     if (!v || creatingIn === undefined) return
-    const id = await createChannel(groupId, { name: v, createdBy: profile.id, categoryId: creatingIn, type: newType })
+    const id = await createChannel(groupId, {
+      name: v, createdBy: profile.id, categoryId: creatingIn, type: newType,
+      isPrivate: newPrivate,
+    })
     const wasVoice = newType === 'voice'
-    setNewName(''); setCreatingIn(undefined); setNewType('text')
+    setNewName(''); setCreatingIn(undefined); setNewType('text'); setNewPrivate(false)
     // Voice channels have no text-channel-style route to navigate to — Phase A
     // is join-in-place from the sidebar (see SortableChannelRow below).
     if (!wasVoice) navigate(`/g/${groupId}/c/${id}`)
@@ -289,6 +318,8 @@ export default function ChannelSidebar() {
             setNewName={setNewName}
             newType={newType}
             setNewType={setNewType}
+            newPrivate={newPrivate}
+            setNewPrivate={setNewPrivate}
             onSubmitNew={submitNewChannel}
             onCancelNew={() => setCreatingIn(undefined)}
           />
@@ -318,6 +349,8 @@ export default function ChannelSidebar() {
                   setNewName={setNewName}
                   newType={newType}
                   setNewType={setNewType}
+                  newPrivate={newPrivate}
+                  setNewPrivate={setNewPrivate}
                   onSubmitNew={submitNewChannel}
                   onCancelNew={() => setCreatingIn(undefined)}
                 />
@@ -361,6 +394,14 @@ export default function ChannelSidebar() {
 
       <VoiceStatusBar />
       <UserPanel />
+
+      <ChannelAccessModal
+        open={!!accessFor}
+        onClose={() => setAccessFor(null)}
+        groupId={groupId}
+        channel={accessFor}
+        group={group}
+      />
 
       <GroupSettingsModal
         open={settingsOpen}
@@ -409,6 +450,12 @@ export default function ChannelSidebar() {
         y={chMenu.y}
         onClose={() => setChMenu(m => ({ ...m, open: false }))}
         items={chMenu.channel ? [
+          {
+            label: 'Manage access',
+            icon: <LockIcon />,
+            onClick: () => setAccessFor(chMenu.channel),
+          },
+          { separator: true },
           {
             label: `Delete ${chMenu.channel.type === 'voice' ? 'voice ' : ''}channel`,
             icon: <TrashIcon />,
@@ -470,7 +517,8 @@ function CategorySection({ category, collapsed, onToggleCollapse, onContextMenu,
 function ChannelListBody({
   categoryId, channels, activeChannelId, groupId, lastRead, canManage, canJoinVoice = true,
   onChannelContextMenu,
-  creating, newName, setNewName, newType, setNewType, onSubmitNew, onCancelNew,
+  creating, newName, setNewName, newType, setNewType, newPrivate, setNewPrivate,
+  onSubmitNew, onCancelNew,
 }) {
   const target = useDroppable({ id: `catdrop-body:${categoryId ?? 'none'}`, data: { type: 'category-target', categoryId } })
   return (
@@ -497,6 +545,7 @@ function ChannelListBody({
           <div className="flex gap-1">
             <TypePill active={newType === 'text'} onClick={() => setNewType('text')}>Text</TypePill>
             <TypePill active={newType === 'voice'} onClick={() => setNewType('voice')}>Voice</TypePill>
+            <TypePill active={newPrivate} onClick={() => setNewPrivate(p => !p)}>Private</TypePill>
           </div>
           <input
             autoFocus
@@ -571,6 +620,7 @@ function SortableChannelRow({
       >
         <SpeakerIcon className="text-ink-dim shrink-0" />
         <span className="truncate flex-1">{channel.name}</span>
+        {channel.private && <LockIcon className="text-ink-dim shrink-0" />}
       </button>
     )
   }
@@ -639,6 +689,13 @@ function ChevronDown({ className = '' }) {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
       <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+function LockIcon({ className = '' }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>
     </svg>
   )
 }

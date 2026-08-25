@@ -12,6 +12,9 @@ rules_version = '2';
 //                  being a member of it — EXCEPT developer-owned ones.
 //   admin        → workspace-wide admin (group settings + pinning everywhere)
 //   employee     → regular member (read/send in own groups + DMs + notes)
+//   guest        → invited to specific CHANNELS only. Sees nothing in a group
+//                  except channels whose allowUids lists them — see
+//                  channelVisible() below. Cannot create groups.
 //
 // Bootstrap super-admins are listed in `isBootstrapSuperAdmin()` below — these
 // emails are allowed to create their /users/{uid} doc with role=super_admin on
@@ -112,6 +115,11 @@ service cloud.firestore {
 
     function isSuperAdmin()      { return signedIn() && myRole() == 'super_admin'; }
     function isDeveloper()       { return signedIn() && myRole() == 'developer'; }
+
+    // Bottom of the hierarchy: a guest is a group member whose channel access
+    // is explicit-only. Where an employee sees every non-private channel in
+    // their groups, a guest sees ONLY channels that name them in allowUids.
+    function isGuest()           { return signedIn() && myRole() == 'guest'; }
 
     // `developer` is the TOP role: everything super_admin can do, plus the one
     // thing it has that super_admin doesn't — its own groups are outside
@@ -224,6 +232,73 @@ service cloud.firestore {
     // are not displayed either.
     function overseeGroup(groupId) {
       return canOverseeAll() && !groupOwnerIsDeveloper(groupId);
+    }
+
+    // ── Per-channel access ──
+    //
+    // Takes the channel's data map rather than fetching it, so the channel's
+    // own read rule can pass `resource.data` for free while subcollections
+    // (messages, voice roster) pass a get(). One function either way, because
+    // two copies of this logic would drift and the drift would be a silent
+    // information leak.
+    //
+    // Two independent mechanisms, deliberately:
+    //   private + allowUids → a channel hidden from most of the group. Group
+    //     and workspace admins still see it, same as Discord.
+    //   guest role → sees ONLY channels naming them, private or not, and no
+    //     admin override applies because a guest is never an admin.
+    //
+    // Every field read is `in`-guarded: channels created before this existed
+    // have neither key, and reading a missing key ERRORS, which denies the
+    // whole rule rather than evaluating false. Absent keys must read as
+    // "public", or this would hide every pre-existing channel.
+    function channelListsMe(ch) {
+      return ('allowUids' in ch) && myUid() in ch.allowUids;
+    }
+    function channelIsPrivate(ch) {
+      return ('private' in ch) && ch.private == true;
+    }
+    // Whether the channel DOCUMENT is readable. Deliberately weaker than
+    // channelVisible() below, and the asymmetry is load-bearing:
+    //
+    // A Firestore list query is denied WHOLE if any single matched document is
+    // unreadable — it does not silently drop the ones you can't see. So if
+    // private channel docs were denied to ordinary members, listenChannels()
+    // would fail outright for everyone in a group that has one, and there is no
+    // query filter that can express "private is false OR the field is absent"
+    // for the channels that predate this feature.
+    //
+    // A GUEST is exempt from that problem: guests only ever see channels that
+    // name them, their client queries `allowUids array-contains me`, and every
+    // channel a guest is granted has that field written at grant time. So the
+    // guest case — the one this feature exists for — is fully enforced here,
+    // with no migration.
+    //
+    // For ordinary members the residual is narrow and stated: they could fetch
+    // a private channel's NAME directly through the API. Its messages, voice
+    // roster and every write are still denied below. Closing that too would
+    // mean backfilling `private` onto every existing channel first.
+    function channelDocVisible(ch) {
+      return !isGuest() || channelListsMe(ch);
+    }
+
+    // Whether the channel's CONTENTS are reachable — messages, voice roster,
+    // and any write. This is the real boundary.
+    function channelVisible(groupId, ch) {
+      return (isGuest() && channelListsMe(ch))
+        || (!isGuest() && (
+              !channelIsPrivate(ch)
+              || channelListsMe(ch)
+              || adminOverGroup(groupId)
+           ));
+    }
+    function channelDataOf(groupId, channelId) {
+      return get(/databases/$(database)/documents/groups/$(groupId)/channels/$(channelId)).data;
+    }
+    // For use from a channel's subcollections, where `resource` is not the
+    // channel. Costs one get, cached across a single request's rule evaluation.
+    function canSeeChannel(groupId, channelId) {
+      return channelVisible(groupId, channelDataOf(groupId, channelId));
     }
 
     function isBootstrapSuperAdmin() {
@@ -340,7 +415,9 @@ service cloud.firestore {
 
       // Any signed-in user can create a group, but they must be the owner and
       // be in both memberUids and adminUids.
-      allow create: if signedIn()
+      // Guests are invited into specific channels; they don't get to spin up
+      // groups of their own.
+      allow create: if signedIn() && !isGuest()
         && request.resource.data.ownerUid == myUid()
         && myUid() in request.resource.data.memberUids
         && myUid() in request.resource.data.adminUids;
@@ -378,7 +455,10 @@ service cloud.firestore {
 
       // ───── Channels ─────
       match /channels/{channelId} {
-        allow read: if isGroupMember(groupId) || overseeGroup(groupId);
+        // `resource.data` is the channel itself here, so visibility costs no
+        // extra read on the common path.
+        allow read: if (isGroupMember(groupId) && channelDocVisible(resource.data))
+          || overseeGroup(groupId);
         // Create: group admin (incl. during batched group creation) or workspace admin
         allow create: if (isGroupAdminAfter(groupId) || adminOverGroup(groupId) || botCanManageChannels(groupId))
           && request.resource.data.type in ['text', 'voice'];
@@ -387,17 +467,20 @@ service cloud.firestore {
         // write to `typing` (typing indicators).
         allow update: if adminOverGroup(groupId) || botCanManageChannels(groupId)
           || (isGroupMember(groupId)
+              && channelVisible(groupId, resource.data)
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'typing']));
         allow delete: if adminOverGroup(groupId) || botCanManageChannels(groupId);
 
         // ───── Channel messages ─────
         match /messages/{msgId} {
-          allow read: if isGroupMember(groupId) || overseeGroup(groupId);
+          allow read: if (isGroupMember(groupId) && canSeeChannel(groupId, channelId))
+            || overseeGroup(groupId);
 
           // Create: must be group member + author identifies the sender.
           // Oversight is NOT enough — posting is exactly what would give an
           // overseeing super admin away, so they have to join the group first.
           allow create: if isGroupMember(groupId)
+            && canSeeChannel(groupId, channelId)
             && request.resource.data.author.uid == myUid()
             && botCan('messages:write');
 
@@ -406,9 +489,10 @@ service cloud.firestore {
           //   - group admins / workspace admins can pin/unpin (and anything)
           //   - any group member can update ONLY the `reactions` field (for emoji reactions)
           allow update: if adminOverGroup(groupId)
-            || (isGroupMember(groupId) && resource.data.author.uid == myUid()
+            || (isGroupMember(groupId) && canSeeChannel(groupId, channelId)
+                && resource.data.author.uid == myUid()
                 && botCan('messages:write'))
-            || (isGroupMember(groupId)
+            || (isGroupMember(groupId) && canSeeChannel(groupId, channelId)
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
                 && botCan('reactions:write'))
             // Pinning is otherwise admin-only, but a bot with the react/pin
@@ -419,7 +503,8 @@ service cloud.firestore {
 
           // Delete: author, group admin, or workspace admin
           allow delete: if adminOverGroup(groupId)
-            || (isGroupMember(groupId) && resource.data.author.uid == myUid()
+            || (isGroupMember(groupId) && canSeeChannel(groupId, channelId)
+                && resource.data.author.uid == myUid()
                 && botCan('messages:write'));
         }
 
@@ -435,12 +520,14 @@ service cloud.firestore {
           // Readable under oversight so a super admin can see who's in a voice
           // channel. Joining it stays member-only below — a roster doc is
           // precisely the thing the rest of the group would notice.
-          allow read: if isGroupMember(groupId) || overseeGroup(groupId);
+          allow read: if (isGroupMember(groupId) && canSeeChannel(groupId, channelId))
+            || overseeGroup(groupId);
 
           // botCan gates a music/utility bot joining the mesh at all; past
           // this point a bot is just another participant, and the signaling
           // below treats it identically to a browser.
           allow create: if isGroupMember(groupId) && uid == myUid()
+            && canSeeChannel(groupId, channelId)
             && request.resource.data.uid == myUid()
             && botCan('voice:join')
             && get(/databases/$(database)/documents/groups/$(groupId)/channels/$(channelId)).data.type == 'voice';

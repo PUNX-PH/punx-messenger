@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { useAuth, canOversee, isOversightExempt } from '../lib/auth'
+import { useAuth, canOversee, isGuest, isOversightExempt } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import {
   addMember, leaveGroup, listenAllGroups, listenChannels, listenMyGroups,
@@ -60,9 +60,14 @@ export default function ServerRail() {
   useEffect(() => {
     if (myGroups.length === 0) { setChannelsByGroup({}); return }
     const unsubs = myGroups.map(g =>
-      listenChannels(g.id, (chs) => {
-        setChannelsByGroup(prev => ({ ...prev, [g.id]: chs }))
-      })
+      listenChannels(
+        g.id,
+        (chs) => setChannelsByGroup(prev => ({ ...prev, [g.id]: chs })),
+        undefined,
+        // Guests would otherwise get a denied snapshot here and no unread
+        // badges at all on the groups they ARE in.
+        isGuest(profile) ? meUid : null,
+      )
     )
     return () => unsubs.forEach(u => u())
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -153,6 +158,9 @@ export default function ServerRail() {
           </>
         )}
 
+        {/* Guests are invited into specific channels; firestore.rules blocks
+            them creating groups, so don't offer the button. */}
+        {!isGuest(profile) && (
         <button
           onClick={() => setCreating(true)}
           title="Create group"
@@ -160,6 +168,7 @@ export default function ServerRail() {
         >
           <PlusIcon />
         </button>
+        )}
       </aside>
 
       <CreateGroupModal open={creating} onClose={() => setCreating(false)} />

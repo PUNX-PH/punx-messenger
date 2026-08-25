@@ -48,7 +48,7 @@ export default function AdminPanel() {
   // and accumulated with a fallback so an unrecognised role can't turn a tile
   // into NaN.
   const counts = useMemo(() => {
-    const c = { super_admin: 0, admin: 0, developer: 0, employee: 0 }
+    const c = { developer: 0, super_admin: 0, admin: 0, employee: 0, guest: 0 }
     for (const u of users) {
       const r = u.role || 'employee'
       c[r] = (c[r] || 0) + 1
@@ -95,11 +95,12 @@ export default function AdminPanel() {
               it is super-admin-only. A developer falls straight through to
               <BotsAdmin /> at the bottom. */}
           {canSeeRoles && (<>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
             <Stat label="Developers"   value={counts.developer}   accent="text-ok" />
             <Stat label="Super admins" value={counts.super_admin} accent="text-warn" />
             <Stat label="Admins"       value={counts.admin}       accent="text-brand" />
             <Stat label="Employees"    value={counts.employee}    accent="text-ink" />
+            <Stat label="Guests"       value={counts.guest}       accent="text-ink-dim" />
           </div>
 
           <div className="flex items-center justify-between mb-4">
@@ -178,7 +179,8 @@ export default function AdminPanel() {
             added, and only a developer can grant or revoke the developer role. Super admins manage the
             workspace and other admins, and can read every other channel without joining &mdash; invisibly,
             since they stay out of the member list until they're actually added. Admins can pin in any channel
-            and manage any group. Employees join groups by invitation.
+            and manage any group. Employees join groups by invitation. Guests are invited to individual
+            channels and see nothing else &mdash; not even the names of the other channels in the group.
           </p>
           </>)}
 

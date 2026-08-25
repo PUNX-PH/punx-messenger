@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { useAuth, canOversee, isAdmin, isGhost } from '../lib/auth'
+import { useAuth, canOversee, isAdmin, isGhost, isGuest } from '../lib/auth'
 import { listenChannels, listenGroup } from '../lib/groups'
 import ChatSurface from '../components/ChatSurface'
 import MembersPanel, { MembersToggle } from '../components/MembersPanel'
@@ -33,8 +33,11 @@ export default function Channel() {
       // that a developer-owned group's document is readable while its channels
       // are not — so a super admin can land on this URL and be denied.
       () => setDenied(true),
+      // A guest must use the narrow query or Firestore denies the whole
+      // snapshot, including the channel they were actually invited to.
+      isGuest(profile) ? profile?.id : null,
     )
-  }, [groupId, channelId])
+  }, [groupId, channelId, profile])
 
   useEffect(() => {
     // Back to "loading" on every route change — otherwise the oversight check
