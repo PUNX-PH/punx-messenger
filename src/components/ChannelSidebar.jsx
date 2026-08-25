@@ -5,7 +5,7 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useAuth, isAdmin, isGhost, isSuperAdmin } from '../lib/auth'
+import { useAuth, canOversee, isAdmin, isGhost } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import {
   createCategory, createChannel, deleteCategory, deleteChannel, groupChannelsByCategory,
@@ -94,7 +94,7 @@ export default function ChannelSidebar() {
   // adding a member, joining voice. Assume oversight until the group doc lands
   // rather than briefly offering controls that would be denied. See isGhost in
   // lib/auth, and canOverseeAll() in firestore.rules for the read grant.
-  const ghost = group === undefined ? isSuperAdmin(profile) : isGhost(profile, group)
+  const ghost = group === undefined ? canOversee(profile) : isGhost(profile, group)
   const canManage = !ghost && (isAdmin(profile) || group?.adminUids?.includes(profile?.id))
 
   const grouped = useMemo(() => groupChannelsByCategory(channels, categories), [channels, categories])

@@ -4,10 +4,10 @@ import { db } from './firebase'
 import { useAuth } from './auth'
 
 // Low to high — the admin panel's role <select> renders them in this order.
-// `developer` deliberately sits below `admin`: it unlocks the bot platform
-// (see canManageBots in lib/auth) and nothing else, so it is not a step on the
-// way to workspace power, just a different one.
-export const ROLES = ['employee', 'developer', 'admin', 'super_admin']
+// `developer` is the TOP role: everything super_admin has, plus the one thing
+// super_admin doesn't have, which is that groups a developer owns are hidden
+// from super admins. See lib/auth for who may grant it (developers only).
+export const ROLES = ['employee', 'admin', 'super_admin', 'developer']
 
 export const roleLabel = (r) =>
   r === 'super_admin' ? 'Super admin'

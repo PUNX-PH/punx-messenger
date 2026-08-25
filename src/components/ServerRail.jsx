@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { useAuth, isSuperAdmin } from '../lib/auth'
+import { useAuth, canOversee, isOversightExempt } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import {
   addMember, leaveGroup, listenAllGroups, listenChannels, listenMyGroups,
@@ -25,10 +25,10 @@ export default function ServerRail() {
   const mutedGroups = useMemo(() => new Set(me?.mutedGroups || []), [me?.mutedGroups])
 
   const meUid = profile?.id
-  // Super admins can read every group in the workspace (firestore.rules'
+  // The top tier can read every group in the workspace (firestore.rules'
   // canOverseeAll()), so the rail loads all of them and sorts membership out
   // below. Everyone else queries only their own, exactly as before.
-  const oversight = isSuperAdmin(profile)
+  const oversight = canOversee(profile)
 
   useEffect(() => {
     if (!meUid) return
@@ -41,10 +41,18 @@ export default function ServerRail() {
   const { myGroups, ghostGroups } = useMemo(() => {
     const mine = []; const ghost = []
     for (const g of groups) {
-      ((g.memberUids || []).includes(meUid) ? mine : ghost).push(g)
+      if ((g.memberUids || []).includes(meUid)) { mine.push(g); continue }
+      // A group OWNED by a developer is outside oversight entirely — don't
+      // even list it. firestore.rules denies its channels and messages, so
+      // showing it here would just be a group that opens onto nothing. The
+      // group document itself stays readable (an unfiltered list query fails
+      // whole if any single document is denied), which is exactly why the
+      // filtering has to happen here rather than in the rules.
+      if (isOversightExempt(g, usersById)) continue
+      ghost.push(g)
     }
     return { myGroups: mine, ghostGroups: ghost }
-  }, [groups, meUid])
+  }, [groups, meUid, usersById])
 
   // Listen to channels of every group I'm in (for rail unread state). Ghost
   // groups are deliberately excluded — badging every channel in the workspace

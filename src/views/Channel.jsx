@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { useAuth, isAdmin, isGhost, isSuperAdmin } from '../lib/auth'
+import { useAuth, canOversee, isAdmin, isGhost } from '../lib/auth'
 import { listenChannels, listenGroup } from '../lib/groups'
 import ChatSurface from '../components/ChatSurface'
 import MembersPanel, { MembersToggle } from '../components/MembersPanel'
@@ -13,6 +13,7 @@ export default function Channel() {
   // undefined = the group doc is still in flight; null = it doesn't exist.
   // The distinction matters below, where "don't know yet" has to fail closed.
   const [group, setGroup] = useState(undefined)
+  const [denied, setDenied] = useState(false)
   const [membersOpen, setMembersOpen] = useState(() => {
     try { return localStorage.getItem('punx.membersPanel') !== '0' } catch { return true }
   })
@@ -23,10 +24,16 @@ export default function Channel() {
 
   useEffect(() => {
     setChannel(null)
+    setDenied(false)
     if (!groupId || !channelId) return
-    return listenChannels(groupId, (channels) => {
-      setChannel(channels.find(c => c.id === channelId) || { notFound: true })
-    })
+    return listenChannels(
+      groupId,
+      (channels) => setChannel(channels.find(c => c.id === channelId) || { notFound: true }),
+      // Without this the view sat on "Loading channel…" forever. Reachable now
+      // that a developer-owned group's document is readable while its channels
+      // are not — so a super admin can land on this URL and be denied.
+      () => setDenied(true),
+    )
   }, [groupId, channelId])
 
   useEffect(() => {
@@ -38,6 +45,7 @@ export default function Channel() {
     return listenGroup(groupId, setGroup)
   }, [groupId])
 
+  if (denied) return <Center>You don't have access to this group's channels.</Center>
   if (!channel) return <Center>Loading channel…</Center>
   if (channel.notFound) return <Center>Channel not found.</Center>
 
@@ -45,7 +53,7 @@ export default function Channel() {
   // group doc lands we can't tell a super admin's own groups from the rest, so
   // assume oversight — a composer that shows up a beat late beats one that
   // shows up and then has the message rejected. See isGhost in lib/auth.
-  const ghost = group === undefined ? isSuperAdmin(profile) : isGhost(profile, group)
+  const ghost = group === undefined ? canOversee(profile) : isGhost(profile, group)
 
   if (channel.type === 'voice') {
     return <VoiceChannelRoom channel={channel} groupId={groupId} readOnly={ghost} />

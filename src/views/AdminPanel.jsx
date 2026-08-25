@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useAuth, canManageBots, isSuperAdmin } from '../lib/auth'
+import {
+  useAuth, canGrantDeveloper, canManageBots, canManageRoles, isDeveloper, isTopTier,
+} from '../lib/auth'
 import { listenAllUsers, roleLabel, ROLES, setUserRole } from '../lib/users'
 import Avatar from '../components/Avatar'
 import BotsAdmin from '../components/BotsAdmin'
@@ -15,18 +17,21 @@ export default function AdminPanel() {
 
   useEffect(() => listenAllUsers(setUsers), [])
 
-  // Two independent doors into this page. Super admins get the whole thing;
-  // developers get only the Bots section below, which is the entire point of
-  // that role — the members-and-roles table stays out of reach.
-  const canSeeRoles = isSuperAdmin(profile)
+  // Two independent doors into this page. The top tier (developer and super
+  // admin) gets role administration; plain admins get only the Bots section.
+  const canSeeRoles = canManageRoles(profile)
   const canSeeBots = canManageBots(profile)
+  // Only a developer (or the bootstrap account) may grant or revoke the
+  // developer role — see canGrantDeveloper. A super admin therefore never gets
+  // it as an option, and can't touch a row that already holds it.
+  const mayGrantDev = canGrantDeveloper(profile)
 
   if (!canSeeRoles && !canSeeBots) {
     return (
       <main className="flex-1 grid place-items-center bg-bg-main">
         <div className="max-w-sm text-center px-6">
           <div className="text-lg font-semibold text-ink mb-2">Restricted</div>
-          <p className="text-sm text-ink-muted">Only super admins and developers can view this page.</p>
+          <p className="text-sm text-ink-muted">Only admins, super admins and developers can view this page.</p>
         </div>
       </main>
     )
@@ -53,8 +58,17 @@ export default function AdminPanel() {
 
   const onChangeRole = async (u, role) => {
     setError(null)
-    if (u.id === profile.id && role !== 'super_admin') {
-      setError('You can\'t demote yourself. Promote someone else first, then ask them to demote you.')
+    // Locking yourself out of role administration is unrecoverable without
+    // another top-tier account, so refuse it rather than let it through.
+    if (u.id === profile.id && !isTopTier({ role })) {
+      setError("You can't demote yourself out of the top tier. Promote someone else first, then ask them to demote you.")
+      return
+    }
+    // Mirrors developerRoleChangeAllowed() in firestore.rules. Checked here
+    // only so the refusal reads as an explanation rather than a bare
+    // permission-denied; the rules are what actually enforce it.
+    if ((role === 'developer' || isDeveloper(u)) && !mayGrantDev) {
+      setError('Only a developer can grant or revoke the developer role.')
       return
     }
     setBusyUid(u.id)
@@ -82,9 +96,9 @@ export default function AdminPanel() {
               <BotsAdmin /> at the bottom. */}
           {canSeeRoles && (<>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <Stat label="Developers"   value={counts.developer}   accent="text-ok" />
             <Stat label="Super admins" value={counts.super_admin} accent="text-warn" />
             <Stat label="Admins"       value={counts.admin}       accent="text-brand" />
-            <Stat label="Developers"   value={counts.developer}   accent="text-ok" />
             <Stat label="Employees"    value={counts.employee}    accent="text-ink" />
           </div>
 
@@ -132,12 +146,18 @@ export default function AdminPanel() {
                 </div>
                 <div className="text-right">
                   <select
-                    disabled={busyUid === u.id}
+                    disabled={busyUid === u.id || (isDeveloper(u) && !mayGrantDev)}
+                    title={isDeveloper(u) && !mayGrantDev
+                      ? 'Only a developer can change a developer\'s role'
+                      : undefined}
                     value={u.role || 'employee'}
                     onChange={(e) => onChangeRole(u, e.target.value)}
-                    className="bg-bg-deepest border border-line-subtle rounded-md px-2 py-1 text-sm outline-none focus:border-brand disabled:opacity-50"
+                    className="bg-bg-deepest border border-line-subtle rounded-md px-2 py-1 text-sm outline-none focus:border-brand disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {ROLES.map(r => (
+                    {/* `developer` is only offered to someone who may grant it,
+                        so a super admin can't select an option the rules would
+                        then reject. */}
+                    {ROLES.filter(r => r !== 'developer' || mayGrantDev).map(r => (
                       <option key={r} value={r}>{roleLabel(r)}</option>
                     ))}
                   </select>
@@ -153,10 +173,12 @@ export default function AdminPanel() {
           </div>
 
           <p className="text-xs text-ink-dim mt-6">
-            <strong className="text-ink-muted">Hierarchy:</strong> Super admins manage the workspace and other
-            admins, and can read every channel in it without joining — invisibly, since they stay out of the
-            member list until they're actually added. Admins can pin in any channel and manage any group.
-            Developers manage bots and nothing else. Employees join groups by invitation.
+            <strong className="text-ink-muted">Hierarchy:</strong> Developers hold everything a super admin
+            does, and one thing more &mdash; groups a developer owns are invisible to super admins unless they're
+            added, and only a developer can grant or revoke the developer role. Super admins manage the
+            workspace and other admins, and can read every other channel without joining &mdash; invisibly,
+            since they stay out of the member list until they're actually added. Admins can pin in any channel
+            and manage any group. Employees join groups by invitation.
           </p>
           </>)}
 

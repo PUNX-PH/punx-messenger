@@ -2,12 +2,15 @@ rules_version = '2';
 
 // Punx Messenger — Firestore security rules
 //
-// Hierarchy:
+// Hierarchy, highest first:
+//   developer    → everything super_admin has, and cannot be watched by one:
+//                  groups a developer OWNS are invisible and untouchable to
+//                  anyone who isn't a member. Only a developer (or the
+//                  bootstrap email) may grant or revoke this role.
 //   super_admin  → full workspace power (manages roles, can do anything), plus
 //                  read-only oversight of every group in the workspace without
-//                  being a member of it — see canOverseeAll() below
+//                  being a member of it — EXCEPT developer-owned ones.
 //   admin        → workspace-wide admin (group settings + pinning everywhere)
-//   developer    → the bot platform only (docs/BOTS.md), nothing else
 //   employee     → regular member (read/send in own groups + DMs + notes)
 //
 // Bootstrap super-admins are listed in `isBootstrapSuperAdmin()` below — these
@@ -108,14 +111,69 @@ service cloud.firestore {
     }
 
     function isSuperAdmin()      { return signedIn() && myRole() == 'super_admin'; }
-    function isWorkspaceAdmin()  { return signedIn() && (myRole() == 'admin' || myRole() == 'super_admin'); }
+    function isDeveloper()       { return signedIn() && myRole() == 'developer'; }
 
-    // `developer` unlocks the bot registry (docs/BOTS.md) and nothing else: no
-    // role changes, no group or member management, no oversight reads. Kept as
-    // its own helper rather than folded into isWorkspaceAdmin() so that
-    // widening admin power later can't quietly widen this along with it.
-    function isDeveloper()   { return signedIn() && myRole() == 'developer'; }
-    function canManageBots() { return isWorkspaceAdmin() || isDeveloper(); }
+    // `developer` is the TOP role: everything super_admin can do, plus the one
+    // thing it has that super_admin doesn't — its own groups are outside
+    // super-admin reach. isTopTier() is the "manages the workspace itself"
+    // tier (roles, bots, oversight); isWorkspaceAdmin() is the "manages groups
+    // and content" tier, which developer is also part of.
+    function isTopTier()         { return isDeveloper() || isSuperAdmin(); }
+    function isWorkspaceAdmin()  { return signedIn() && (myRole() == 'admin' || myRole() == 'super_admin' || myRole() == 'developer'); }
+    function canManageBots()     { return isWorkspaceAdmin(); }
+
+    // True unless this write would create or alter a `developer`, in which
+    // case only a developer (or the bootstrap email) may do it. Both sides are
+    // checked: promoting someone TO developer, and touching someone who
+    // already IS one. `in` guards because reading a missing key errors, and an
+    // error denies rather than evaluating false.
+    function touchesDeveloperRole() {
+      return (('role' in request.resource.data) && request.resource.data.role == 'developer')
+        || (('role' in resource.data) && resource.data.role == 'developer');
+    }
+    function developerRoleChangeAllowed() {
+      return !touchesDeveloperRole() || isDeveloper() || isBootstrapSuperAdmin();
+    }
+
+    // ── The developer boundary ──
+    //
+    // Developer sits above super_admin, so a super admin must not be able to
+    // read, edit, or delete a developer's own group, nor add themselves to one
+    // (which would be reading it by another route). "A developer's own group"
+    // is defined as: the group's ownerUid belongs to someone whose role is
+    // developer. That definition is deliberate — it needs exactly one extra
+    // document read and no schema change, so there is no flag for a super
+    // admin to flip and nothing to remember when creating a group. The
+    // trade-off, recorded honestly: transferring such a group to a
+    // non-developer owner removes the protection.
+    //
+    // exists() first because a missing user doc would ERROR, and an error
+    // denies the whole rule rather than evaluating false — which here would
+    // lock ordinary admins out of ordinary groups.
+    function ownerUidOf(groupId) {
+      return get(/databases/$(database)/documents/groups/$(groupId)).data.ownerUid;
+    }
+    function groupOwnerIsDeveloper(groupId) {
+      return exists(/databases/$(database)/documents/users/$(ownerUidOf(groupId)))
+        && get(/databases/$(database)/documents/users/$(ownerUidOf(groupId))).data.role == 'developer';
+    }
+
+    // Off-limits to everyone who isn't actually in it. Note there is no
+    // isDeveloper() escape hatch: one developer does not get to read another
+    // developer's group either.
+    function outsideDeveloperGroup(groupId) {
+      return groupOwnerIsDeveloper(groupId) && !isGroupMember(groupId);
+    }
+
+    // Stands in for the old workspace-admin-or-group-admin pair everywhere
+    // inside a group. Same power as before, minus any reach into a developer's
+    // own group. (Phrased without the literal old expression on purpose: a
+    // mechanical find-and-replace across this file would otherwise rewrite
+    // this comment too.)
+    function adminOverGroup(groupId) {
+      return isGroupAdmin(groupId)
+        || (isWorkspaceAdmin() && !outsideDeveloperGroup(groupId));
+    }
 
     // Workspace-wide READ for super admins ("oversight"): every group, channel,
     // message and voice roster, without being a member of any of it.
@@ -150,7 +208,22 @@ service cloud.firestore {
     // client is what defends that. Narrowing those write rules to members would
     // also take moderation away from plain admins, which is a separate call.
     function canOverseeAll() {
-      return isHuman() && myRole() == 'super_admin';
+      return isHuman() && (myRole() == 'super_admin' || myRole() == 'developer');
+    }
+
+    // Oversight of one group's CONTENTS. The group document itself stays
+    // readable under canOverseeAll() alone, and that is a necessary
+    // compromise rather than an oversight: listenAllGroups() in
+    // src/lib/groups.js queries the collection unfiltered, and a single
+    // unreadable document fails an entire Firestore list query — so denying
+    // the doc would leave a super admin with no group list at all. Owner-role
+    // exemption isn't expressible as a query filter, so the doc has to stay
+    // readable. What that leaks is a developer-owned group's name and member
+    // list; what it does not leak is a single channel, message, or voice
+    // participant. The rail also filters these groups out client-side, so they
+    // are not displayed either.
+    function overseeGroup(groupId) {
+      return canOverseeAll() && !groupOwnerIsDeveloper(groupId);
     }
 
     function isBootstrapSuperAdmin() {
@@ -220,7 +293,13 @@ service cloud.firestore {
       // Updates:
       //   - super_admin: anything
       //   - the user themselves: anything EXCEPT role/email/uid/createdAt
-      allow update: if isSuperAdmin()
+      // Role administration is top-tier, but the `developer` role itself is
+      // developer-only: if a super admin could promote or demote a developer,
+      // the whole boundary above would be one click from being bypassed — they
+      // would just demote the developer and read the group. The bootstrap
+      // email is the escape hatch for creating the very first developer, since
+      // otherwise nobody could ever grant it.
+      allow update: if (isTopTier() && developerRoleChangeAllowed())
         || (uid == myUid()
             && !request.resource.data.diff(resource.data).affectedKeys()
                  .hasAny(['role', 'email', 'uid', 'createdAt']))
@@ -237,7 +316,10 @@ service cloud.firestore {
             && !request.resource.data.diff(resource.data).affectedKeys()
                  .hasAny(['role', 'email', 'uid', 'createdAt', 'type']));
 
-      allow delete: if isSuperAdmin();
+      // Same reasoning as the role gate above — deleting a developer's account
+      // would strip the protection just as effectively as demoting them.
+      allow delete: if isTopTier()
+        && !(('role' in resource.data) && resource.data.role == 'developer' && !isDeveloper());
 
       // Private notes: only the owner
       match /notes/{noteId} {
@@ -267,7 +349,10 @@ service cloud.firestore {
       //   - workspace admins anything
       //   - group admins anything except ownerUid
       //   - any non-owner member can self-leave (remove self from memberUids/adminUids only)
-      allow update: if isWorkspaceAdmin()
+      // outsideDeveloperGroup() is what stops a super admin adding themselves
+      // to a developer's group — which would otherwise be a one-write route
+      // straight past the read rules below.
+      allow update: if (isWorkspaceAdmin() && !outsideDeveloperGroup(groupId))
         || (isGroupAdmin(groupId)
             && request.resource.data.ownerUid == resource.data.ownerUid)
         // A members:manage bot may add/remove members, but never touch
@@ -283,31 +368,31 @@ service cloud.firestore {
 
       // Delete: owner or workspace admin
       allow delete: if (signedIn() && resource.data.ownerUid == myUid())
-        || isWorkspaceAdmin();
+        || (isWorkspaceAdmin() && !outsideDeveloperGroup(groupId));
 
       // ───── Channel categories (Discord-style grouping) ─────
       match /categories/{categoryId} {
-        allow read: if isGroupMember(groupId) || canOverseeAll();
-        allow create, update, delete: if isWorkspaceAdmin() || isGroupAdmin(groupId);
+        allow read: if isGroupMember(groupId) || overseeGroup(groupId);
+        allow create, update, delete: if adminOverGroup(groupId);
       }
 
       // ───── Channels ─────
       match /channels/{channelId} {
-        allow read: if isGroupMember(groupId) || canOverseeAll();
+        allow read: if isGroupMember(groupId) || overseeGroup(groupId);
         // Create: group admin (incl. during batched group creation) or workspace admin
-        allow create: if (isWorkspaceAdmin() || isGroupAdminAfter(groupId) || botCanManageChannels(groupId))
+        allow create: if (isGroupAdminAfter(groupId) || adminOverGroup(groupId) || botCanManageChannels(groupId))
           && request.resource.data.type in ['text', 'voice'];
         // Update: admins anything (incl. categoryId/order for drag-to-reorder);
         // any group member may bump `lastMessageAt` (unread state) and/or
         // write to `typing` (typing indicators).
-        allow update: if isWorkspaceAdmin() || isGroupAdmin(groupId) || botCanManageChannels(groupId)
+        allow update: if adminOverGroup(groupId) || botCanManageChannels(groupId)
           || (isGroupMember(groupId)
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'typing']));
-        allow delete: if isWorkspaceAdmin() || isGroupAdmin(groupId) || botCanManageChannels(groupId);
+        allow delete: if adminOverGroup(groupId) || botCanManageChannels(groupId);
 
         // ───── Channel messages ─────
         match /messages/{msgId} {
-          allow read: if isGroupMember(groupId) || canOverseeAll();
+          allow read: if isGroupMember(groupId) || overseeGroup(groupId);
 
           // Create: must be group member + author identifies the sender.
           // Oversight is NOT enough — posting is exactly what would give an
@@ -320,8 +405,7 @@ service cloud.firestore {
           //   - author can edit their own message body (text/imageURL)
           //   - group admins / workspace admins can pin/unpin (and anything)
           //   - any group member can update ONLY the `reactions` field (for emoji reactions)
-          allow update: if isWorkspaceAdmin()
-            || isGroupAdmin(groupId)
+          allow update: if adminOverGroup(groupId)
             || (isGroupMember(groupId) && resource.data.author.uid == myUid()
                 && botCan('messages:write'))
             || (isGroupMember(groupId)
@@ -334,8 +418,7 @@ service cloud.firestore {
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pinned']));
 
           // Delete: author, group admin, or workspace admin
-          allow delete: if isWorkspaceAdmin()
-            || isGroupAdmin(groupId)
+          allow delete: if adminOverGroup(groupId)
             || (isGroupMember(groupId) && resource.data.author.uid == myUid()
                 && botCan('messages:write'));
         }
@@ -352,7 +435,7 @@ service cloud.firestore {
           // Readable under oversight so a super admin can see who's in a voice
           // channel. Joining it stays member-only below — a roster doc is
           // precisely the thing the rest of the group would notice.
-          allow read: if isGroupMember(groupId) || canOverseeAll();
+          allow read: if isGroupMember(groupId) || overseeGroup(groupId);
 
           // botCan gates a music/utility bot joining the mesh at all; past
           // this point a bot is just another participant, and the signaling
@@ -375,7 +458,7 @@ service cloud.firestore {
           // Admins are also allowed through so deleting a channel can clear
           // its roster (see deleteChannel in lib/groups.js) — otherwise a
           // still-connected participant's doc outlives the channel itself.
-          allow delete: if isWorkspaceAdmin() || isGroupAdmin(groupId)
+          allow delete: if adminOverGroup(groupId)
             || (isGroupMember(groupId)
                 && (uid == myUid() || request.time > resource.data.lastHeartbeat + duration.value(120, 's')));
         }
@@ -407,13 +490,13 @@ service cloud.firestore {
 
           // Either side tears the pair down when one of them leaves — plus
           // admins, so deleting the channel can clear leftover signaling.
-          allow delete: if isWorkspaceAdmin() || isGroupAdmin(groupId)
+          allow delete: if adminOverGroup(groupId)
             || (isGroupMember(groupId) && myUid() in resource.data.uids);
 
           match /candidates/{candId} {
             allow read:   if isVoicePairMember(pairKey);
             allow create: if isVoicePairMember(pairKey) && request.resource.data.from == myUid();
-            allow delete: if isVoicePairMember(pairKey) || isWorkspaceAdmin() || isGroupAdmin(groupId);
+            allow delete: if isVoicePairMember(pairKey) || adminOverGroup(groupId);
           }
         }
       }
@@ -470,8 +553,8 @@ service cloud.firestore {
       // Update (lastMessageAt, lastMessageText, memberInfo): either member
       allow update: if signedIn() && myUid() in resource.data.members;
 
-      // Delete: super_admin only (admin tool)
-      allow delete: if isSuperAdmin();
+      // Delete: top tier only (admin tool)
+      allow delete: if isTopTier();
 
       match /messages/{msgId} {
         allow read: if isDmMember(convoId);

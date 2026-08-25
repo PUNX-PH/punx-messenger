@@ -92,16 +92,50 @@ export function AuthProvider({ children }) {
 
 export const useAuth = () => useContext(AuthCtx)
 
-export const isAdmin = (p) => p?.role === 'admin' || p?.role === 'super_admin'
+// Role hierarchy, highest first: developer > super_admin > admin > employee.
+//
+// `developer` holds everything super_admin does; what makes it the top tier is
+// the one thing it has that super_admin doesn't — groups a developer OWNS are
+// invisible and untouchable to super admins who aren't members (see
+// isOversightExempt below, and the developer boundary in firestore.rules).
 export const isSuperAdmin = (p) => p?.role === 'super_admin'
 export const isDeveloper = (p) => p?.role === 'developer'
 
-// Developers exist to run the bot platform (see docs/BOTS.md) without being
-// handed the workspace: they reach the admin panel's Bots section and nothing
-// else — no role changes, no group or member management, no oversight reads.
-export const canManageBots = (p) => isDeveloper(p) || isAdmin(p)
+// "Runs the workspace itself": role administration, the bot registry, and
+// see-all-channels oversight.
+export const isTopTier = (p) => isDeveloper(p) || isSuperAdmin(p)
+
+// "Manages groups and content": group settings, pinning and deleting anywhere,
+// channel management. Developer is part of this too, being strictly above it.
+export const isAdmin = (p) => p?.role === 'admin' || isTopTier(p)
+
+export const canManageBots = (p) => isAdmin(p)
+export const canManageRoles = (p) => isTopTier(p)
+export const canOversee = (p) => isTopTier(p)
 
 const uidOf = (p) => p?.id || p?.uid || null
+
+/**
+ * Who may grant or revoke the `developer` role. Developers only — if a super
+ * admin could demote a developer, the group protection above would be one
+ * click from being bypassed. The bootstrap account is the escape hatch, since
+ * otherwise the very first developer could never be created.
+ * Mirrors developerRoleChangeAllowed() in firestore.rules.
+ */
+export const canGrantDeveloper = (p) =>
+  isDeveloper(p) || SUPER_ADMINS.includes((p?.email || '').toLowerCase())
+
+/**
+ * True for a group that super-admin oversight must not reach into: one OWNED
+ * by a developer. Needs the user directory to resolve the owner's role, so
+ * callers pass `useUsers().byId`.
+ *
+ * Note this deliberately has no "unless I'm a developer" exemption — one
+ * developer does not get to read another's group either. Being a MEMBER is the
+ * only way in, which is what callers check separately.
+ */
+export const isOversightExempt = (group, usersById) =>
+  !!group && usersById?.[group.ownerUid]?.role === 'developer'
 
 /**
  * Super-admin oversight ("ghost") viewing — reading a group you were never
@@ -120,4 +154,4 @@ const uidOf = (p) => p?.id || p?.uid || null
  * behaves exactly as before.
  */
 export const isGhost = (profile, group) =>
-  isSuperAdmin(profile) && !!group && !(group.memberUids || []).includes(uidOf(profile))
+  canOversee(profile) && !!group && !(group.memberUids || []).includes(uidOf(profile))
