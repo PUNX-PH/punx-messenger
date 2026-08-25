@@ -7,21 +7,42 @@ import { db } from './firebase'
 import { newId } from './storage'
 import { PRESETS, resizeToDataURL } from './images'
 
-// Listen to groups the user is a member of (sorted client-side to skip composite index)
+// Oldest first, as the rail has always shown them. Sorted client-side rather
+// than with orderBy so the array-contains query below needs no composite index.
+function byCreatedAt(a, b) {
+  return (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0)
+}
+
+// Listen to groups the user is a member of.
 export function listenMyGroups(uid, cb) {
   const q = query(
     collection(db, 'groups'),
     where('memberUids', 'array-contains', uid),
   )
   return onSnapshot(q, snap => {
-    const groups = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-    groups.sort((a, b) => {
-      const ta = a.createdAt?.toMillis?.() || 0
-      const tb = b.createdAt?.toMillis?.() || 0
-      return ta - tb
-    })
-    cb(groups)
+    cb(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byCreatedAt))
   })
+}
+
+/**
+ * Every group in the workspace, membership ignored — super admins only.
+ *
+ * firestore.rules' canOverseeAll() is what makes the unfiltered query legal;
+ * for anyone else Firestore denies the whole snapshot (one non-readable doc
+ * fails the list, it is not silently filtered out), so callers must check the
+ * role before reaching for this. Groups the caller isn't in come back with
+ * their real memberUids, which is what lets the rail tell the two apart — see
+ * isGhost in lib/auth.
+ */
+export function listenAllGroups(cb, onError) {
+  return onSnapshot(
+    query(collection(db, 'groups')),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byCreatedAt)),
+    err => {
+      console.error('[groups] listenAllGroups failed:', err)
+      onError?.(err)
+    },
+  )
 }
 
 // Listen to channels in a group

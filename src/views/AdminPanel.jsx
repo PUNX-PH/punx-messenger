@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useAuth, isSuperAdmin } from '../lib/auth'
+import { useAuth, canManageBots, isSuperAdmin } from '../lib/auth'
 import { listenAllUsers, roleLabel, ROLES, setUserRole } from '../lib/users'
 import Avatar from '../components/Avatar'
 import BotsAdmin from '../components/BotsAdmin'
@@ -15,12 +15,18 @@ export default function AdminPanel() {
 
   useEffect(() => listenAllUsers(setUsers), [])
 
-  if (!isSuperAdmin(profile)) {
+  // Two independent doors into this page. Super admins get the whole thing;
+  // developers get only the Bots section below, which is the entire point of
+  // that role — the members-and-roles table stays out of reach.
+  const canSeeRoles = isSuperAdmin(profile)
+  const canSeeBots = canManageBots(profile)
+
+  if (!canSeeRoles && !canSeeBots) {
     return (
       <main className="flex-1 grid place-items-center bg-bg-main">
         <div className="max-w-sm text-center px-6">
           <div className="text-lg font-semibold text-ink mb-2">Restricted</div>
-          <p className="text-sm text-ink-muted">Only super admins can view this page.</p>
+          <p className="text-sm text-ink-muted">Only super admins and developers can view this page.</p>
         </div>
       </main>
     )
@@ -33,9 +39,15 @@ export default function AdminPanel() {
     )
   }, [users, filter])
 
+  // Seeded with every known role so a tier with nobody in it still renders 0,
+  // and accumulated with a fallback so an unrecognised role can't turn a tile
+  // into NaN.
   const counts = useMemo(() => {
-    const c = { super_admin: 0, admin: 0, employee: 0 }
-    for (const u of users) c[u.role || 'employee']++
+    const c = { super_admin: 0, admin: 0, developer: 0, employee: 0 }
+    for (const u of users) {
+      const r = u.role || 'employee'
+      c[r] = (c[r] || 0) + 1
+    }
     return c
   }, [users])
 
@@ -58,16 +70,21 @@ export default function AdminPanel() {
         <ShieldIcon />
         <span className="font-semibold">Admin panel</span>
         <span className="text-ink-dim text-sm ml-3 border-l border-line-subtle pl-3 hidden sm:inline">
-          Workspace members &amp; roles
+          {canSeeRoles ? 'Workspace members & roles' : 'Bots'}
         </span>
       </header>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin p-6">
         <div className="max-w-3xl mx-auto">
 
-          <div className="grid grid-cols-3 gap-3 mb-6">
+          {/* Everything down to the hierarchy note is role administration, so
+              it is super-admin-only. A developer falls straight through to
+              <BotsAdmin /> at the bottom. */}
+          {canSeeRoles && (<>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
             <Stat label="Super admins" value={counts.super_admin} accent="text-warn" />
             <Stat label="Admins"       value={counts.admin}       accent="text-brand" />
+            <Stat label="Developers"   value={counts.developer}   accent="text-ok" />
             <Stat label="Employees"    value={counts.employee}    accent="text-ink" />
           </div>
 
@@ -136,9 +153,12 @@ export default function AdminPanel() {
           </div>
 
           <p className="text-xs text-ink-dim mt-6">
-            <strong className="text-ink-muted">Hierarchy:</strong> Super admins manage the workspace and other admins.
-            Admins can pin in any channel and manage any group. Employees join groups by invitation.
+            <strong className="text-ink-muted">Hierarchy:</strong> Super admins manage the workspace and other
+            admins, and can read every channel in it without joining — invisibly, since they stay out of the
+            member list until they're actually added. Admins can pin in any channel and manage any group.
+            Developers manage bots and nothing else. Employees join groups by invitation.
           </p>
+          </>)}
 
           <BotsAdmin />
         </div>

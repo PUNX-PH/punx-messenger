@@ -4,6 +4,7 @@ export default function RoleBadge({ role, size = 'sm' }) {
   const cfg = {
     super_admin: { label: 'Super admin', cls: 'bg-warn/15 text-warn border-warn/30' },
     admin:       { label: 'Admin',       cls: 'bg-brand/15 text-brand border-brand/30' },
+    developer:   { label: 'Developer',   cls: 'bg-ok/15 text-ok border-ok/30' },
   }[role]
   if (!cfg) return null
 

@@ -1,6 +1,6 @@
 import { forwardRef, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth, isSuperAdmin } from '../lib/auth'
+import { useAuth, canManageBots, isSuperAdmin } from '../lib/auth'
 import Avatar from './Avatar'
 import { roleLabel } from '../lib/users'
 import { computeStatus, useTickNow } from '../lib/presence'
@@ -44,7 +44,10 @@ export default function UserPanel() {
       onClick: notifPerm === 'default' ? requestNotifPerm : undefined,
       disabled: notifPerm !== 'default',
     }] : []),
-    ...(isSuperAdmin(profile) ? [{ label: 'Admin panel', icon: <ShieldIcon />, onClick: () => navigate('/admin') }] : []),
+    // Developers land on the same route but see only its Bots section.
+    ...(isSuperAdmin(profile) || canManageBots(profile)
+      ? [{ label: 'Admin panel', icon: <ShieldIcon />, onClick: () => navigate('/admin') }]
+      : []),
     { separator: true },
     { label: 'Sign out', icon: <SignOutIcon />, onClick: signOut, danger: true },
   ]

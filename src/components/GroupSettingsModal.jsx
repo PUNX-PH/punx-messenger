@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useAuth, isAdmin } from '../lib/auth'
+import { useAuth, isAdmin, isGhost } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import {
   addMember, removeMember, setGroupAdmin,
@@ -27,8 +27,13 @@ export default function GroupSettingsModal({ open, onClose, group, initialTab = 
   const isOwner = group.ownerUid === profile?.id
   const isWsAdmin = isAdmin(profile)
   const isGroupAdmin = group.adminUids?.includes(profile?.id)
-  const canEdit = isWsAdmin || isGroupAdmin || isOwner
-  const canManageRoles = isWsAdmin || isOwner
+  // A super admin overseeing a group they aren't in can look at it, but every
+  // edit here (rename, avatar, adding or removing people) would surface in a
+  // group that has no idea they're there — so both gates close. Joining the
+  // group is what turns them back on. See isGhost in lib/auth.
+  const ghost = isGhost(profile, group)
+  const canEdit = !ghost && (isWsAdmin || isGroupAdmin || isOwner)
+  const canManageRoles = !ghost && (isWsAdmin || isOwner)
 
   const tick = () => { setSavedTick(t => t + 1); setTimeout(() => setSavedTick(0), 1200) }
   const wrap = async (fn) => {

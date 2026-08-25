@@ -17,8 +17,10 @@ this project doesn't have.
 
 ## 1. Getting an identity
 
-An admin registers the bot in **Admin panel → Bots** and hands over an API key
-once. Only its SHA-256 is stored, so a lost key can't be recovered — rotate for
+An admin or a **developer** registers the bot in **Admin panel → Bots** and
+hands over an API key once. (`developer` is a workspace role that unlocks that
+section and nothing else — no role changes, no group or member management. Set
+it in the same admin panel; only a super admin can hand it out.) Only its SHA-256 is stored, so a lost key can't be recovered — rotate for
 a new one.
 
 Trade the key for a Firebase credential:

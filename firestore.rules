@@ -3,8 +3,11 @@ rules_version = '2';
 // Punx Messenger — Firestore security rules
 //
 // Hierarchy:
-//   super_admin  → full workspace power (manages roles, can do anything)
+//   super_admin  → full workspace power (manages roles, can do anything), plus
+//                  read-only oversight of every group in the workspace without
+//                  being a member of it — see canOverseeAll() below
 //   admin        → workspace-wide admin (group settings + pinning everywhere)
+//   developer    → the bot platform only (docs/BOTS.md), nothing else
 //   employee     → regular member (read/send in own groups + DMs + notes)
 //
 // Bootstrap super-admins are listed in `isBootstrapSuperAdmin()` below — these
@@ -107,6 +110,49 @@ service cloud.firestore {
     function isSuperAdmin()      { return signedIn() && myRole() == 'super_admin'; }
     function isWorkspaceAdmin()  { return signedIn() && (myRole() == 'admin' || myRole() == 'super_admin'); }
 
+    // `developer` unlocks the bot registry (docs/BOTS.md) and nothing else: no
+    // role changes, no group or member management, no oversight reads. Kept as
+    // its own helper rather than folded into isWorkspaceAdmin() so that
+    // widening admin power later can't quietly widen this along with it.
+    function isDeveloper()   { return signedIn() && myRole() == 'developer'; }
+    function canManageBots() { return isWorkspaceAdmin() || isDeveloper(); }
+
+    // Workspace-wide READ for super admins ("oversight"): every group, channel,
+    // message and voice roster, without being a member of any of it.
+    //
+    // Deliberately read-only, and that is the whole design. A super admin
+    // overseeing a group is absent from its memberUids, so member lists, voice
+    // rosters and mention pickers never show them — but that invisibility only
+    // holds while they can't write, since a message, a reaction, a typing
+    // indicator or a voice join would each announce them instantly. So this
+    // appears ONLY on `read` rules; every write below still demands real
+    // membership (message create, voiceParticipants create, the narrow
+    // member-update clauses). To speak in a group, join it.
+    //
+    // The app mirrors this in isGhost() (src/lib/auth.jsx) and switches off the
+    // composer, reactions, pinning, typing, drag-to-reorder and voice join to
+    // match. Rules are what enforce the reads; the client is what preserves the
+    // invisibility.
+    //
+    // isHuman() comes first on purpose: it reads the token only, so a bot —
+    // which makes far more reads than any person does — short-circuits out
+    // before either document read below happens. Bots can't hold this role
+    // anyway, since the users create rule pins them to 'employee'.
+    // One deliberate gap, recorded so it isn't mistaken for an oversight:
+    // isWorkspaceAdmin() already grants message update/delete and channel
+    // management everywhere, unconditionally, and that is left alone here.
+    // Before oversight reads existed a super admin couldn't reach a group they
+    // weren't in to use it; now they can. The app never offers those controls
+    // while overseeing (see isGhost's call sites), so the only way to hit it is
+    // a hand-written Firestore call — and a super admin who wants to act in a
+    // group can simply add themselves to it in one write anyway. There is no
+    // privilege boundary here to defend, only an accidental-reveal one, and the
+    // client is what defends that. Narrowing those write rules to members would
+    // also take moderation away from plain admins, which is a separate call.
+    function canOverseeAll() {
+      return isHuman() && myRole() == 'super_admin';
+    }
+
     function isBootstrapSuperAdmin() {
       // KEEP IN SYNC with VITE_SUPER_ADMIN_EMAILS in .env.local
       return request.auth.token.email == 'rey@punx.ai';
@@ -167,7 +213,7 @@ service cloud.firestore {
         // needs to already be visible as a user. So the admin registering the
         // bot writes it, at the uid the registry assigns. Always 'employee':
         // a bot's real power comes from its scopes, never from a role.
-        || (isWorkspaceAdmin()
+        || (canManageBots()
             && request.resource.data.type == 'bot'
             && request.resource.data.role == 'employee');
 
@@ -177,7 +223,19 @@ service cloud.firestore {
       allow update: if isSuperAdmin()
         || (uid == myUid()
             && !request.resource.data.diff(resource.data).affectedKeys()
-                 .hasAny(['role', 'email', 'uid', 'createdAt']));
+                 .hasAny(['role', 'email', 'uid', 'createdAt']))
+        // A bot's mirror /users doc has to stay in step with its registry doc —
+        // updateBotProfile in src/lib/bots.js writes both — and a developer can
+        // reach the registry but not, by default, anyone's /users doc. Narrowed
+        // to docs that are ALREADY type:'bot' and barred from role/email/uid/
+        // type, so it is not a route to editing a person or promoting anything.
+        // `'type' in resource.data` guards the read: a missing key errors, and
+        // an error denies the whole rule rather than evaluating to false.
+        || (canManageBots()
+            && 'type' in resource.data
+            && resource.data.type == 'bot'
+            && !request.resource.data.diff(resource.data).affectedKeys()
+                 .hasAny(['role', 'email', 'uid', 'createdAt', 'type']));
 
       allow delete: if isSuperAdmin();
 
@@ -190,7 +248,13 @@ service cloud.firestore {
     // ───────── Groups ─────────
 
     match /groups/{groupId} {
-      allow read: if signedIn() && myUid() in resource.data.memberUids;
+      // Membership check first — it needs no document read and is what almost
+      // every request takes. canOverseeAll() is the fallback that lets a super
+      // admin list groups they aren't in (listenAllGroups in src/lib/groups.js
+      // queries the collection unfiltered, which is only legal because this
+      // clause holds for every doc it returns).
+      allow read: if (signedIn() && myUid() in resource.data.memberUids)
+        || canOverseeAll();
 
       // Any signed-in user can create a group, but they must be the owner and
       // be in both memberUids and adminUids.
@@ -223,13 +287,13 @@ service cloud.firestore {
 
       // ───── Channel categories (Discord-style grouping) ─────
       match /categories/{categoryId} {
-        allow read: if isGroupMember(groupId);
+        allow read: if isGroupMember(groupId) || canOverseeAll();
         allow create, update, delete: if isWorkspaceAdmin() || isGroupAdmin(groupId);
       }
 
       // ───── Channels ─────
       match /channels/{channelId} {
-        allow read: if isGroupMember(groupId);
+        allow read: if isGroupMember(groupId) || canOverseeAll();
         // Create: group admin (incl. during batched group creation) or workspace admin
         allow create: if (isWorkspaceAdmin() || isGroupAdminAfter(groupId) || botCanManageChannels(groupId))
           && request.resource.data.type in ['text', 'voice'];
@@ -243,9 +307,11 @@ service cloud.firestore {
 
         // ───── Channel messages ─────
         match /messages/{msgId} {
-          allow read: if isGroupMember(groupId);
+          allow read: if isGroupMember(groupId) || canOverseeAll();
 
-          // Create: must be group member + author identifies the sender
+          // Create: must be group member + author identifies the sender.
+          // Oversight is NOT enough — posting is exactly what would give an
+          // overseeing super admin away, so they have to join the group first.
           allow create: if isGroupMember(groupId)
             && request.resource.data.author.uid == myUid()
             && botCan('messages:write');
@@ -283,7 +349,10 @@ service cloud.firestore {
         // stale-heartbeat doc may be pruned by ANY group member, not just its
         // owner — see the `delete` clause below.
         match /voiceParticipants/{uid} {
-          allow read: if isGroupMember(groupId);
+          // Readable under oversight so a super admin can see who's in a voice
+          // channel. Joining it stays member-only below — a roster doc is
+          // precisely the thing the rest of the group would notice.
+          allow read: if isGroupMember(groupId) || canOverseeAll();
 
           // botCan gates a music/utility bot joining the mesh at all; past
           // this point a bot is just another participant, and the signaling
@@ -363,7 +432,7 @@ service cloud.firestore {
       // Readable workspace-wide: the UI needs bot names, avatars and (later)
       // their published slash commands. Nothing secret lives on this doc.
       allow read: if signedIn();
-      allow create, update, delete: if isWorkspaceAdmin();
+      allow create, update, delete: if canManageBots();
 
       // Credential material, kept in a subcollection precisely so the parent
       // doc can stay readable. Write-only from the app's side — an admin sets
@@ -372,7 +441,7 @@ service cloud.firestore {
       // credentials, which bypass these rules entirely.
       match /private/{docId} {
         allow read: if false;
-        allow write: if isWorkspaceAdmin();
+        allow write: if canManageBots();
       }
     }
 

@@ -94,3 +94,30 @@ export const useAuth = () => useContext(AuthCtx)
 
 export const isAdmin = (p) => p?.role === 'admin' || p?.role === 'super_admin'
 export const isSuperAdmin = (p) => p?.role === 'super_admin'
+export const isDeveloper = (p) => p?.role === 'developer'
+
+// Developers exist to run the bot platform (see docs/BOTS.md) without being
+// handed the workspace: they reach the admin panel's Bots section and nothing
+// else — no role changes, no group or member management, no oversight reads.
+export const canManageBots = (p) => isDeveloper(p) || isAdmin(p)
+
+const uidOf = (p) => p?.id || p?.uid || null
+
+/**
+ * Super-admin oversight ("ghost") viewing — reading a group you were never
+ * added to. A super admin sees every channel in the workspace, but stays
+ * absent from that group's memberUids while doing it, so member lists, voice
+ * rosters and mention pickers never show them there.
+ *
+ * That invisibility is only real if they also can't WRITE: a message, a
+ * reaction, a typing indicator or a voice join would each announce them
+ * instantly. So every write surface asks this and turns itself off — see
+ * ChatSurface's readOnly, ChannelSidebar's canManage, VoiceChannelRoom's join
+ * button. To actually speak, add yourself to the group.
+ *
+ * Mirrors canOverseeAll() in firestore.rules, which is what grants the reads.
+ * Returns false for a group you ARE in, so a super admin who is a real member
+ * behaves exactly as before.
+ */
+export const isGhost = (profile, group) =>
+  isSuperAdmin(profile) && !!group && !(group.memberUids || []).includes(uidOf(profile))

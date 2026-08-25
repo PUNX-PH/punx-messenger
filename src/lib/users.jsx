@@ -3,10 +3,17 @@ import { collection, doc, onSnapshot, orderBy, query, setDoc } from 'firebase/fi
 import { db } from './firebase'
 import { useAuth } from './auth'
 
-export const ROLES = ['employee', 'admin', 'super_admin']
+// Low to high — the admin panel's role <select> renders them in this order.
+// `developer` deliberately sits below `admin`: it unlocks the bot platform
+// (see canManageBots in lib/auth) and nothing else, so it is not a step on the
+// way to workspace power, just a different one.
+export const ROLES = ['employee', 'developer', 'admin', 'super_admin']
 
 export const roleLabel = (r) =>
-  r === 'super_admin' ? 'Super admin' : r === 'admin' ? 'Admin' : 'Employee'
+  r === 'super_admin' ? 'Super admin'
+    : r === 'admin' ? 'Admin'
+      : r === 'developer' ? 'Developer'
+        : 'Employee'
 
 export function listenAllUsers(cb) {
   const q = query(collection(db, 'users'), orderBy('name'))

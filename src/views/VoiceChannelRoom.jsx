@@ -31,7 +31,7 @@ const SUPPORTS_PIP = typeof window !== 'undefined' && 'documentPictureInPicture'
  * (and controls in VoiceStatusBar/UserPanel) keeps going, you just won't see
  * this tile grid until you come back.
  */
-export default function VoiceChannelRoom({ channel, groupId }) {
+export default function VoiceChannelRoom({ channel, groupId, readOnly = false }) {
   const {
     activeChannel, participants, remoteStreams, speakingUids, myUid,
     cameraOn, screenSharing, localVideoStream, joining, join,
@@ -106,16 +106,29 @@ export default function VoiceChannelRoom({ channel, groupId }) {
   if (!isThisChannel) {
     return (
       <div className="flex-1 grid place-items-center bg-bg-main">
-        <div className="flex flex-col items-center gap-4">
+        <div className="flex flex-col items-center gap-4 px-6 text-center">
           <div className="text-lg font-semibold text-ink">{channel.name}</div>
-          <button
-            type="button"
-            onClick={() => join(groupId, channel.id, channel.name)}
-            disabled={joining}
-            className="px-6 py-2.5 rounded-full bg-brand text-white font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
-          >
-            {joining ? 'Joining…' : `Join ${channel.name}`}
-          </button>
+          {readOnly ? (
+            // Super-admin oversight (see isGhost in lib/auth). Joining would
+            // put a doc in this channel's voiceParticipants roster, which is
+            // exactly the thing everyone else in the group would see — so the
+            // one control on this screen is the one that has to go. Who is
+            // already in the channel stays readable in the sidebar.
+            <p className="max-w-sm text-sm text-ink-muted">
+              You're overseeing this group as a super admin, not a member of it.
+              Joining voice would announce you to everyone here, so it's disabled &mdash;
+              join the group first.
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => join(groupId, channel.id, channel.name)}
+              disabled={joining}
+              className="px-6 py-2.5 rounded-full bg-brand text-white font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
+            >
+              {joining ? 'Joining…' : `Join ${channel.name}`}
+            </button>
+          )}
         </div>
       </div>
     )

@@ -5,7 +5,7 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useAuth, isAdmin } from '../lib/auth'
+import { useAuth, isAdmin, isGhost, isSuperAdmin } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import {
   createCategory, createChannel, deleteCategory, deleteChannel, groupChannelsByCategory,
@@ -26,7 +26,9 @@ export default function ChannelSidebar() {
   const { groupId, channelId: activeChannelId } = useParams()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [group, setGroup] = useState(null)
+  // undefined = still loading, null = no such group. Kept apart because the
+  // oversight check below has to fail closed while we don't know yet.
+  const [group, setGroup] = useState(undefined)
   const [channels, setChannels] = useState([])
   const [categories, setCategories] = useState([])
   const [creatingIn, setCreatingIn] = useState(undefined) // undefined = none; null = uncategorized; categoryId = that category
@@ -55,6 +57,9 @@ export default function ChannelSidebar() {
   }, [searchParams, setSearchParams])
 
   useEffect(() => {
+    // See views/Channel.jsx — clear it first so the oversight check never sees
+    // the previously-viewed group's membership.
+    setGroup(undefined)
     if (!groupId) return
     return listenGroup(groupId, setGroup)
   }, [groupId])
@@ -83,7 +88,14 @@ export default function ChannelSidebar() {
 
   const me = usersById[profile?.id]
   const lastRead = me?.lastRead || {}
-  const canManage = isAdmin(profile) || group?.adminUids?.includes(profile?.id)
+  // Super-admin oversight: this group is readable but you were never added to
+  // it. Everything that writes has to be off, because writing is what would
+  // reveal you — creating or deleting a channel, dragging one to a new spot,
+  // adding a member, joining voice. Assume oversight until the group doc lands
+  // rather than briefly offering controls that would be denied. See isGhost in
+  // lib/auth, and canOverseeAll() in firestore.rules for the read grant.
+  const ghost = group === undefined ? isSuperAdmin(profile) : isGhost(profile, group)
+  const canManage = !ghost && (isAdmin(profile) || group?.adminUids?.includes(profile?.id))
 
   const grouped = useMemo(() => groupChannelsByCategory(channels, categories), [channels, categories])
 
@@ -157,7 +169,10 @@ export default function ChannelSidebar() {
 
   const onDragEnd = ({ active, over }) => {
     setActiveDrag(null)
-    if (!over) return
+    // Belt and braces: the sortables are disabled for non-managers, so a drag
+    // shouldn't start at all. If one somehow does, don't fire a reorder write
+    // that Firestore will only reject.
+    if (!canManage || !over) return
     const activeData = active.data.current
     const overData = over.data.current
     if (!activeData || active.id === over.id) return
@@ -238,6 +253,13 @@ export default function ChannelSidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin py-3 px-2 space-y-3">
+        {ghost && (
+          <div className="mx-1 px-2 py-1.5 rounded-sm bg-bg-deepest border border-line-subtle text-[11px] leading-snug text-ink-dim">
+            <span className="font-semibold text-ink-muted">Overseeing.</span>{' '}
+            You're not a member of this group. Read-only, and nobody here can see you.
+          </div>
+        )}
+
         {canManage && (
           <div className="px-1 flex justify-end">
             <button onClick={openAddMenu} title="Add channel or category" className="text-ink-dim hover:text-ink">
@@ -260,6 +282,7 @@ export default function ChannelSidebar() {
             groupId={groupId}
             lastRead={lastRead}
             canManage={canManage}
+            canJoinVoice={!ghost}
             onChannelContextMenu={openChannelMenu}
             creating={creatingIn === null}
             newName={newName}
@@ -288,6 +311,7 @@ export default function ChannelSidebar() {
                   groupId={groupId}
                   lastRead={lastRead}
                   canManage={canManage}
+                  canJoinVoice={!ghost}
                   onChannelContextMenu={openChannelMenu}
                   creating={creatingIn === cat.id}
                   newName={newName}
@@ -400,7 +424,7 @@ export default function ChannelSidebar() {
 // ───────── Sub-components ─────────
 
 function CategorySection({ category, collapsed, onToggleCollapse, onContextMenu, canManage, onAddChannel, children }) {
-  const sortable = useSortable({ id: category.id, data: { type: 'category', category } })
+  const sortable = useSortable({ id: category.id, data: { type: 'category', category }, disabled: !canManage })
   const target = useDroppable({ id: `catdrop-header:${category.id}`, data: { type: 'category-target', categoryId: category.id } })
 
   const style = {
@@ -444,7 +468,8 @@ function CategorySection({ category, collapsed, onToggleCollapse, onContextMenu,
 }
 
 function ChannelListBody({
-  categoryId, channels, activeChannelId, groupId, lastRead, canManage, onChannelContextMenu,
+  categoryId, channels, activeChannelId, groupId, lastRead, canManage, canJoinVoice = true,
+  onChannelContextMenu,
   creating, newName, setNewName, newType, setNewType, onSubmitNew, onCancelNew,
 }) {
   const target = useDroppable({ id: `catdrop-body:${categoryId ?? 'none'}`, data: { type: 'category-target', categoryId } })
@@ -458,6 +483,8 @@ function ChannelListBody({
               groupId={groupId}
               active={c.id === activeChannelId}
               unread={c.id !== activeChannelId && isUnread(c.lastMessageAt, lastRead[pathToReadKey(`groups/${groupId}/channels/${c.id}`)])}
+              canManage={canManage}
+              canJoinVoice={canJoinVoice}
               onContextMenu={canManage ? (e) => onChannelContextMenu(e, c) : undefined}
             />
             {c.type === 'voice' && <VoiceParticipants groupId={groupId} channelId={c.id} />}
@@ -502,8 +529,10 @@ function TypePill({ active, onClick, children }) {
   )
 }
 
-function SortableChannelRow({ channel, groupId, active, unread, onContextMenu }) {
-  const sortable = useSortable({ id: channel.id, data: { type: 'channel', channel } })
+function SortableChannelRow({
+  channel, groupId, active, unread, onContextMenu, canManage = false, canJoinVoice = true,
+}) {
+  const sortable = useSortable({ id: channel.id, data: { type: 'channel', channel }, disabled: !canManage })
   const { activeChannel, join } = useVoiceChannel()
   const navigate = useNavigate()
   const style = {
@@ -527,7 +556,12 @@ function SortableChannelRow({ channel, groupId, active, unread, onContextMenu })
           // actually shows the tile grid (VoiceChannelRoom), matching
           // Discord — clicking a voice channel takes you to its own view,
           // it doesn't just connect silently in the background.
-          join(groupId, channel.id, channel.name)
+          //
+          // An overseeing super admin navigates but does NOT join: joining
+          // writes a doc into this channel's voiceParticipants roster, which
+          // is the one thing everyone in the group would see. They still get
+          // the room view, which explains why — see VoiceChannelRoom.
+          if (canJoinVoice) join(groupId, channel.id, channel.name)
           navigate(`/g/${groupId}/c/${channel.id}`)
         }}
         className={[

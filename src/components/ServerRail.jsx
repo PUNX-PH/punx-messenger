@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { useAuth } from '../lib/auth'
+import { useAuth, isSuperAdmin } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import {
-  leaveGroup, listenChannels, listenMyGroups,
+  addMember, leaveGroup, listenAllGroups, listenChannels, listenMyGroups,
   markGroupAsRead, toggleMuteGroup,
 } from '../lib/groups'
 import { isUnread, pathToReadKey } from '../lib/db'
@@ -24,22 +24,41 @@ export default function ServerRail() {
   const lastRead = me?.lastRead || {}
   const mutedGroups = useMemo(() => new Set(me?.mutedGroups || []), [me?.mutedGroups])
 
-  useEffect(() => {
-    if (!profile?.id) return
-    return listenMyGroups(profile.id, setGroups)
-  }, [profile?.id])
+  const meUid = profile?.id
+  // Super admins can read every group in the workspace (firestore.rules'
+  // canOverseeAll()), so the rail loads all of them and sorts membership out
+  // below. Everyone else queries only their own, exactly as before.
+  const oversight = isSuperAdmin(profile)
 
-  // Listen to channels of every group I'm in (for rail unread state)
   useEffect(() => {
-    if (groups.length === 0) { setChannelsByGroup({}); return }
-    const unsubs = groups.map(g =>
+    if (!meUid) return
+    return oversight ? listenAllGroups(setGroups) : listenMyGroups(meUid, setGroups)
+  }, [meUid, oversight])
+
+  // Groups you're actually in, and — for super admins only — the rest of the
+  // workspace, rendered below a divider as "ghost" entries: readable, but you
+  // are not in their member list and every write surface inside is off.
+  const { myGroups, ghostGroups } = useMemo(() => {
+    const mine = []; const ghost = []
+    for (const g of groups) {
+      ((g.memberUids || []).includes(meUid) ? mine : ghost).push(g)
+    }
+    return { myGroups: mine, ghostGroups: ghost }
+  }, [groups, meUid])
+
+  // Listen to channels of every group I'm in (for rail unread state). Ghost
+  // groups are deliberately excluded — badging every channel in the workspace
+  // as unread would bury the groups you're actually in.
+  useEffect(() => {
+    if (myGroups.length === 0) { setChannelsByGroup({}); return }
+    const unsubs = myGroups.map(g =>
       listenChannels(g.id, (chs) => {
         setChannelsByGroup(prev => ({ ...prev, [g.id]: chs }))
       })
     )
     return () => unsubs.forEach(u => u())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups.map(g => g.id).join('|')])
+  }, [myGroups.map(g => g.id).join('|')])
 
   const onDMs = loc.pathname === '/' || loc.pathname.startsWith('/dms') || loc.pathname.startsWith('/me')
 
@@ -67,14 +86,25 @@ export default function ServerRail() {
     }
   }
 
+  const onJoin = async (group) => {
+    try {
+      await addMember(group.id, meUid)
+      navigate(`/g/${group.id}`)
+    } catch (e) {
+      alert(`Couldn't join "${group.name}": ${e.message}`)
+    }
+  }
+
   const menuItems = menu.group ? buildMenuItems({
     group: menu.group,
-    meUid: profile.id,
+    meUid,
+    isGhost: !(menu.group.memberUids || []).includes(meUid),
     isMuted: mutedGroups.has(menu.group.id),
-    onMarkRead: () => markGroupAsRead(profile.id, menu.group.id),
-    onToggleMute: () => toggleMuteGroup(profile.id, menu.group.id, !mutedGroups.has(menu.group.id)),
+    onMarkRead: () => markGroupAsRead(meUid, menu.group.id),
+    onToggleMute: () => toggleMuteGroup(meUid, menu.group.id, !mutedGroups.has(menu.group.id)),
     onOpenSettings: () => navigate(`/g/${menu.group.id}?settings=1`),
     onLeave: () => onLeave(menu.group),
+    onJoin: () => onJoin(menu.group),
   }) : []
 
   return (
@@ -86,7 +116,7 @@ export default function ServerRail() {
 
         <div className="w-8 h-px bg-line-subtle my-1" />
 
-        {groups.map(g => (
+        {myGroups.map(g => (
           <GroupRailLink
             key={g.id}
             group={g}
@@ -95,6 +125,25 @@ export default function ServerRail() {
             onContextMenu={(e) => openMenu(e, g)}
           />
         ))}
+
+        {/* Oversight section — super admins only. Kept below its own divider
+            so the groups you actually belong to stay at the top of the rail
+            instead of being lost among every group in the workspace. */}
+        {ghostGroups.length > 0 && (
+          <>
+            <div className="w-8 h-px bg-line-subtle my-1" />
+            {ghostGroups.map(g => (
+              <GroupRailLink
+                key={g.id}
+                group={g}
+                ghost
+                isMuted={false}
+                hasUnread={false}
+                onContextMenu={(e) => openMenu(e, g)}
+              />
+            ))}
+          </>
+        )}
 
         <button
           onClick={() => setCreating(true)}
@@ -118,8 +167,20 @@ export default function ServerRail() {
   )
 }
 
-function buildMenuItems({ group, meUid, isMuted, onMarkRead, onToggleMute, onOpenSettings, onLeave }) {
+function buildMenuItems({
+  group, meUid, isGhost, isMuted, onMarkRead, onToggleMute, onOpenSettings, onLeave, onJoin,
+}) {
   const isOwner = group.ownerUid === meUid
+  // A group you're only overseeing has no unread state to clear, nothing to
+  // mute and nothing to leave. Joining is the one thing worth offering — it's
+  // also the only way to start writing in it.
+  if (isGhost) {
+    return [
+      { label: 'Join group', icon: <EnterIcon />, onClick: onJoin },
+      { separator: true },
+      { label: 'View group info', icon: <GearIcon />, onClick: onOpenSettings },
+    ]
+  }
   return [
     { label: 'Mark as read',          icon: <CheckIcon />,  onClick: onMarkRead },
     { label: isMuted ? 'Unmute group' : 'Mute group',
@@ -139,7 +200,7 @@ function buildMenuItems({ group, meUid, isMuted, onMarkRead, onToggleMute, onOpe
   ]
 }
 
-function GroupRailLink({ group, isMuted, hasUnread, onContextMenu }) {
+function GroupRailLink({ group, ghost = false, isMuted, hasUnread, onContextMenu }) {
   const loc = useLocation()
   const isActive = loc.pathname.startsWith(`/g/${group.id}`)
   const press = useLongPress((pos) => {
@@ -164,7 +225,11 @@ function GroupRailLink({ group, isMuted, hasUnread, onContextMenu }) {
     >
       <NavLink
         to={`/g/${group.id}`}
-        title={group.name + (isMuted ? ' (muted) — hold to open menu' : ' — hold to open menu')}
+        title={
+          ghost
+            ? `${group.name} — you're not a member. Read-only, and nobody there can see you. Hold to open menu.`
+            : group.name + (isMuted ? ' (muted) — hold to open menu' : ' — hold to open menu')
+        }
         className={[
           'group relative w-12 h-12 grid place-items-center font-semibold overflow-hidden transition-all duration-150',
           'rounded-2xl hover:rounded-xl select-none',
@@ -172,6 +237,7 @@ function GroupRailLink({ group, isMuted, hasUnread, onContextMenu }) {
             ? 'rounded-xl bg-brand text-white'
             : 'bg-bg-raised text-ink hover:bg-brand hover:text-white',
           isMuted && !isActive ? 'opacity-50 hover:opacity-100' : '',
+          ghost && !isActive ? 'opacity-45 hover:opacity-100 grayscale hover:grayscale-0' : '',
         ].join(' ')}
       >
         {group.imageURL
@@ -186,6 +252,14 @@ function GroupRailLink({ group, isMuted, hasUnread, onContextMenu }) {
           wrapper has no overflow-hidden, so the badge renders in full. */}
       {hasUnread && !isActive && (
         <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-bad border-2 border-bg-deepest pointer-events-none" />
+      )}
+      {/* Outside the NavLink for the same reason as the badge above. Marks a
+          group you can read but are not in, so it's never a surprise that the
+          composer is missing when you open it. */}
+      {ghost && (
+        <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-bg-deepest border border-line-subtle grid place-items-center text-ink-dim pointer-events-none">
+          <EyeIcon />
+        </span>
       )}
     </div>
   )
@@ -280,6 +354,16 @@ function PlusIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
       <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+  )
+}
+function EnterIcon() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+}
+function EyeIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/>
     </svg>
   )
 }

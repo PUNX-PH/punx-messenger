@@ -19,6 +19,12 @@ export default function MessageList({
   meUid,
   highlightId,
   scrollToId,
+  // Suppresses every action affordance, including the ones a caller can't
+  // switch off by withholding a handler: editing and deleting your OWN
+  // messages are derived from meUid, and meUid still has to be passed so
+  // mention highlighting and reaction "mine" state keep working. Set by
+  // ChatSurface's readOnly.
+  readOnly = false,
 }) {
   const endRef = useRef(null)
   const containerRef = useRef(null)
@@ -78,6 +84,7 @@ export default function MessageList({
             emojiByName={emojiByName}
             tickNow={now}
             canDeleteAny={canDeleteAny}
+            readOnly={readOnly}
             meUid={meUid}
             editingId={editingId}
             setEditingId={setEditingId}
@@ -97,7 +104,7 @@ export default function MessageList({
 
 function Group({
   group, onZoom, canPin, onTogglePin, highlightId, usersById, emojiByName, tickNow,
-  canDeleteAny, meUid, editingId, setEditingId, onEdit, onDelete, onReact,
+  canDeleteAny, readOnly, meUid, editingId, setEditingId, onEdit, onDelete, onReact,
   onReply, onJumpToMessage,
 }) {
   const currentAuthor = usersById?.[group.author?.uid]
@@ -124,6 +131,7 @@ function Group({
           emojiByName={emojiByName}
           isAuthor={meUid === m.author?.uid}
           canDeleteAny={canDeleteAny}
+          readOnly={readOnly}
           editing={editingId === m.id}
           setEditing={(on) => setEditingId(on ? m.id : null)}
           onEdit={onEdit}
@@ -141,15 +149,15 @@ function Group({
 
 function Row({
   message, showHeader, author, firstTime, onZoom, canPin, onTogglePin, highlighted,
-  emojiByName, isAuthor, canDeleteAny, editing, setEditing, onEdit, onDelete,
+  emojiByName, isAuthor, canDeleteAny, readOnly, editing, setEditing, onEdit, onDelete,
   onReact, onReply, onJumpToMessage, meUid, usersById,
 }) {
   const onlyEmojis = isOnlyEmojis(message.text)
   const emojiSize = onlyEmojis ? 40 : 22
   const mentionsMe = mentionsUid(message.text, meUid)
 
-  const canEdit = isAuthor
-  const canDelete = isAuthor || canDeleteAny
+  const canEdit = isAuthor && !readOnly
+  const canDelete = (isAuthor || canDeleteAny) && !readOnly
   const reactionEntries = Object.entries(message.reactions || {})
     .filter(([, uids]) => Array.isArray(uids) && uids.length > 0)
 
@@ -239,7 +247,7 @@ function Row({
                     meUid={meUid}
                     emojiByName={emojiByName}
                     usersById={usersById}
-                    onToggle={() => onReact?.(message, key)}
+                    onToggle={readOnly ? null : () => onReact?.(message, key)}
                   />
                 ))}
                 {onReact && (
@@ -333,15 +341,20 @@ function ReactionChip({ emojiKey, uids, meUid, emojiByName, usersById, onToggle 
     .join(', ')
   const title = `${namesList} reacted with ${isCustom ? emojiKey : emojiKey}`
 
+  // No onToggle means read-only (see MessageList's readOnly) — keep the count
+  // visible, but don't offer a chip that silently does nothing.
   return (
     <button
-      onClick={onToggle}
+      onClick={onToggle || undefined}
+      disabled={!onToggle}
       title={title}
       className={[
         'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-xs transition-colors',
         mine
           ? 'bg-brand/15 border-brand/40 text-brand'
-          : 'bg-bg-raised border-line-subtle text-ink-muted hover:bg-bg-hover hover:border-line-strong',
+          : 'bg-bg-raised border-line-subtle text-ink-muted',
+        onToggle && !mine ? 'hover:bg-bg-hover hover:border-line-strong' : '',
+        onToggle ? '' : 'cursor-default',
       ].join(' ')}
     >
       {customEmoji ? (

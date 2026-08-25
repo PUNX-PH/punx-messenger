@@ -22,12 +22,21 @@ import { MenuButton } from './AppShell'
  *   - composerPlaceholder?: string
  *   - empty?: { title, desc }
  *   - canPin?: boolean   // whether current user can pin/unpin (defaults to false)
+ *   - readOnly?: boolean // view without participating (see below)
  */
 export default function ChatSurface({
   title, subtitle, icon = '#', path, composerPlaceholder, empty,
   canPin = false,
   canDeleteAny = false, // group admin / workspace admin: can delete anyone's
   headerExtras = null,  // optional extra buttons rendered at the right of the header
+  // Look, don't touch. Used by super-admin oversight viewing (see isGhost in
+  // lib/auth): the whole point is that nobody in the channel can tell you're
+  // reading it, so this has to close off EVERY write, not just the composer —
+  // a reaction, an edit, a pin, even a typing indicator would each give it
+  // away. Marking-as-read is skipped too, since it would fill your own
+  // lastRead map with channels you don't belong to.
+  readOnly = false,
+  readOnlyNotice = null,
 }) {
   const { profile } = useAuth()
   const { byId: usersById } = useUsers()
@@ -79,7 +88,7 @@ export default function ChatSurface({
   // Mark this container read whenever we have messages and the user is here.
   // Skips the personal /users/{uid}/notes path — nothing to track unread for.
   useEffect(() => {
-    if (!profile?.uid || !path) return
+    if (!profile?.uid || !path || readOnly) return
     if (path.startsWith('users/')) return
     const containerPath = path.replace(/\/messages$/, '')
     const t = setTimeout(() => {
@@ -105,7 +114,7 @@ export default function ChatSurface({
     if (containerPath && profile?.uid) setTyping(containerPath, profile.uid, false)
   }
 
-  const onTyping = containerPath && profile?.uid
+  const onTyping = containerPath && profile?.uid && !readOnly
     ? (isTyping) => setTyping(containerPath, profile.uid, isTyping)
     : null
 
@@ -207,13 +216,14 @@ export default function ChatSurface({
         messages={messages}
         emptyTitle={empty?.title || 'This is the start of the conversation'}
         emptyDesc={empty?.desc || 'Say hi 👋'}
-        canPin={canPin}
-        canDeleteAny={canDeleteAny}
+        canPin={canPin && !readOnly}
+        canDeleteAny={canDeleteAny && !readOnly}
+        readOnly={readOnly}
         onTogglePin={onTogglePin}
         onEdit={onEdit}
         onDelete={onDelete}
-        onReact={onReact}
-        onReply={setReplyingTo}
+        onReact={readOnly ? null : onReact}
+        onReply={readOnly ? null : setReplyingTo}
         onJumpToMessage={jumpTo}
         meUid={profile?.uid}
         scrollToId={jumpId}
@@ -222,14 +232,32 @@ export default function ChatSurface({
 
       <TypingIndicator names={typingNames} />
 
-      <Composer
-        placeholder={composerPlaceholder || `Message ${icon}${title}`}
-        onSend={onSend}
-        onTyping={onTyping}
-        replyingTo={replyingTo}
-        onCancelReply={() => setReplyingTo(null)}
-      />
+      {readOnly ? (
+        <div className="shrink-0 mx-4 mb-4 mt-1 px-4 py-3 rounded-lg bg-bg-raised border border-line-subtle text-sm text-ink-muted flex items-start gap-2.5">
+          <span className="shrink-0 mt-px text-ink-dim"><LockIcon /></span>
+          <span>
+            {readOnlyNotice || "Read-only — you can see this conversation but not take part in it."}
+          </span>
+        </div>
+      ) : (
+        <Composer
+          placeholder={composerPlaceholder || `Message ${icon}${title}`}
+          onSend={onSend}
+          onTyping={onTyping}
+          replyingTo={replyingTo}
+          onCancelReply={() => setReplyingTo(null)}
+        />
+      )}
     </main>
+  )
+}
+
+function LockIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="4" y="11" width="16" height="10" rx="2"/>
+      <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+    </svg>
   )
 }
 
