@@ -5,6 +5,7 @@ import {
   addMember, removeMember, setGroupAdmin,
   updateGroup, updateGroupAvatar, updateGroupBanner,
 } from '../lib/groups'
+import GroupInvites from './GroupInvites'
 import Modal from './Modal'
 import Avatar from './Avatar'
 
@@ -114,7 +115,14 @@ export default function GroupSettingsModal({ open, onClose, group, initialTab = 
           <Tab active={tab === 'members'} onClick={() => setTab('members')}>
             Members <span className="text-ink-dim">({group.memberUids?.length || 0})</span>
           </Tab>
+          {canEdit && (
+            <Tab active={tab === 'invites'} onClick={() => setTab('invites')}>Invites</Tab>
+          )}
         </div>
+
+        {tab === 'invites' && (
+          <GroupInvites group={group} canEdit={canEdit} meUid={profile?.id} />
+        )}
 
         {tab === 'overview' && (
           <OverviewTab

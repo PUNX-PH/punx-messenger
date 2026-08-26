@@ -16,6 +16,7 @@ import MyNotes from './views/MyNotes'
 import GroupHome from './views/GroupHome'
 import Channel from './views/Channel'
 import AdminPanel from './views/AdminPanel'
+import InviteAccept from './views/InviteAccept'
 
 export default function App() {
   return (
@@ -43,20 +44,29 @@ export default function App() {
 function Gate() {
   const { user, profile, loading } = useAuth()
   if (loading) return <Loading label="Signing you in" />
-  if (!user || !profile) return <Login />
 
   return (
     <Routes>
-      <Route element={<AppShell />}>
-        <Route path="/"                          element={<Navigate to="/dms" replace />} />
-        <Route path="/dms"                       element={<DMsHome />} />
-        <Route path="/dms/:otherUid"             element={<DMConvo />} />
-        <Route path="/me/notes"                  element={<MyNotes />} />
-        <Route path="/g/:groupId"                element={<GroupHome />} />
-        <Route path="/g/:groupId/c/:channelId"   element={<Channel />} />
-        <Route path="/admin"                     element={<AdminPanel />} />
-        <Route path="*"                          element={<Navigate to="/dms" replace />} />
-      </Route>
+      {/* Outside the login wall on purpose. An invited outsider arrives with no
+          account, and after signing in still has no profile — firestore.rules
+          gives them nothing until they redeem — so this route has to render in
+          both of those states. It is the only one that does. */}
+      <Route path="/invite/:token" element={<InviteAccept />} />
+
+      {!user || !profile ? (
+        <Route path="*" element={<Login />} />
+      ) : (
+        <Route element={<AppShell />}>
+          <Route path="/"                          element={<Navigate to="/dms" replace />} />
+          <Route path="/dms"                       element={<DMsHome />} />
+          <Route path="/dms/:otherUid"             element={<DMConvo />} />
+          <Route path="/me/notes"                  element={<MyNotes />} />
+          <Route path="/g/:groupId"                element={<GroupHome />} />
+          <Route path="/g/:groupId/c/:channelId"   element={<Channel />} />
+          <Route path="/admin"                     element={<AdminPanel />} />
+          <Route path="*"                          element={<Navigate to="/dms" replace />} />
+        </Route>
+      )}
     </Routes>
   )
 }

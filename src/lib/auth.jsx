@@ -9,6 +9,7 @@ import {
   auth, db, googleProvider, firebaseConfigured,
   ALLOWED_DOMAIN, ALLOWED_EXTRA_EMAILS, SUPER_ADMINS, isEmailAllowed,
 } from './firebase'
+import { getPendingInvite } from './invites'
 
 const AuthCtx = createContext(null)
 
@@ -25,21 +26,40 @@ export function AuthProvider({ children }) {
       if (!u) { setUser(null); setProfile(null); setLoading(false); return }
 
       const email = (u.email || '').toLowerCase()
-      if (!isEmailAllowed(email)) {
-        await fbSignOut(auth)
-        const extras = ALLOWED_EXTRA_EMAILS.length
-          ? ` Some external addresses are also allowed.`
-          : ''
-        setAuthError(`Only @${ALLOWED_DOMAIN} accounts can sign in.${extras}`)
-        setLoading(false)
-        return
-      }
 
       try {
         const ref = doc(db, 'users', u.uid)
-        const snap = await getDoc(ref)
+        // Read BEFORE any decision about the address, because having a
+        // /users doc is what admission now means (see isHuman() in
+        // firestore.rules). An invited outsider's Google address is arbitrary
+        // and grants nothing; their doc is the record of being let in, so a
+        // returning guest must not be turned away for failing a domain check
+        // they were never expected to pass.
+        //
+        // For a stranger with no doc the rules deny this read outright, which
+        // is indistinguishable from "doesn't exist" and handled the same way.
+        const snap = await getDoc(ref).catch(() => null)
+        const known = !!snap?.exists()
+
+        if (!known && !isEmailAllowed(email)) {
+          // Not staff, and not already admitted. The one remaining way in is a
+          // live invite, whose token was parked before the Google redirect —
+          // leave them signed in with no profile so InviteAccept can redeem it.
+          if (getPendingInvite()) { setUser(u); setProfile(null); setLoading(false); return }
+          await fbSignOut(auth)
+          const extras = ALLOWED_EXTRA_EMAILS.length
+            ? ` Some external addresses are also allowed.`
+            : ''
+          setAuthError(
+            `Only @${ALLOWED_DOMAIN} accounts can sign in.${extras} ` +
+            `If you were sent an invite link, open that link instead.`
+          )
+          setLoading(false)
+          return
+        }
+
         const isSuper = SUPER_ADMINS.includes(email)
-        if (!snap.exists()) {
+        if (!known) {
           await setDoc(ref, {
             uid: u.uid,
             email,

@@ -108,6 +108,15 @@ Reads and **writes** are both gated: message create/edit/delete, reactions, the
 
 ### Inviting a guest
 
+Two routes. Prefer the link.
+
+**By invite link** — works for people with no account at all. Group settings
+→ **Invites** → tick the channels → **Create & copy link**, and send it. They
+open it, sign in with any Google account, and land in those channels as a guest.
+See *Invite links* below.
+
+**By hand** — for someone who already has an account:
+
 1. **Admin panel** → set their role to **Guest**.
 2. Sidebar header → **Members** → add them to the group. Required: the rules
    need group membership *and* the channel invite. On its own this shows them
@@ -134,16 +143,77 @@ documents stay readable for them (see the trade-off above — contents are still
 denied). Closing that would mean backfilling `private` onto every existing
 channel first.
 
+## Who can sign in
+
+Google is the **only** human sign-in path, and that is load-bearing rather than
+incidental: it means the address on the token was verified by Google. Never
+widen it to a provider where an account picks its own unverified address —
+`createUserWithEmailAndPassword` does exactly that, which would make the
+internal-domain check self-assertable and let anyone in as an employee.
+
+Admission is therefore **either** an `@punx.ai` address **or** simply having a
+`users/{uid}` document, which is the record of having been let in. An invited
+outsider's Google address grants them nothing; their only route to a document is
+redeeming a live invite as a `guest`. Deleting someone's `users` doc revokes
+their access entirely.
+
+## Invite links
+
+`invites/{token}` — the document id **is** the secret, handed out as
+`/invite/<token>`. Reusable until it expires or an admin revokes it.
+
+```
+invites/{token}   { groupId, groupName, channelIds[], channelNames[],
+                    createdBy, createdAt, expiresAt, revoked }
+invites/{token}/redemptions/{uid}   audit trail, written by the joiner
+```
+
+`groupName`/`channelNames` are denormalised because whoever opens the link has
+no read access to the group yet — the accept screen has to describe the
+invitation from this one document.
+
+Admins create and revoke links in **group settings → Invites**. `revoked` is the
+only field anyone may change: an existing link must never be repointed at
+another group or a wider channel set, or everyone already holding the URL would
+silently gain that access.
+
+Reading an invite requires being authenticated (any Google account). That's
+deliberate — a link that leaks shouldn't tell a stranger or a crawler that there
+is a channel called `#payroll`.
+
+### Redemption
+
+Done **by the joiner**, in this order, because each step unlocks the next:
+
+1. `users/{uid}` — created as `guest` for a newcomer, or just stamped with
+   `invitedVia` if they already have an account. **An existing member keeps
+   their role**; a link must never be able to demote an admin.
+2. the redemption marker.
+3. add themselves to the group's `memberUids`.
+4. add themselves to each invited channel's `allowUids`.
+
+Rules can't take arguments from the client, so the token is recorded on the
+joiner's own `users` doc as `invitedVia` and every later self-add is validated
+against it.
+
+`addsOnlyMeTo(field)` enforces steps 3 and 4. It requires that the caller is
+**not already in the list**, that the list grew by exactly one, and that they're
+in the result. All three matter: without the "not already present" clause,
+someone who had joined could add one *other* person and pass. Two rules tests
+cover exactly that.
+
 ## Testing
 
-The rules have an emulator test suite — 65 cases covering the hierarchy, the
-developer boundary, guests, private channels, bots, and regressions for
-behaviour that had to stay unchanged. It needs Java on `PATH` and
-`@firebase/rules-unit-testing`:
+The rules have an emulator test suite at `tests/rules.test.mjs` — 104 cases
+covering the hierarchy, the developer boundary, guests, private channels, invite
+links, the auth gate, bots, and regressions for behaviour that had to stay
+unchanged. It needs Java on `PATH` and `@firebase/rules-unit-testing`, which is
+kept out of `package.json` on purpose (it conflicts with the pinned firebase
+version and would break `npm ci`):
 
 ```bash
 npm i --no-save --legacy-peer-deps @firebase/rules-unit-testing
-npx firebase emulators:exec --only firestore --project punx-rules-test "node rules.test.mjs"
+npx firebase emulators:exec --only firestore --project punx-rules-test "node tests/rules.test.mjs"
 ```
 
 The whole app can also be run against the emulators with no password sign-in —
@@ -162,8 +232,10 @@ something the backend rejects. Add a test.
 
 ## Not built
 
-- **Shareable channel-scoped invite links.** Adding people is admin-driven
-  today. Sign-in is `@punx.ai`-restricted regardless, so links would be a
-  convenience for people who already have accounts, not a way in for outsiders.
 - **Hiding private channel names** from ordinary members. Needs the backfill
   described above.
+- **Invite usage caps.** Links are reusable with an expiry and a revoke button;
+  there's no max-uses counter. The `redemptions` subcollection records who used
+  a link, so adding one later is a counting change, not a redesign.
+- **Email/password signup.** Guests sign in with Google using any address. See
+  the warning under *Who can sign in* before reconsidering this.

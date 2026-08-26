@@ -32,11 +32,39 @@ service cloud.firestore {
     // (createUserWithEmailAndPassword never verifies the address) and walk
     // straight through it. If another human provider is ever added, add it
     // here explicitly rather than dropping this check.
-    function isHuman() {
+    // Google is still the ONLY human sign-in path, and that is load-bearing:
+    // it means the address on the token was verified by Google. Never widen
+    // this to a provider that lets an account choose its own unverified email
+    // (createUserWithEmailAndPassword does exactly that) — the internal-domain
+    // check below would then be self-assertable and anyone could walk in as an
+    // employee.
+    function isGoogleAccount() {
       return request.auth != null
-        && request.auth.token.firebase.sign_in_provider == 'google.com'
-        && (request.auth.token.email.matches('.*@punx[.]ai$')
-            || request.auth.token.email == 'perezjohnrey43@gmail.com');
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+
+    // An address that belongs to the company. Token-only, no reads.
+    function isInternalEmail() {
+      return request.auth.token.email.matches('.*@punx[.]ai$')
+        || request.auth.token.email == 'perezjohnrey43@gmail.com';
+    }
+
+    function iHaveUserDoc() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    // Admission is EITHER an internal address, OR simply having a
+    // /users/{uid} document — which is the record of having been let in.
+    //
+    // That second clause is what lets invited outsiders exist at all: their
+    // Google address is arbitrary, so it grants them nothing, and their only
+    // route to a users doc is redeeming a live invite as a `guest` (see the
+    // create rule below). Existence of the doc is therefore the gate, and
+    // admins revoke access by deleting it.
+    //
+    // isInternalEmail() is checked FIRST so staff pay no extra document read.
+    function isHuman() {
+      return isGoogleAccount() && (isInternalEmail() || iHaveUserDoc());
     }
 
     // Bots authenticate with a Firebase custom token minted by the Worker
@@ -301,6 +329,67 @@ service cloud.firestore {
       return channelVisible(groupId, channelDataOf(groupId, channelId));
     }
 
+    // ── Invite links ──
+    //
+    // The token IS the secret: an unguessable document id, handed out as a URL.
+    // Reusable until it expires or is revoked.
+    function inviteDataOf(token) {
+      return get(/databases/$(database)/documents/invites/$(token)).data;
+    }
+    function inviteIsUsable(token) {
+      return token is string
+        && token.size() > 0
+        && exists(/databases/$(database)/documents/invites/$(token))
+        && !(('revoked' in inviteDataOf(token)) && inviteDataOf(token).revoked == true)
+        && ('expiresAt' in inviteDataOf(token))
+        && inviteDataOf(token).expiresAt > request.time;
+    }
+
+    // The invite THIS account joined with, recorded on its own users doc as
+    // `invitedVia`. Carrying it there rather than passing it per-write is what
+    // lets the group/channel rules below verify a self-add: rules can't take
+    // arguments from the client, but they can read a document the client wrote
+    // under a rule that already validated the token.
+    function myUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function iHaveLiveInvite() {
+      return request.auth != null
+        && iHaveUserDoc()
+        && ('invitedVia' in myUserData())
+        && inviteIsUsable(myUserData().invitedVia);
+    }
+    function myInvite() {
+      return inviteDataOf(myUserData().invitedVia);
+    }
+    function myInviteGrantsGroup(groupId) {
+      return iHaveLiveInvite() && myInvite().groupId == groupId;
+    }
+    function myInviteGrantsChannel(groupId, channelId) {
+      return myInviteGrantsGroup(groupId) && (channelId in myInvite().channelIds);
+    }
+
+    // "This write adds exactly me to `field` and changes nothing else."
+    // Written out rather than using a set difference so the absent-field case
+    // (channels predating allowUids) is explicit — reading a missing key errors,
+    // and an error denies.
+    function addsOnlyMeTo(field) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([field])
+        && request.auth.uid in request.resource.data[field]
+        && (
+          (!(field in resource.data) && request.resource.data[field].size() == 1)
+          || ((field in resource.data)
+              // NOT already present is the load-bearing clause. Without it the
+              // three conditions only say "I'm in the result and the list grew
+              // by one" — so someone already on the list could add ONE OTHER
+              // person and pass. Requiring my own absence beforehand is what
+              // proves the single addition was me. A rules test caught this.
+              && !(request.auth.uid in resource.data[field])
+              && request.resource.data[field].hasAll(resource.data[field])
+              && request.resource.data[field].size() == resource.data[field].size() + 1)
+        );
+    }
+
     function isBootstrapSuperAdmin() {
       // KEEP IN SYNC with VITE_SUPER_ADMIN_EMAILS in .env.local
       return request.auth.token.email == 'rey@punx.ai';
@@ -352,10 +441,24 @@ service cloud.firestore {
       // On first sign-in the client creates the user's own doc.
       // Role must default to 'employee', UNLESS the email is in the bootstrap list,
       // in which case 'super_admin' is allowed.
-      allow create: if (signedIn() && uid == myUid() && (
+      // Internal staff creating their own doc on first sign-in. Deliberately
+      // spelled out as isGoogleAccount() && isInternalEmail() rather than
+      // isHuman(), because isHuman() now accepts "has a users doc" and this is
+      // the rule that CREATES that doc — routing it through isHuman() would be
+      // circular.
+      allow create: if (isGoogleAccount() && isInternalEmail() && uid == myUid() && (
           request.resource.data.role == 'employee'
           || (request.resource.data.role == 'super_admin' && isBootstrapSuperAdmin())
         ))
+        // An invited outsider redeeming a link. `guest` and nothing else: an
+        // arbitrary Google address must never be able to mint itself anything
+        // higher, and a guest sees only the channels it is explicitly listed
+        // on. The token is validated here, and recorded so the group/channel
+        // self-adds below can check it.
+        || (isGoogleAccount() && uid == myUid()
+            && request.resource.data.role == 'guest'
+            && request.resource.data.invitedVia is string
+            && inviteIsUsable(request.resource.data.invitedVia))
         // A bot can't create its own /users doc — it has no Firebase Auth
         // account until the first time it redeems its API key, and by then it
         // needs to already be visible as a user. So the admin registering the
@@ -437,6 +540,9 @@ service cloud.firestore {
         // else into a position it wasn't granted.
         || (botCanManageMembers(groupId)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids']))
+        // Redeeming an invite: add ONLY yourself to memberUids, and only while
+        // the invite naming this group is still live.
+        || myInviteGrantsGroup(groupId) && addsOnlyMeTo('memberUids')
         || (signedIn()
             && myUid() in resource.data.memberUids
             && resource.data.ownerUid != myUid()
@@ -466,6 +572,9 @@ service cloud.firestore {
         // any group member may bump `lastMessageAt` (unread state) and/or
         // write to `typing` (typing indicators).
         allow update: if adminOverGroup(groupId) || botCanManageChannels(groupId)
+          // Redeeming an invite: add ONLY yourself to allowUids, and only for a
+          // channel the invite actually names.
+          || (myInviteGrantsChannel(groupId, channelId) && addsOnlyMeTo('allowUids'))
           || (isGroupMember(groupId)
               && channelVisible(groupId, resource.data)
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'typing']));
@@ -612,6 +721,45 @@ service cloud.firestore {
       match /private/{docId} {
         allow read: if false;
         allow write: if canManageBots();
+      }
+    }
+
+    // ───────── Invite links ─────────
+    //
+    // One doc per link, id = an unguessable token. Shape:
+    //   { groupId, groupName, channelIds[], channelNames[], createdBy,
+    //     createdAt, expiresAt, revoked? }
+    // groupName/channelNames are denormalised on purpose: someone opening the
+    // link has no read access to the group yet, so the accept screen has to be
+    // able to say what they're joining from this document alone.
+    match /invites/{token} {
+      // Single-document reads only, for ANY authenticated account — an invited
+      // outsider has no users doc yet, so signedIn() would be false and they
+      // could not see what they were accepting. Safe because the id is the
+      // secret and `list` is refused, so nobody can enumerate invites.
+      allow get: if request.auth != null;
+      allow list: if false;
+
+      allow create: if adminOverGroup(request.resource.data.groupId)
+        && request.resource.data.createdBy == myUid()
+        && request.resource.data.groupId is string
+        && request.resource.data.channelIds is list
+        && request.resource.data.expiresAt is timestamp;
+
+      // Revoking is the ONLY permitted mutation. An existing link must never be
+      // repointed at a different group or a wider channel set — anyone already
+      // holding the URL would silently gain that access.
+      allow update: if adminOverGroup(resource.data.groupId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revoked']);
+
+      allow delete: if adminOverGroup(resource.data.groupId);
+
+      // Who used this link, for the admin UI and an audit trail. Written by the
+      // joiner, doc id = their uid, so it is naturally idempotent.
+      match /redemptions/{uid} {
+        allow read: if adminOverGroup(inviteDataOf(token).groupId);
+        allow create: if request.auth != null && uid == request.auth.uid
+          && inviteIsUsable(token);
       }
     }
 
