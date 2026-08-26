@@ -17,10 +17,10 @@ this project doesn't have.
 
 ## 1. Getting an identity
 
-An admin or a **developer** registers the bot in **Admin panel → Bots** and
-hands over an API key once. (`developer` is a workspace role that unlocks that
-section and nothing else — no role changes, no group or member management. Set
-it in the same admin panel; only a super admin can hand it out.) Only its SHA-256 is stored, so a lost key can't be recovered — rotate for
+An admin, super admin or developer registers the bot in **Admin panel → Bots**
+and hands over an API key once. (See [ROLES.md](./ROLES.md) for the role
+hierarchy — bot management is available from `admin` upward.) Only its SHA-256
+is stored, so a lost key can't be recovered — rotate for
 a new one.
 
 Trade the key for a Firebase credential:
@@ -66,6 +66,13 @@ Two independent things decide what a bot can do:
 | **Which channels it can see** | Whichever groups an admin has added it to, exactly like a person. Not a scope. |
 | **What it can do there** | Its scopes. Only ever grant writes. |
 
+Since a bot's mirror `users/{uid}` doc carries `role: 'employee'`, a bot sees
+every **non-private** channel in its groups. A private channel is invisible to
+it unless the bot's uid is on that channel's `allowUids` — add it the same way
+you would a person, via right-click → Manage access. A bot is never a `guest`,
+so the guest restriction does not apply to it. See
+[ROLES.md](./ROLES.md#per-channel-access).
+
 | Scope | Grants |
 |---|---|
 | `messages:write` | Send / edit / delete its own messages |
@@ -87,9 +94,10 @@ does; `src/lib/db.js` and `src/lib/groups.js` are the reference implementation.
 
 ```
 users/{uid}                                  bots included, with type: 'bot'
-groups/{groupId}                             memberUids, adminUids, name
+groups/{groupId}                             memberUids, adminUids, ownerUid, name
 groups/{groupId}/categories/{categoryId}
-groups/{groupId}/channels/{channelId}        { name, type: 'text'|'voice', categoryId, order }
+groups/{groupId}/channels/{channelId}        { name, type: 'text'|'voice', categoryId, order,
+                                               private?: bool, allowUids?: string[] }
 groups/{groupId}/channels/{channelId}/messages/{msgId}
 dms/{convoId}                                convoId = [uidA,uidB].sort().join('__')
 dms/{convoId}/messages/{msgId}
