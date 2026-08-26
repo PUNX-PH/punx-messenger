@@ -237,5 +237,27 @@ something the backend rejects. Add a test.
 - **Invite usage caps.** Links are reusable with an expiry and a revoke button;
   there's no max-uses counter. The `redemptions` subcollection records who used
   a link, so adding one later is a counting change, not a redesign.
-- **Email/password signup.** Guests sign in with Google using any address. See
-  the warning under *Who can sign in* before reconsidering this.
+- **Guests without a Google account.** Currently they cannot get in at all —
+  Google is the only human sign-in path, so the invite screen leaves them stuck.
+  Two ways to fix it, in preference order:
+
+  1. **Email-link (passwordless) sign-in.** Firebase emails a one-time link;
+     clicking it proves the person controls that inbox, which is exactly what
+     email/password does *not* prove. Caveat to verify first: Firebase reports
+     email-link sign-in as `sign_in_provider: 'password'`, the same as
+     email/password, so the rules cannot tell them apart by provider — the
+     distinguisher is `email_verified` (true for a link, false for a fresh
+     password signup). Confirm the real token claims against the Auth emulator
+     before relying on that. The internal-domain path must stay Google-only
+     regardless; non-Google accounts would be admitted only as invited guests,
+     which the "you have a users doc" model already supports.
+  2. **A second OAuth provider** (Microsoft, Apple). Those verify addresses the
+     same way Google does, so it needs no new gate logic — just another provider
+     in the same clause. Likely to cover more business guests than email links.
+
+- **Email/password signup.** Deliberately never built. See the warning under
+  *Who can sign in*: an account that picks its own unverified address makes the
+  internal-domain check self-assertable.
+
+- **Invite usage caps.** Covered above — the `redemptions` subcollection already
+  records who used each link.
