@@ -19,8 +19,8 @@
 // See docs/ROLES.md and the "Invite links" block in firestore.rules.
 
 import {
-  collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp,
-  setDoc, updateDoc, where,
+  arrayUnion, collection, doc, getDoc, getDocs, onSnapshot, query,
+  serverTimestamp, setDoc, updateDoc, where,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { newId } from './storage'
@@ -148,21 +148,32 @@ export async function redeemInvite({ token, invite, user, existingProfile }) {
     redeemedAt: serverTimestamp(),
   }).catch(() => {})
 
-  const groupRef = doc(db, 'groups', invite.groupId)
-  const groupSnap = await getDoc(groupRef)
-  const members = groupSnap.data()?.memberUids || []
-  if (!members.includes(uid)) {
-    await updateDoc(groupRef, { memberUids: [...members, uid] })
-  }
+  // arrayUnion, and NOT read-then-write. This is the whole reason redemption
+  // works at all: a joiner cannot read the group or channel documents until
+  // they're in them — that's precisely what the read rules forbid — so any
+  // getDoc() here fails for exactly the people invites exist for. arrayUnion is
+  // write-only and atomic, and firestore.rules sees the post-transform value,
+  // so addsOnlyMeTo() can still verify the change added nobody but us.
+  await updateDoc(doc(db, 'groups', invite.groupId), { memberUids: arrayUnion(uid) })
 
+  // One failure here shouldn't cost the whole redemption — a channel may have
+  // been deleted since the link was made. Collect and report instead.
+  const failed = []
   for (const channelId of invite.channelIds || []) {
-    const chRef = doc(db, 'groups', invite.groupId, 'channels', channelId)
-    const chSnap = await getDoc(chRef)
-    if (!chSnap.exists()) continue
-    const allow = chSnap.data().allowUids || []
-    if (allow.includes(uid)) continue
-    await updateDoc(chRef, { allowUids: [...allow, uid] })
+    try {
+      await updateDoc(
+        doc(db, 'groups', invite.groupId, 'channels', channelId),
+        { allowUids: arrayUnion(uid) },
+      )
+    } catch (e) {
+      console.error('[invites] could not grant channel', channelId, e)
+      failed.push(channelId)
+    }
   }
 
-  return { groupId: invite.groupId, channelIds: invite.channelIds || [] }
+  const granted = (invite.channelIds || []).filter(id => !failed.includes(id))
+  if (granted.length === 0 && (invite.channelIds || []).length > 0) {
+    throw new Error("Joined the group, but none of the invited channels could be granted.")
+  }
+  return { groupId: invite.groupId, channelIds: granted }
 }

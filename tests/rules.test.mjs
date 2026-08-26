@@ -329,6 +329,13 @@ await t('redemption marker is writable by the joiner', () => assertSucceeds(
 await t('joiner CANNOT write a redemption marker for someone else', () => assertFails(
   setDoc(doc(outsider(OUT1), 'invites', TOK_LIVE, 'redemptions', OUT2), {
     uid: OUT2, redeemedAt: new Date() })))
+// Regression: redeemInvite used to getDoc() the group to build the new member
+// array, which is denied for exactly the people invites exist for. The client
+// must use arrayUnion and never read first.
+await t('invitee CANNOT read the group doc before joining', () => assertFails(
+  getDoc(doc(outsider(OUT1), 'groups', GM))))
+await t('invitee CANNOT read a channel doc before joining', () => assertFails(
+  getDoc(doc(outsider(OUT1), 'groups', GM, 'channels', 'cg'))))
 await t('invitee adds ONLY itself to the group', () => assertSucceeds(
   updateDoc(doc(outsider(OUT1), 'groups', GM), {
     memberUids: [EMP, ADMIN, GUEST, GUEST2, T1, OUT1] })))
@@ -357,6 +364,17 @@ await t('redeemed guest posts in its invited channel', () => assertSucceeds(
 await t('redeemed guest CANNOT create a group', () => assertFails(
   setDoc(doc(outsider(OUT1), 'groups', 'gnew2'), {
     name: 'g', ownerUid: OUT1, memberUids: [OUT1], adminUids: [OUT1] })))
+
+console.log('\n-- redeeming twice is a no-op, not a failure --')
+// The client uses arrayUnion and cannot read the document first, so
+// re-opening a link must not hard-fail. OUT1 is already in both lists here.
+await t('re-joining the group with an unchanged member list succeeds', () => assertSucceeds(
+  updateDoc(doc(outsider(OUT1), 'groups', GM), {
+    memberUids: [EMP, ADMIN, GUEST, GUEST2, T1, OUT1] })))
+await t('re-granting an already-granted channel succeeds', () => assertSucceeds(
+  updateDoc(doc(outsider(OUT1), 'groups', GM, 'channels', 'cg'), { allowUids: [GUEST, OUT1] })))
+await t('a no-op write still cannot smuggle someone else in', () => assertFails(
+  updateDoc(doc(outsider(OUT1), 'groups', GM, 'channels', 'cg'), { allowUids: [GUEST, OUT1, OUT3] })))
 
 console.log('\n-- expired and revoked invites are inert --')
 await t('expired token CANNOT create a guest doc', () => assertFails(

@@ -387,6 +387,13 @@ service cloud.firestore {
               && !(request.auth.uid in resource.data[field])
               && request.resource.data[field].hasAll(resource.data[field])
               && request.resource.data[field].size() == resource.data[field].size() + 1)
+          // Idempotent re-run: already on the list and the write changes
+          // nothing. The client uses arrayUnion and cannot read the document
+          // first to know, so re-opening a link — or an existing member using
+          // one — must be a no-op rather than a denial. Grants nothing new.
+          || ((field in resource.data)
+              && (request.auth.uid in resource.data[field])
+              && request.resource.data[field] == resource.data[field])
         );
     }
 

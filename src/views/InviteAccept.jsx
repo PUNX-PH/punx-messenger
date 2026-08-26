@@ -52,9 +52,14 @@ export default function InviteAccept() {
       window.location.assign(first ? `/g/${res.groupId}/c/${first}` : `/g/${res.groupId}`)
     } catch (e) {
       setJoining(false)
+      // Don't guess at expiry. The invite was verified live moments earlier, so
+      // a denial here is far more likely a bug in the redemption path than a
+      // race — saying "expired" sent a real debugging session down the wrong
+      // road. Report what happened and leave the detail in the console.
       setError(
         e?.code === 'permission-denied'
-          ? "This invite couldn't be redeemed. It may have been revoked or expired just now."
+          ? "Couldn't complete the join \u2014 the server refused part of it. "
+            + "Try the link again, or ask an admin to check it."
           : e.message
       )
     }
