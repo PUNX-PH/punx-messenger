@@ -12,7 +12,9 @@ export default function Composer({
   replyingTo = null, onCancelReply,
 }) {
   const { profile } = useAuth()
-  const { users } = useUsers()
+  // Only active accounts — both for the @-picker and for resolving a typed
+  // mention, so a removed teammate can't be pinged by name.
+  const { activeUsers: users } = useUsers()
   const [text, setText] = useState('')
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)

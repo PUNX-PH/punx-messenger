@@ -11,7 +11,10 @@ import VoiceStatusBar from './voice/VoiceStatusBar'
 
 export default function DMsSidebar() {
   const { profile } = useAuth()
-  const { byId: usersById, users } = useUsers()
+  // activeUsers, not users: a removed teammate and a switched-off bot both
+  // drop out of this list. Existing conversations with them stay openable by
+  // URL, and their messages keep their author.
+  const { byId: usersById, activeUsers: users } = useUsers()
   const { otherUid: activeOtherUid } = useParams()
   const [filter, setFilter] = useState('')
   const [convosByOther, setConvosByOther] = useState({})

@@ -13,7 +13,10 @@ import Avatar from './Avatar'
  */
 export default function MembersPanel({ group, open }) {
   const { profile } = useAuth()
-  const { users } = useUsers()
+  // A removed member stops being listed here even though they are still in
+  // the group's memberUids — the membership is inert while the rules refuse
+  // them, and keeping it means reactivating restores what they had.
+  const { activeUsers: users } = useUsers()
   const now = useTickNow()
   const meUid = profile?.id
 

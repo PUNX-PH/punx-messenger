@@ -41,6 +41,21 @@ export function AuthProvider({ children }) {
         const snap = await getDoc(ref).catch(() => null)
         const known = !!snap?.exists()
 
+        // Removed from the workspace. Bail before the display-field refresh
+        // below, which the rules would refuse anyway — and say why, because
+        // the catch at the bottom would otherwise tell a fired employee to go
+        // republish Firestore rules. Reading your own doc while deactivated is
+        // specifically allowed so this branch is reachable at all.
+        if (known && snap.data().deactivated) {
+          await fbSignOut(auth)
+          setAuthError(
+            'Your access to this workspace has been removed. '
+            + 'Speak to an admin if you think that is a mistake.'
+          )
+          setLoading(false)
+          return
+        }
+
         if (!known && !isEmailAllowed(email)) {
           // Not staff, and not already admitted. The one remaining way in is a
           // live invite, whose token was parked before the Google redirect —

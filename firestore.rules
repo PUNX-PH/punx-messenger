@@ -53,6 +53,24 @@ service cloud.firestore {
       return exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
+    // Removed from the workspace. An absent key means active, which is what
+    // keeps every account that predates the field working — and the `in` guard
+    // is safe here because this is a single-document read, not a query. (In a
+    // query it would be the opposite of safe: see the channel section.)
+    //
+    // This costs one document read on EVERY human request, where the
+    // internal-email path used to cost none. There is nowhere cheaper to put
+    // it: a fired employee still holds a working @punx.ai Google account, so
+    // no token claim can ever show they are no longer staff. Deleting their
+    // Firebase Auth account would, and that needs the Admin SDK, which this
+    // app has no access to. The read is cached per request, so it is one read
+    // per request and not one per rule that asks.
+    function iAmDeactivated() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && ('deactivated' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deactivated == true;
+    }
+
     // Admission is EITHER an internal address, OR simply having a
     // /users/{uid} document — which is the record of having been let in.
     //
@@ -62,9 +80,15 @@ service cloud.firestore {
     // create rule below). Existence of the doc is therefore the gate, and
     // admins revoke access by deleting it.
     //
-    // isInternalEmail() is checked FIRST so staff pay no extra document read.
+    // Deactivation is checked before either path, since it overrides both: a
+    // fired employee keeps their internal address, and a removed guest keeps
+    // their users doc. Bots never reach the read — their token isn't Google,
+    // so isGoogleAccount() short-circuits first, and their own kill switch is
+    // `enabled` on the registry doc.
     function isHuman() {
-      return isGoogleAccount() && (isInternalEmail() || iHaveUserDoc());
+      return isGoogleAccount()
+        && !iAmDeactivated()
+        && (isInternalEmail() || iHaveUserDoc());
     }
 
     // Bots authenticate with a Firebase custom token minted by the Worker
@@ -457,8 +481,16 @@ service cloud.firestore {
     // ───────── Users (workspace directory) ─────────
 
     match /users/{uid} {
-      // Any @punx.ai signed-in user can read the directory
-      allow read: if signedIn();
+      // Any signed-in user can read the directory.
+      //
+      // The second clause is for a DEACTIVATED account, which fails signedIn()
+      // by design: without it, someone who has been removed sees nothing but a
+      // bare permission-denied, and AuthProvider's fallback message talks
+      // about republishing dev rules. Reading your own document lets the app
+      // say plainly that access was removed. Scoped to your own uid, so it
+      // discloses nothing — for anyone who was never admitted, that document
+      // doesn't exist.
+      allow read: if signedIn() || (isGoogleAccount() && uid == myUid());
 
       // On first sign-in the client creates the user's own doc.
       // Role must default to 'employee', UNLESS the email is in the bootstrap list,
@@ -500,9 +532,16 @@ service cloud.firestore {
       // email is the escape hatch for creating the very first developer, since
       // otherwise nobody could ever grant it.
       allow update: if (isTopTier() && developerRoleChangeAllowed())
-        || (uid == myUid()
+        // isHuman() matters here, and its absence was a hole: `uid == myUid()`
+        // alone let ANY authenticated account rewrite its own document, so a
+        // removed one could still stamp itself with a fresh `invitedVia` and
+        // walk back into a group's memberUids. Everything it can legitimately
+        // write — display name, presence, invitedVia while redeeming — happens
+        // while admitted; the document's own creation is a separate rule.
+        || (isHuman() && uid == myUid()
             && !request.resource.data.diff(resource.data).affectedKeys()
-                 .hasAny(['role', 'email', 'uid', 'createdAt']))
+                 .hasAny(['role', 'email', 'uid', 'createdAt',
+                          'deactivated', 'deactivatedAt', 'deactivatedBy']))
         // A bot's mirror /users doc has to stay in step with its registry doc —
         // updateBotProfile in src/lib/bots.js writes both — and a developer can
         // reach the registry but not, by default, anyone's /users doc. Narrowed

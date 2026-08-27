@@ -15,7 +15,8 @@
 // See docs/BOTS.md for the contract the bot side codes against.
 
 import {
-  collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, writeBatch,
+  collection, deleteDoc, deleteField, doc, onSnapshot, orderBy, query, serverTimestamp,
+  setDoc, updateDoc, writeBatch,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { newId } from './storage'
@@ -152,6 +153,14 @@ export async function rotateBotKey(botUid) {
  */
 export async function setBotEnabled(botUid, enabled) {
   await updateDoc(botDoc(botUid), { enabled })
+  // Mirror it onto the /users doc as the same `deactivated` flag people carry,
+  // so one client-side filter hides both a removed person and a switched-off
+  // bot — which is what stops retired bots cluttering the DM list. Cosmetic
+  // for a bot, since the line above is what the rules actually read; a bot
+  // left enabled stays DM-able exactly as before.
+  await updateDoc(doc(db, 'users', botUid), enabled
+    ? { deactivated: deleteField() }
+    : { deactivated: true })
 }
 
 export async function setBotScopes(botUid, scopes) {

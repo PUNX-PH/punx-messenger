@@ -185,6 +185,65 @@ An admin can still list unfiltered, because `adminOverGroup()` is checked
 before `ch.private`. That ordering is deliberate: whoever can re-run the
 backfill can still see the channels it missed.
 
+## Removing someone
+
+Admin panel → the member's row → **Remove**. Developers and super admins only,
+and never a developer unless you are one — removing a developer would strip the
+group boundary exactly as demoting them would, so `developerRoleChangeAllowed()`
+covers both.
+
+It sets `deactivated: true` on `users/{uid}`, and `isHuman()` in the rules then
+refuses that account **everything**. Two things to understand about why it works
+that way:
+
+- **Deleting the document would not remove a staff member.** Admission is
+  "internal email OR has a users doc", and the create rule lets any `@punx.ai`
+  Google account recreate its own doc as `employee` on the next sign-in. They
+  would be back, in the DM list, the next time they signed in. (For a guest a
+  delete *would* stick — the document is their only admission — but one
+  mechanism beats two.)
+- **Their Google account still exists.** Deleting a Firebase Auth account needs
+  the Admin SDK, which this app has no access to. The workspace simply stops
+  answering to it. A removed account that signs in reads its own users doc —
+  specifically allowed, and the only thing it can do — and is told it was
+  removed rather than shown a rules error.
+
+What removal deliberately leaves alone: their messages, and their membership of
+groups and channels. History stays attributed, memberships are inert while the
+account is refused, and **Restore** gives back exactly what they had.
+
+The cost is one document read per human request: `iAmDeactivated()` reads the
+caller's own users doc, where the internal-email path used to need no read at
+all. There is nowhere cheaper to put it — a fired employee's token is
+indistinguishable from a current employee's. It is cached per request, so it is
+one read per request rather than one per rule that asks.
+
+Client-side, `useUsers()` hands back three shapes and picking the wrong one is a
+visible bug:
+
+| | Contains | Use it for |
+|---|---|---|
+| `byId` | everyone, removed included | resolving identities — message authors, voice tiles, group owners |
+| `activeUsers` | everyone still here | anywhere a person is *picked*: DM list, mention picker, member panels, add-members |
+| `users` | the raw list | the admin panel, the one screen that must show removed accounts to restore them |
+
+### Retired bots
+
+A bot switched off under **Bots** disappears from the DM list too: `setBotEnabled`
+mirrors the registry's `enabled` flag onto the bot's users doc as the same
+`deactivated` field, so one filter hides both a removed person and a retired
+bot. The mirror is cosmetic for a bot — `enabled` on the registry doc is what
+the rules actually read — and a bot left enabled stays DM-able as before.
+
+Two consequences worth knowing:
+
+- **Bots disabled before this existed have no mirrored flag**, so they keep
+  showing in DMs until you either toggle them under Bots or hit **Remove** on
+  their row in the members table.
+- **Remove** works on a bot's row directly, and only hides it: the registry
+  stays enabled, so the bot keeps working in channels. That is a legitimate
+  state — useful, not DM-able — just not the same thing as switching it off.
+
 ## Who can sign in
 
 There are two Google providers and the difference between them is purely
@@ -258,7 +317,7 @@ cover exactly that.
 
 ## Testing
 
-The rules have an emulator test suite at `tests/rules.test.mjs` — 122 cases
+The rules have an emulator test suite at `tests/rules.test.mjs` — 143 cases
 covering the hierarchy, the developer boundary, guests, private channels, invite
 links, the auth gate, bots, and regressions for behaviour that had to stay
 unchanged. It needs Java on `PATH` and `@firebase/rules-unit-testing`, which is

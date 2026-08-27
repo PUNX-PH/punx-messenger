@@ -11,7 +11,8 @@ import Avatar from './Avatar'
 
 export default function GroupSettingsModal({ open, onClose, group, initialTab = 'overview' }) {
   const { profile } = useAuth()
-  const { users } = useUsers()
+  // Removed accounts aren't offerable as new members.
+  const { activeUsers: users } = useUsers()
   const [tab, setTab] = useState(initialTab)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)

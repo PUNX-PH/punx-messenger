@@ -64,6 +64,7 @@ Two independent things decide what a bot can do:
 | | |
 |---|---|
 | **Which channels it can see** | Whichever groups an admin has added it to, exactly like a person. Not a scope. |
+| **Whether it shows in DM lists** | Only while `enabled`. Switching a bot off hides it from the DM sidebar as well as cutting off its access — see [ROLES.md](./ROLES.md#retired-bots). |
 | **What it can do there** | Its scopes. Only ever grant writes. |
 
 Since a bot's mirror `users/{uid}` doc carries `role: 'employee'`, a bot sees

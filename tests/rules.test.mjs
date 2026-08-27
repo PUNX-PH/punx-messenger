@@ -18,7 +18,7 @@
 import { readFileSync } from 'node:fs'
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing'
 import {
-  doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where,
+  doc, getDoc, setDoc, updateDoc, deleteDoc, deleteField, collection, getDocs, query, where,
 } from 'firebase/firestore'
 
 const PROJECT = 'punx-rules-test'
@@ -56,6 +56,9 @@ const OUT1 = 'outsider1', OUT2 = 'outsider2', OUT3 = 'outsider3', OUT4 = 'outsid
 const TOK_LIVE = 'tok-live', TOK_EXPIRED = 'tok-expired', TOK_REVOKED = 'tok-revoked'
 const T1 = 't1', T2 = 't2', T3 = 't3'    // fresh promotion targets, one per test
 const PLAIN = 'plainemp'                 // stays an employee for the whole suite
+const GONE = 'goneemp'                   // deactivated staff, internal address
+const GONEG = 'goneguest'                // deactivated guest
+const GONEDEV = 'gonedev'                // deactivated developer
 const GM = 'g-mine', GD = 'g-dev', GD2 = 'g-dev2'
 const B1 = 'b1'
 
@@ -70,9 +73,22 @@ await testEnv.withSecurityRulesDisabled(async (ctx) => {
   await u(GUEST, 'guest'); await u(GUEST2, 'guest')
   await u(PLAIN, 'employee')
 
+  // Removed accounts. The internal one is the case that matters most: they
+  // still hold a working @punx.ai Google account, so nothing on the token
+  // says they have left.
+  await setDoc(doc(db, 'users', GONE), {
+    uid: GONE, role: 'employee', email: `${GONE}@punx.ai`, name: GONE, deactivated: true,
+  })
+  await setDoc(doc(db, 'users', GONEG), {
+    uid: GONEG, role: 'guest', email: `${GONEG}@gmail.com`, name: GONEG, deactivated: true,
+  })
+  await setDoc(doc(db, 'users', GONEDEV), {
+    uid: GONEDEV, role: 'developer', email: `${GONEDEV}@punx.ai`, name: GONEDEV,
+  })
+
   // Normal group: no developer involved. Both guests are members of it.
   await setDoc(doc(db, 'groups', GM), {
-    name: 'Mine', ownerUid: ADMIN, memberUids: [EMP, ADMIN, GUEST, GUEST2, T1], adminUids: [ADMIN],
+    name: 'Mine', ownerUid: ADMIN, memberUids: [EMP, ADMIN, GUEST, GUEST2, T1, GONE], adminUids: [ADMIN],
   })
   // An ordinary public channel, carrying the two fields the backfill stamps.
   await setDoc(doc(db, 'groups', GM, 'channels', 'c1'), {
@@ -346,6 +362,59 @@ await t('the public leg excludes private and un-backfilled channels', async () =
   if (!got.includes('c1')) throw new Error('public channel missing from its own leg')
 })
 
+console.log('\n-- REMOVED accounts (deactivated) get nothing --')
+// The point of the whole mechanism: an internal address is admitted on the
+// strength of the address alone, so only a stored flag can say "not any more".
+await t('removed staff CANNOT read the directory', () => assertFails(
+  getDocs(collection(as(GONE), 'users'))))
+await t('removed staff CANNOT read a group they are still a member of', () => assertFails(
+  getDoc(doc(as(GONE), 'groups', GM))))
+await t('removed staff CANNOT list channels', () => assertFails(chansPublic(as(GONE), GM)))
+await t('removed staff CANNOT read messages', () => assertFails(
+  getDoc(doc(as(GONE), 'groups', GM, 'channels', 'c1', 'messages', 'm1'))))
+await t('removed staff CANNOT post', () => assertFails(
+  setDoc(doc(as(GONE), 'groups', GM, 'channels', 'c1', 'messages', 'gone1'),
+    { text: 'still here', author: { uid: GONE } })))
+await t('removed staff CANNOT write their own doc', () => assertFails(
+  updateDoc(doc(as(GONE), 'users', GONE), { name: 'renamed' })))
+await t('removed staff CANNOT clear their own deactivation', () => assertFails(
+  updateDoc(doc(as(GONE), 'users', GONE), { deactivated: false })))
+await t('removed staff CANNOT re-create their doc over the top', () => assertFails(
+  setDoc(doc(as(GONE), 'users', GONE), {
+    uid: GONE, email: `${GONE}@punx.ai`, name: GONE, role: 'employee' })))
+// Reachable on purpose, and the only thing they can do: it is what lets the
+// app tell them they were removed instead of showing a rules error.
+await t('removed staff CAN still read their OWN doc, to be told why', () => assertSucceeds(
+  getDoc(doc(as(GONE), 'users', GONE))))
+await t('...but not somebody else\'s', () => assertFails(
+  getDoc(doc(as(GONE), 'users', EMP))))
+await t('removed guest gets nothing either', () => assertFails(
+  getDoc(doc(as(GONEG, `${GONEG}@gmail.com`), 'groups', GM))))
+await t('removed guest CANNOT redeem an invite to get back in', () => assertFails(
+  updateDoc(doc(as(GONEG, `${GONEG}@gmail.com`), 'users', GONEG), { invitedVia: TOK_LIVE })))
+
+console.log('\n-- who may remove whom --')
+await t('super admin removes an employee', () => assertSucceeds(
+  updateDoc(doc(as(SUPER), 'users', PLAIN), { deactivated: true })))
+await t('super admin restores them', () => assertSucceeds(
+  updateDoc(doc(as(SUPER), 'users', PLAIN), { deactivated: false })))
+await t('developer removes an employee', () => assertSucceeds(
+  updateDoc(doc(as(DEV), 'users', PLAIN), { deactivated: true })))
+await t('...and restoring works from a cleared field too', () => assertSucceeds(
+  updateDoc(doc(as(DEV), 'users', PLAIN), { deactivated: deleteField() })))
+await t('plain admin CANNOT remove anyone', () => assertFails(
+  updateDoc(doc(as(ADMIN), 'users', T1), { deactivated: true })))
+await t('employee CANNOT remove anyone', () => assertFails(
+  updateDoc(doc(as(EMP), 'users', T1), { deactivated: true })))
+// Same escape as demoting them: removing a developer would strip the group
+// boundary just as effectively, so it takes a developer.
+await t('super admin CANNOT remove a developer', () => assertFails(
+  updateDoc(doc(as(SUPER), 'users', GONEDEV), { deactivated: true })))
+await t('developer CAN remove another developer', () => assertSucceeds(
+  updateDoc(doc(as(DEV), 'users', GONEDEV), { deactivated: true })))
+await t('a live account is unaffected by all of this', () => assertSucceeds(
+  getDocs(collection(as(EMP), 'users'))))
+
 console.log('\n-- the auth gate: forged identities get nothing --')
 await t('password-provider account claiming @punx.ai CANNOT read the directory', () => assertFails(
   getDoc(doc(forged('forger1'), 'users', EMP))))
@@ -407,10 +476,10 @@ await t('invitee CANNOT read a channel doc before joining', () => assertFails(
   getDoc(doc(outsider(OUT1), 'groups', GM, 'channels', 'cg'))))
 await t('invitee adds ONLY itself to the group', () => assertSucceeds(
   updateDoc(doc(outsider(OUT1), 'groups', GM), {
-    memberUids: [EMP, ADMIN, GUEST, GUEST2, T1, OUT1] })))
+    memberUids: [EMP, ADMIN, GUEST, GUEST2, T1, GONE, OUT1] })))
 await t('invitee CANNOT add anyone else alongside itself', () => assertFails(
   updateDoc(doc(outsider(OUT1), 'groups', GM), {
-    memberUids: [EMP, ADMIN, GUEST, GUEST2, T1, OUT1, OUT3] })))
+    memberUids: [EMP, ADMIN, GUEST, GUEST2, T1, GONE, OUT1, OUT3] })))
 await t('invitee CANNOT remove existing members while joining', () => assertFails(
   updateDoc(doc(outsider(OUT1), 'groups', GM), { memberUids: [OUT1] })))
 await t('invitee CANNOT make itself a group admin', () => assertFails(
@@ -439,7 +508,7 @@ console.log('\n-- redeeming twice is a no-op, not a failure --')
 // re-opening a link must not hard-fail. OUT1 is already in both lists here.
 await t('re-joining the group with an unchanged member list succeeds', () => assertSucceeds(
   updateDoc(doc(outsider(OUT1), 'groups', GM), {
-    memberUids: [EMP, ADMIN, GUEST, GUEST2, T1, OUT1] })))
+    memberUids: [EMP, ADMIN, GUEST, GUEST2, T1, GONE, OUT1] })))
 await t('re-granting an already-granted channel succeeds', () => assertSucceeds(
   updateDoc(doc(outsider(OUT1), 'groups', GM, 'channels', 'cg'), { allowUids: [GUEST, OUT1] })))
 await t('a no-op write still cannot smuggle someone else in', () => assertFails(
