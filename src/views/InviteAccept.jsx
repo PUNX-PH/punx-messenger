@@ -21,6 +21,10 @@ import {
 export default function InviteAccept() {
   const { token } = useParams()
   const { user, profile, signIn, authError } = useAuth()
+  // Any Google account can redeem a link, so never show Google's @punx.ai
+  // suffix here — it reads as a restriction that doesn't exist. Doubles as
+  // "switch account": signing in again over a live session replaces it.
+  const signInAsAnyone = () => signIn({ anyDomain: true })
   const [invite, setInvite] = useState(undefined) // undefined = loading
   const [error, setError] = useState(null)
   const [joining, setJoining] = useState(false)
@@ -75,7 +79,7 @@ export default function InviteAccept() {
         </p>
         {authError && <Err>{authError}</Err>}
         <button
-          onClick={signIn}
+          onClick={signInAsAnyone}
           className="mt-5 w-full px-4 py-2.5 rounded-md bg-brand text-white font-medium hover:opacity-90 transition-opacity"
         >
           Continue with Google
@@ -142,7 +146,14 @@ export default function InviteAccept() {
         {joining ? 'Joining…' : 'Accept invitation'}
       </button>
       <p className="mt-3 text-xs text-ink-dim text-center">
-        Signed in as {user.email}
+        Signed in as {user.email} &middot;{' '}
+        <button
+          onClick={signInAsAnyone}
+          disabled={joining}
+          className="underline hover:text-ink disabled:opacity-50"
+        >
+          use a different account
+        </button>
       </p>
     </Frame>
   )

@@ -187,6 +187,18 @@ backfill can still see the channels it missed.
 
 ## Who can sign in
 
+There are two Google providers and the difference between them is purely
+cosmetic — both end up at the same `google.com` token. `googleProvider` carries
+Google's `hd` hint so staff get `@punx.ai` prefilled; `anyDomainGoogleProvider`
+drops it, because `hd` renders the domain as a fixed **suffix** on the email
+field, and an invite screen showing that reads as "only @punx.ai works here" —
+the opposite of the truth. Use the any-domain one anywhere an outsider might
+sign in: `signIn({ anyDomain: true })`.
+
+Both set `prompt: 'select_account'`, which is what makes the invite screen's
+**use a different account** link work: signing in again over a live session
+replaces it, with no signed-out state in between.
+
 Google is the **only** human sign-in path, and that is load-bearing rather than
 incidental: it means the address on the token was verified by Google. Never
 widen it to a provider where an account picks its own unverified address —

@@ -47,13 +47,35 @@ if (useEmulators && app) {
   }
 }
 
-export const googleProvider = new GoogleAuthProvider()
-googleProvider.setCustomParameters({
+// `prompt: 'select_account'` on both, so somebody already signed into Google
+// with the wrong account always gets the chooser rather than being silently
+// reused. It's what makes "use a different account" work.
+const makeGoogleProvider = (params) => {
+  const p = new GoogleAuthProvider()
+  p.setCustomParameters({ prompt: 'select_account', ...params })
+  p.addScope('email')
+  p.addScope('profile')
+  return p
+}
+
+/**
+ * Staff sign-in. `hd` prefills the company domain, which is a small kindness
+ * for the accounts that make up nearly every sign-in.
+ */
+export const googleProvider = makeGoogleProvider({
   hd: import.meta.env.VITE_ALLOWED_EMAIL_DOMAIN || 'punx.ai',
-  prompt: 'select_account',
 })
-googleProvider.addScope('email')
-googleProvider.addScope('profile')
+
+/**
+ * Invited outsiders — the same provider without `hd`.
+ *
+ * That parameter is not just a hint in the UI: Google renders the domain as a
+ * fixed suffix on the email field, so the form reads as "only @punx.ai
+ * addresses work here". On an invite screen that is the exact opposite of the
+ * truth — any Google account can redeem a link — and guests were bouncing off
+ * it. See InviteAccept.
+ */
+export const anyDomainGoogleProvider = makeGoogleProvider({})
 
 export const ALLOWED_DOMAIN = import.meta.env.VITE_ALLOWED_EMAIL_DOMAIN || 'punx.ai'
 export const ALLOWED_EXTRA_EMAILS = (import.meta.env.VITE_ALLOWED_EXTRA_EMAILS || '')

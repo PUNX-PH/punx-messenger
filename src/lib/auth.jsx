@@ -6,7 +6,7 @@ import {
 } from 'firebase/auth'
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
 import {
-  auth, db, googleProvider, firebaseConfigured,
+  anyDomainGoogleProvider, auth, db, googleProvider, firebaseConfigured,
   ALLOWED_DOMAIN, ALLOWED_EXTRA_EMAILS, SUPER_ADMINS, isEmailAllowed,
 } from './firebase'
 import { getPendingInvite } from './invites'
@@ -95,10 +95,21 @@ export function AuthProvider({ children }) {
     })
   }, [])
 
-  const signIn = async () => {
+  /**
+   * `anyDomain` drops the @punx.ai hint from Google's form — pass it anywhere
+   * an outsider might be signing in, which today means the invite screen. It
+   * also re-signs-in over an existing session, which is how "use a different
+   * account" is implemented: prompt: 'select_account' forces the chooser and
+   * the result replaces the current user, with no signed-out flicker between.
+   *
+   * Note the argument is read by name, so an onClick handler passing a React
+   * event through gets the staff provider rather than a surprise.
+   */
+  const signIn = async ({ anyDomain = false } = {}) => {
     if (!firebaseConfigured) { setAuthError('Firebase is not configured. Add your credentials to .env.local.'); return }
     setAuthError(null)
-    try { await signInWithPopup(auth, googleProvider) }
+    const provider = anyDomain ? anyDomainGoogleProvider : googleProvider
+    try { await signInWithPopup(auth, provider) }
     catch (e) { setAuthError(e.message) }
   }
   const signOut = () => firebaseConfigured && fbSignOut(auth)

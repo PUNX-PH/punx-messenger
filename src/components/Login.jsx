@@ -20,7 +20,7 @@ export default function Login() {
         </p>
 
         <button
-          onClick={signIn}
+          onClick={() => signIn()}
           className="w-full inline-flex items-center justify-center gap-3 bg-white hover:bg-gray-100 text-gray-900 font-medium py-2.5 rounded-md transition-colors duration-150"
         >
           <GoogleIcon />
