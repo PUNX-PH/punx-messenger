@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../models/group.dart';
+import '../../providers/auth_providers.dart';
 import '../../providers/groups_providers.dart';
 import '../../router/route_paths.dart';
 import '../../services/image_service.dart';
@@ -20,6 +21,11 @@ class GroupsListScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final groups = ref.watch(myGroupsProvider).valueOrNull ?? const [];
+    // A guest cannot create a group — firestore.rules refuses it outright — so
+    // don't offer it. Until `guest` was added to Role it parsed as `employee`,
+    // which is why this was never noticed. Mirrors ServerRail.jsx.
+    final isGuest =
+        ref.watch(profileProvider).valueOrNull?.role.isGuest ?? false;
 
     return Scaffold(
       backgroundColor: Palette.bgDark,
@@ -27,7 +33,9 @@ class GroupsListScreen extends ConsumerWidget {
       body: groups.isEmpty
           ? Center(
               child: Text(
-                'No groups yet. Tap + to create one.',
+                isGuest
+                    ? "You'll see the channels you were invited to here."
+                    : 'No groups yet. Tap + to create one.',
                 textAlign: TextAlign.center,
                 style: AppTextStyles.sm(color: Palette.inkMuted),
               ),
@@ -36,13 +44,15 @@ class GroupsListScreen extends ConsumerWidget {
               itemCount: groups.length,
               itemBuilder: (context, index) => _GroupTile(group: groups[index]),
             ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: Palette.ok,
-        onPressed: () => Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const CreateGroupScreen())),
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
+      floatingActionButton: isGuest
+          ? null
+          : FloatingActionButton(
+              backgroundColor: Palette.ok,
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const CreateGroupScreen()),
+              ),
+              child: const Icon(Icons.add, color: Colors.white),
+            ),
     );
   }
 }

@@ -15,6 +15,12 @@ class UserProfile {
   final Map<String, Timestamp> lastRead; // pathKey -> last-read timestamp
   final List<String> mutedGroups;
 
+  /// Removed from the workspace. isHuman() in firestore.rules refuses a
+  /// deactivated account everything, so this is not a display preference — it
+  /// is whether the app answers to them at all. Absent reads as active, the
+  /// same convention the rules use.
+  final bool deactivated;
+
   const UserProfile({
     required this.id,
     required this.email,
@@ -26,6 +32,7 @@ class UserProfile {
     this.presence = 'online',
     this.lastRead = const {},
     this.mutedGroups = const [],
+    this.deactivated = false,
   });
 
   factory UserProfile.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -46,6 +53,7 @@ class UserProfile {
       presence: (data['presence'] as String?) ?? 'online',
       lastRead: rawLastRead.map((k, v) => MapEntry(k, v as Timestamp)),
       mutedGroups: List<String>.from(data['mutedGroups'] as List? ?? const []),
+      deactivated: data['deactivated'] == true,
     );
   }
 }

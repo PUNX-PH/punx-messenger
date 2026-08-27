@@ -83,10 +83,22 @@ class ChannelListScreen extends ConsumerWidget {
                             )],
                           );
                       return ListTile(
-                        leading: Text(
-                          '#',
-                          style: AppTextStyles.base(color: Palette.inkDim),
-                        ),
+                        // A private channel only reaches this list if the
+                        // viewer is allowed it — GroupsRepository
+                        // .listenChannels queries for exactly what the rules
+                        // will serve — so the lock is a label, not a gate.
+                        leading: c.private
+                            ? const Icon(
+                                Icons.lock_outline,
+                                size: 16,
+                                color: Palette.inkDim,
+                              )
+                            : Text(
+                                '#',
+                                style: AppTextStyles.base(
+                                  color: Palette.inkDim,
+                                ),
+                              ),
                         title: Text(
                           c.name,
                           style: AppTextStyles.sm(

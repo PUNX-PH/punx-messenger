@@ -38,7 +38,10 @@ class _DmsListScreenState extends ConsumerState<DmsListScreen> {
   @override
   Widget build(BuildContext context) {
     final profile = ref.watch(profileProvider).valueOrNull;
-    final allUsers = ref.watch(usersStreamProvider).valueOrNull ?? const [];
+    // Active only: a removed teammate and a switched-off bot both drop out of
+    // this list. An existing conversation with one stays openable by route,
+    // and their messages keep their author.
+    final allUsers = ref.watch(activeUsersProvider);
     final convosByOther = ref.watch(myDmConvosProvider).valueOrNull ?? const {};
 
     final teammates = allUsers.where((u) => u.id != profile?.id).toList()

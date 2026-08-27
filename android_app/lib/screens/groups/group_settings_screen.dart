@@ -218,7 +218,8 @@ class _MembersSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final usersById = ref.watch(usersByIdProvider);
-    final allUsers = ref.watch(usersStreamProvider).valueOrNull ?? const [];
+    // Removed accounts aren't offerable as new members.
+    final allUsers = ref.watch(activeUsersProvider);
     final me = ref.watch(profileProvider).valueOrNull;
     final repo = ref.read(groupsRepositoryProvider);
 

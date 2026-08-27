@@ -58,21 +58,30 @@ class _AdminPanelScreenState extends ConsumerState<AdminPanelScreen> {
     final me = ref.watch(profileProvider).valueOrNull;
     final users = ref.watch(usersStreamProvider).valueOrNull ?? const [];
 
+    // Removed accounts don't inflate the tier they used to hold.
     final counts = {Role.superAdmin: 0, Role.admin: 0, Role.employee: 0};
     for (final u in users) {
+      if (u.deactivated) continue;
       counts[u.role] = (counts[u.role] ?? 0) + 1;
     }
 
     final f = _filter.trim().toLowerCase();
-    final visible = f.isEmpty
-        ? users
+    // This is the one screen that keeps listing removed accounts — hiding them
+    // here would make them invisible everywhere. They sink to the bottom
+    // instead. Restoring one is web-only for now, so this is a label, not a
+    // control.
+    final visible = (f.isEmpty
+        ? [...users]
         : users
               .where(
                 (u) =>
                     u.name.toLowerCase().contains(f) ||
                     u.email.toLowerCase().contains(f),
               )
-              .toList();
+              .toList())
+      ..sort(
+        (a, b) => (a.deactivated ? 1 : 0).compareTo(b.deactivated ? 1 : 0),
+      );
 
     return Scaffold(
       backgroundColor: Palette.bgMain,
@@ -162,12 +171,26 @@ class _AdminPanelScreenState extends ConsumerState<AdminPanelScreen> {
                               child: Text(
                                 u.name,
                                 overflow: TextOverflow.ellipsis,
+                                style: u.deactivated
+                                    ? const TextStyle(
+                                        decoration:
+                                            TextDecoration.lineThrough,
+                                        color: Palette.inkDim,
+                                      )
+                                    : null,
                               ),
                             ),
                             if (u.id == me?.id) ...[
                               const SizedBox(width: 6),
                               Text(
                                 '(you)',
+                                style: AppTextStyles.xs(color: Palette.inkDim),
+                              ),
+                            ],
+                            if (u.deactivated) ...[
+                              const SizedBox(width: 6),
+                              Text(
+                                'REMOVED',
                                 style: AppTextStyles.xs(color: Palette.inkDim),
                               ),
                             ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/app_config.dart';
+import '../config/emulators.dart';
 import '../providers/auth_providers.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
@@ -19,12 +20,43 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _busy = false;
   String? _error;
+  final _emulatorEmail = TextEditingController();
+
+  @override
+  void dispose() {
+    _emulatorEmail.dispose();
+    super.dispose();
+  }
+
+  /// Emulator-only. See AuthService.signInAsEmulatorUser — the Google popup
+  /// can't complete against the auth emulator in an automated browser.
+  Future<void> _onEmulatorSignIn() async {
+    final email = _emulatorEmail.text.trim();
+    if (email.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    ref.read(sessionEndedReasonProvider.notifier).state = null;
+    try {
+      await ref.read(authServiceProvider).signInAsEmulatorUser(email);
+    } on AuthException catch (e) {
+      setState(() => _error = e.message);
+    } catch (e) {
+      setState(() => _error = 'Sign-in failed: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   Future<void> _onSignIn() async {
     setState(() {
       _busy = true;
       _error = null;
     });
+    // Trying again clears whatever ended the last session, so the banner
+    // doesn't outlive the attempt it described.
+    ref.read(sessionEndedReasonProvider.notifier).state = null;
     try {
       await ref.read(authServiceProvider).signIn();
     } on AuthException catch (e) {
@@ -38,6 +70,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // A removal signs the user out from under them, so the explanation has to
+    // arrive here rather than as a return value from _onSignIn.
+    final message = _error ?? ref.watch(sessionEndedReasonProvider);
     return Scaffold(
       backgroundColor: Palette.bgDeepest,
       body: Center(
@@ -122,7 +157,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ],
                         ),
                 ),
-                if (_error != null) ...[
+                if (message != null) ...[
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -134,9 +169,35 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       borderRadius: BorderRadius.circular(AppRadii.md),
                     ),
                     child: Text(
-                      _error!,
+                      message,
                       style: AppTextStyles.sm(color: Palette.bad),
                     ),
+                  ),
+                ],
+                // Emulator runs only — compiled out of a normal build,
+                // because Emulators.enabled is a --dart-define.
+                if (Emulators.enabled) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    'Emulator sign-in',
+                    style: AppTextStyles.xs(color: Palette.inkDim),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _emulatorEmail,
+                    enabled: !_busy,
+                    autocorrect: false,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      hintText: 'someone@punx.ai',
+                      isDense: true,
+                    ),
+                    onSubmitted: (_) => _onEmulatorSignIn(),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton(
+                    onPressed: _busy ? null : _onEmulatorSignIn,
+                    child: const Text('Sign in without Google'),
                   ),
                 ],
                 const SizedBox(height: 24),

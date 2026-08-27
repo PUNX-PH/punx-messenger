@@ -26,6 +26,35 @@ final profileProvider = StreamProvider<UserProfile?>((ref) {
       .map((snap) => snap.exists ? UserProfile.fromDoc(snap) : null);
 });
 
+/// Why the last session ended, when it wasn't the user's own doing. Set by
+/// [removalWatcherProvider] and by AuthService when it turns a sign-in away,
+/// and rendered by LoginScreen — without it a removed account is dumped back
+/// on the sign-in button with no explanation.
+final sessionEndedReasonProvider = StateProvider<String?>((ref) => null);
+
+/// Signs the user out the moment they are removed from the workspace.
+///
+/// profileProvider is a live snapshot on their own document, which is a real
+/// advantage over the web (src/lib/auth.jsx reads it once at sign-in), so a
+/// removal takes effect immediately rather than at next launch. The document
+/// stays readable to its owner while deactivated — firestore.rules allows
+/// exactly that — so this listener keeps working after every other read has
+/// started being refused.
+///
+/// Kept alive by PunxApp; it does nothing until the flag actually flips.
+final removalWatcherProvider = Provider<void>((ref) {
+  ref.listen<bool>(
+    profileProvider.select((p) => p.valueOrNull?.deactivated ?? false),
+    (was, isRemoved) async {
+      if (!isRemoved) return;
+      ref.read(sessionEndedReasonProvider.notifier).state =
+          'Your access to this workspace has been removed. Speak to an admin if'
+    ' you think that is a mistake.';
+      await ref.read(authServiceProvider).signOut();
+    },
+  );
+});
+
 enum AuthStatus { loading, signedOut, ready }
 
 /// Coarse-grained session status for router redirects. Deliberately collapses

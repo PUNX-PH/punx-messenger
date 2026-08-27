@@ -78,7 +78,9 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
     final messages = messagesAsync.valueOrNull ?? const <ChatMessage>[];
     final usersById = ref.watch(usersByIdProvider);
     final emojiByName = ref.watch(emojiByNameProvider);
-    final users = ref.watch(usersStreamProvider).valueOrNull ?? const [];
+    // Active only, for the @-picker and for resolving a typed mention — a
+    // removed teammate can't be pinged by name.
+    final users = ref.watch(activeUsersProvider);
     final meUid = ref.watch(authStateProvider).valueOrNull?.uid;
 
     final containerPath = widget.path.startsWith('users/')
