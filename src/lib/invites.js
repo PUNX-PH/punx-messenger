@@ -32,6 +32,13 @@ const newToken = () => `${newId()}${newId()}`
 
 export const inviteUrl = (token) => `${window.location.origin}/invite/${token}`
 
+/** How long a new link lasts. Shared by both places that create one. */
+export const DAY_OPTIONS = [
+  { days: 1, label: '1 day' },
+  { days: 7, label: '7 days' },
+  { days: 30, label: '30 days' },
+]
+
 // ── Pending-invite handoff ──
 //
 // Sign-in bounces through Google and back, and an outsider has no readable

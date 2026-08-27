@@ -2,14 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth, channelViewer } from '../lib/auth'
 import { listenChannels } from '../lib/groups'
 import {
-  createInvite, inviteIsLive, inviteUrl, listenGroupInvites, revokeInvite,
+  createInvite, DAY_OPTIONS, inviteIsLive, inviteUrl, listenGroupInvites,
+  revokeInvite,
 } from '../lib/invites'
-
-const DAY_OPTIONS = [
-  { days: 1, label: '1 day' },
-  { days: 7, label: '7 days' },
-  { days: 30, label: '30 days' },
-]
 
 /**
  * Create and revoke channel invite links for one group.

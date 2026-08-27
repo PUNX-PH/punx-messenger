@@ -114,10 +114,19 @@ messages, its voice roster and every write are gated together. Reads and
 
 Two routes. Prefer the link.
 
-**By invite link** — works for people with no account at all. Group settings
-→ **Invites** → tick the channels → **Create & copy link**, and send it. They
-open it, sign in with any Google account, and land in those channels as a guest.
-See *Invite links* below.
+**By invite link** — works for people with no account at all. Two entry
+points, same link:
+
+- Group settings → **Invites** → tick the channels → **Create & copy link**,
+  for a link granting several channels at once.
+- Right-click the channel → **Manage access** → **Create & copy link**, for one
+  scoped to just that channel. Handy because the list in that modal only
+  reaches people who are already group members, and an outsider isn't one yet.
+  The link is written immediately, independently of **Save access**.
+
+They open it, sign in with any Google account, and land in those channels as a
+guest. Either route can grant a **private** channel; redemption adds them to
+its `allowUids`. See *Invite links* below.
 
 **By hand** — for someone who already has an account:
 
