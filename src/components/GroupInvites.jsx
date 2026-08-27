@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useAuth, channelViewer } from '../lib/auth'
 import { listenChannels } from '../lib/groups'
 import {
   createInvite, inviteIsLive, inviteUrl, listenGroupInvites, revokeInvite,
@@ -19,6 +20,7 @@ const DAY_OPTIONS = [
  * account keeps whatever role they had. See src/lib/invites.js.
  */
 export default function GroupInvites({ group, canEdit, meUid }) {
+  const { profile } = useAuth()
   const [channels, setChannels] = useState([])
   const [invites, setInvites] = useState([])
   const [picked, setPicked] = useState(() => new Set())
@@ -27,10 +29,16 @@ export default function GroupInvites({ group, canEdit, meUid }) {
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(null)
 
+  // An invite can only ever grant channels the admin creating it can see,
+  // which is what the viewer decides — without one this lists public channels
+  // only, and a private channel could never be shared with a guest.
+  const viewer = channelViewer(profile, group)
+
   useEffect(() => {
     if (!group?.id) return
-    return listenChannels(group.id, setChannels)
-  }, [group?.id])
+    return listenChannels(group.id, setChannels, undefined, viewer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group?.id, viewer.uid, viewer.guest, viewer.seesPrivate])
 
   useEffect(() => {
     if (!group?.id || !canEdit) return

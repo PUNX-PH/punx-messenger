@@ -171,16 +171,49 @@ export const isOversightExempt = (group, usersById) =>
  *   anyone else→ every channel except private ones they aren't listed in;
  *                group and workspace admins see private ones too.
  *
- * A channel with no `private` field is public — channels created before this
- * feature have no such field and must keep working.
+ * A channel with no `private` field is NOT public: the rules read that field
+ * without an existence guard, so a document missing it is denied to everyone
+ * below admin. The order of the clauses below is the same as the rules' for
+ * that reason — admin standing is checked before the field is looked at, so
+ * whoever can fix a channel the backfill missed can still see it.
  */
 export const canSeeChannel = (profile, channel, group) => {
   if (!channel) return false
   const uid = uidOf(profile)
   const listed = (channel.allowUids || []).includes(uid)
   if (isGuest(profile)) return listed
-  if (!channel.private) return true
-  return listed || isAdmin(profile) || !!group?.adminUids?.includes(uid)
+  return listed
+    || isAdmin(profile)
+    || !!group?.adminUids?.includes(uid)
+    || channel.private === false
+}
+
+/**
+ * The query plan listenChannels() needs for this viewer — see the leg list
+ * there. Both fields are the client's own reading of the rules, and only one
+ * of them has to be exact:
+ *
+ *   guest       is exact. A guest's narrow query is the only one Firestore
+ *               will serve them, so getting this wrong shows them nothing.
+ *   seesPrivate is optimistic — it only asks whether the private-channel leg
+ *               is worth attempting, and that leg is dropped if denied. So the
+ *               case the client cannot reproduce (a plain workspace admin
+ *               inside a developer-owned group, where the rules give them no
+ *               admin power at all) costs nothing but the channels they were
+ *               never allowed to see.
+ *
+ * `group` may be null for callers that run before the group document loads;
+ * that only withholds the private leg from a group admin until it arrives.
+ */
+export const channelViewer = (profile, group) => {
+  const uid = uidOf(profile)
+  const guest = isGuest(profile)
+  return {
+    uid,
+    guest,
+    seesPrivate: !!uid && !guest
+      && (isAdmin(profile) || !!group?.adminUids?.includes(uid)),
+  }
 }
 
 /**

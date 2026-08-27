@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../models/channel.dart';
+import '../models/channel_viewer.dart';
 import '../models/group.dart';
 import '../models/user_profile.dart';
 import '../utils/firestore_paths.dart';
@@ -33,14 +35,97 @@ class GroupsRepository {
         });
   }
 
-  Stream<List<Channel>> listenChannels(String groupId) {
-    return _db
-        .collection('groups')
-        .doc(groupId)
-        .collection('channels')
-        .orderBy('createdAt')
-        .snapshots()
-        .map((snap) => snap.docs.map(Channel.fromDoc).toList());
+  /// The channel queries `viewer` is allowed to run, merged into one stream.
+  ///
+  /// This collection is never queried unfiltered any more. firestore.rules
+  /// reads `private` off the channel without an existence guard, and an
+  /// unfiltered query leaves that field unknown — which errors, and an error
+  /// denies. Only a query that pins `private`, or pins `allowUids` to the
+  /// caller, can be proven safe. So:
+  ///
+  ///   guest            allowUids contains me   (and nothing else)
+  ///   member           private == false, and allowUids contains me
+  ///   admin/oversight  the above, plus private == true
+  ///
+  /// The last leg is a guess at admin rights and is marked optional: if the
+  /// rules disagree it is dropped and the rest of the list still arrives.
+  /// Mirrors listenChannels in src/lib/groups.js — keep the two in step.
+  Stream<List<Channel>> listenChannels(
+    String groupId, {
+    ChannelViewer viewer = ChannelViewer.anonymous,
+  }) {
+    final col = _db.collection('groups').doc(groupId).collection('channels');
+    final uid = viewer.uid;
+
+    final legs = <(Query<Map<String, dynamic>>, bool)>[];
+    if (viewer.guest) {
+      legs.add((col.where('allowUids', arrayContains: uid), false));
+    } else {
+      legs.add((col.where('private', isEqualTo: false), false));
+      if (uid != null) {
+        legs.add((col.where('allowUids', arrayContains: uid), false));
+      }
+      if (viewer.seesPrivate) {
+        legs.add((col.where('private', isEqualTo: true), true));
+      }
+    }
+
+    // One page per leg, null until that leg has reported. Nothing is emitted
+    // until every leg has: a partial first list would show a channel list
+    // missing half its rows and then jump.
+    final pages = List<List<Channel>?>.filled(legs.length, null);
+    final subs = <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+    late final StreamController<List<Channel>> controller;
+
+    void emit() {
+      if (pages.any((page) => page == null)) return;
+      final byId = <String, Channel>{};
+      for (final page in pages) {
+        for (final channel in page!) {
+          byId[channel.id] = channel;
+        }
+      }
+      final list = byId.values.toList()
+        ..sort((a, b) {
+          final ta = a.createdAt?.millisecondsSinceEpoch ?? 0;
+          final tb = b.createdAt?.millisecondsSinceEpoch ?? 0;
+          return ta.compareTo(tb);
+        });
+      controller.add(list);
+    }
+
+    controller = StreamController<List<Channel>>(
+      onListen: () {
+        for (var i = 0; i < legs.length; i++) {
+          final (q, optional) = legs[i];
+          final index = i;
+          subs.add(
+            q.snapshots().listen(
+              (snap) {
+                pages[index] = snap.docs.map(Channel.fromDoc).toList();
+                emit();
+              },
+              onError: (Object e, StackTrace st) {
+                // Expected whenever the admin guess was wrong; the viewer
+                // simply doesn't get the private channels.
+                if (optional) {
+                  pages[index] = const [];
+                  emit();
+                  return;
+                }
+                controller.addError(e, st);
+              },
+            ),
+          );
+        }
+      },
+      onCancel: () async {
+        for (final sub in subs) {
+          await sub.cancel();
+        }
+      },
+    );
+    return controller.stream;
   }
 
   Stream<Group?> listenGroup(String groupId) {
@@ -87,6 +172,11 @@ class GroupsRepository {
     batch.set(generalRef, {
       'name': 'general',
       'type': 'text',
+      // Written even though #general is as public as a channel gets: the
+      // rules read `private` unguarded, so a channel without the key is
+      // denied outright rather than treated as public. See listenChannels.
+      'private': false,
+      'allowUids': [owner.id],
       'createdAt': FieldValue.serverTimestamp(),
       'createdBy': owner.id,
     });
@@ -107,6 +197,9 @@ class GroupsRepository {
         .add({
           'name': name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '-'),
           'type': 'text',
+          // Both fields are mandatory now — see createGroup above.
+          'private': false,
+          'allowUids': [createdBy],
           'createdAt': FieldValue.serverTimestamp(),
           'createdBy': createdBy,
         });
@@ -134,16 +227,20 @@ class GroupsRepository {
     }, SetOptions(merge: true));
   }
 
-  /// Marks every channel in the group as read for the current user.
-  Future<void> markGroupAsRead(String uid, String groupId) async {
-    final channelsSnap = await _db
-        .collection('groups')
-        .doc(groupId)
-        .collection('channels')
-        .get();
-    if (channelsSnap.docs.isEmpty) return;
+  /// Marks every channel the user can SEE as read.
+  ///
+  /// Same constraint as listenChannels: the unfiltered fetch this used to do
+  /// is denied to anyone below admin. Marking a channel you can't see read
+  /// would be meaningless anyway — it can hold no unread badge for you.
+  Future<void> markGroupAsRead(
+    String uid,
+    String groupId, {
+    ChannelViewer viewer = ChannelViewer.anonymous,
+  }) async {
+    final channels = await listenChannels(groupId, viewer: viewer).first;
+    if (channels.isEmpty) return;
     final updates = <String, dynamic>{};
-    for (final c in channelsSnap.docs) {
+    for (final c in channels) {
       updates['lastRead.${pathToReadKey('groups/$groupId/channels/${c.id}')}'] =
           FieldValue.serverTimestamp();
     }

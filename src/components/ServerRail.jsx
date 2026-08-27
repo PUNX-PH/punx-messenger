@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { useAuth, canOversee, isGuest, isOversightExempt } from '../lib/auth'
+import { useAuth, canOversee, channelViewer, isGuest, isOversightExempt } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import {
   addMember, leaveGroup, listenAllGroups, listenChannels, listenMyGroups,
@@ -64,9 +64,10 @@ export default function ServerRail() {
         g.id,
         (chs) => setChannelsByGroup(prev => ({ ...prev, [g.id]: chs })),
         undefined,
-        // Guests would otherwise get a denied snapshot here and no unread
-        // badges at all on the groups they ARE in.
-        isGuest(profile) ? meUid : null,
+        // Without a viewer this would query unfiltered and be denied outright
+        // for a guest, and for any member of a group holding a private
+        // channel — no unread badges at all on the groups they ARE in.
+        channelViewer(profile, g),
       )
     )
     return () => unsubs.forEach(u => u())

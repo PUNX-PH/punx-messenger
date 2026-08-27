@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { useAuth, canOversee, isAdmin, isGhost, isGuest } from '../lib/auth'
+import { useAuth, canOversee, channelViewer, isAdmin, isGhost } from '../lib/auth'
 import { listenChannels, listenGroup } from '../lib/groups'
 import ChatSurface from '../components/ChatSurface'
 import MembersPanel, { MembersToggle } from '../components/MembersPanel'
@@ -22,6 +22,10 @@ export default function Channel() {
     try { localStorage.setItem('punx.membersPanel', membersOpen ? '1' : '0') } catch {}
   }, [membersOpen])
 
+  // Rebuilt when the group doc lands, which is what upgrades a group admin
+  // from the member legs to the private one.
+  const viewer = channelViewer(profile, group)
+
   useEffect(() => {
     setChannel(null)
     setDenied(false)
@@ -33,11 +37,13 @@ export default function Channel() {
       // that a developer-owned group's document is readable while its channels
       // are not — so a super admin can land on this URL and be denied.
       () => setDenied(true),
-      // A guest must use the narrow query or Firestore denies the whole
-      // snapshot, including the channel they were actually invited to.
-      isGuest(profile) ? profile?.id : null,
+      // The unfiltered query would be denied for a guest, and for any member
+      // of a group that has a private channel — taking the channel they can
+      // actually open down with it.
+      viewer,
     )
-  }, [groupId, channelId, profile])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId, channelId, viewer.uid, viewer.guest, viewer.seesPrivate])
 
   useEffect(() => {
     // Back to "loading" on every route change — otherwise the oversight check

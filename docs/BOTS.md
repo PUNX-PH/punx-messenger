@@ -67,7 +67,10 @@ Two independent things decide what a bot can do:
 | **What it can do there** | Its scopes. Only ever grant writes. |
 
 Since a bot's mirror `users/{uid}` doc carries `role: 'employee'`, a bot sees
-every **non-private** channel in its groups. A private channel is invisible to
+every **non-private** channel in its groups, and it must query them the way
+everyone else does — `where('private','==',false)` and
+`where('allowUids','array-contains', botUid)`, never unfiltered, which the
+rules deny. A private channel is invisible to
 it unless the bot's uid is on that channel's `allowUids` — add it the same way
 you would a person, via right-click → Manage access. A bot is never a `guest`,
 so the guest restriction does not apply to it. See

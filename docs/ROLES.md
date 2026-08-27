@@ -98,12 +98,16 @@ So:
 That independence is the useful part: you can invite a guest to an existing
 **public** channel without making it private to everyone else.
 
-A channel with no `private`/`allowUids` fields is public. Channels created
-before this feature have neither, and every field read in the rules is
-`in`-guarded so an absent key reads as "public" rather than erroring — an error
-in a rule denies, which would have hidden every pre-existing channel.
+**Every channel document must carry `private`.** One that doesn't is denied to
+everyone below admin — not treated as public. That is the price of hiding
+private channel names at all; see *The channel queries* below for why. Both
+clients write the field on every channel they create, and
+`scripts/backfill-channel-privacy.mjs` stamped the ones that predate it. Re-run
+that script after any bulk import, and read its VERIFY line.
 
-Reads and **writes** are both gated: message create/edit/delete, reactions, the
+A channel's **name** is as protected as its contents: the document, its
+messages, its voice roster and every write are gated together. Reads and
+**writes** both: message create/edit/delete, reactions, the
 `lastMessageAt`/`typing` bump, and joining voice all check channel access.
 
 ### Inviting a guest
@@ -127,21 +131,50 @@ See *Invite links* below.
 If they see the group but no channels, step 3 is missing. If they can't see the
 group either, step 2 is.
 
-### The guest channel query
+### The channel queries
 
-Guests cannot run the unfiltered channel query — the rules deny every channel
-that doesn't name them, and one denied document fails the whole query. So
-`listenChannels(groupId, cb, onError, guestUid)` takes a fourth argument that
-switches to `where('allowUids', 'array-contains', uid)`.
+Nobody queries a group's `channels` collection unfiltered. Understanding why
+takes one non-obvious fact about Firestore:
 
-**Every call site needs it.** Miss it anywhere and that guest's snapshot is
-denied and they see nothing: `ChannelSidebar`, `views/Channel.jsx`,
-`views/GroupHome.jsx`, `ServerRail`.
+> **A query is not checked against the documents it returns.** The rule is
+> evaluated once against the *query*, with a `resource` that knows only what
+> the query's own filters prove. `where('private','==',false)` makes
+> `ch.private` readable as `false`; an unfiltered query leaves it unknown.
+> Reading an unknown — or genuinely absent — field is an **error**, and an
+> error denies.
 
-Ordinary members keep the unfiltered query, which is why private channel
-documents stay readable for them (see the trade-off above — contents are still
-denied). Closing that would mean backfilling `private` onto every existing
-channel first.
+That error is the *entire* lock. There is no per-document filtering to fall
+back on: a query that gets through hands over every document it matched. This
+was measured on the emulator, not assumed — while `private` was read with an
+`in` guard, an ordinary member's unfiltered list returned the private channel
+that `getDoc()` had denied them a line earlier.
+
+So `firestore.rules` reads `ch.private` **unguarded** and `allowUids`
+**guarded**, and both of those are load-bearing in opposite directions. Swap
+either and the boundary silently opens, or every sidebar comes up empty.
+
+Each caller runs the legs it can prove, and the union is what it may read:
+
+| Who | Legs |
+|---|---|
+| Guest | `allowUids array-contains me` |
+| Member | `private == false`, and `allowUids array-contains me` |
+| Admin, oversight | those two, plus `private == true` |
+
+`listenChannels(groupId, cb, onError, viewer)` takes the plan as its fourth
+argument; build it with `channelViewer(profile, group)` from `lib/auth`.
+**Every call site needs one** — `ChannelSidebar`, `views/Channel.jsx`,
+`views/GroupHome.jsx`, `ServerRail`, `GroupInvites`. The Android app has the
+same split in `GroupsRepository.listenChannels` and `channelViewerProvider`.
+
+The private leg is a *guess* at admin rights, so it is optional: if the rules
+disagree it is dropped and the rest of the list still arrives. That covers the
+one case the client can't reproduce — a workspace admin inside a
+developer-owned group, where the rules grant them nothing.
+
+An admin can still list unfiltered, because `adminOverGroup()` is checked
+before `ch.private`. That ordering is deliberate: whoever can re-run the
+backfill can still see the channels it missed.
 
 ## Who can sign in
 
@@ -204,7 +237,7 @@ cover exactly that.
 
 ## Testing
 
-The rules have an emulator test suite at `tests/rules.test.mjs` — 104 cases
+The rules have an emulator test suite at `tests/rules.test.mjs` — 122 cases
 covering the hierarchy, the developer boundary, guests, private channels, invite
 links, the auth gate, bots, and regressions for behaviour that had to stay
 unchanged. It needs Java on `PATH` and `@firebase/rules-unit-testing`, which is
@@ -232,8 +265,6 @@ something the backend rejects. Add a test.
 
 ## Not built
 
-- **Hiding private channel names** from ordinary members. Needs the backfill
-  described above.
 - **Invite usage caps.** Links are reusable with an expiry and a revoke button;
   there's no max-uses counter. The `redemptions` subcollection records who used
   a link, so adding one later is a counting change, not a redesign.

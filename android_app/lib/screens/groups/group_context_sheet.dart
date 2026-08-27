@@ -31,7 +31,13 @@ void showGroupContextSheet(BuildContext context, WidgetRef ref, Group group) {
               title: const Text('Mark as read'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
-                repo.markGroupAsRead(profile.id, group.id);
+                repo.markGroupAsRead(
+                  profile.id,
+                  group.id,
+                  // Without this it fetches the channels unfiltered, which
+                  // the rules deny to anyone below admin.
+                  viewer: ref.read(channelViewerProvider(group.id)),
+                );
               },
             ),
             ListTile(

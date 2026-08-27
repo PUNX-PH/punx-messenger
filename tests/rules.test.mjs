@@ -74,10 +74,16 @@ await testEnv.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(db, 'groups', GM), {
     name: 'Mine', ownerUid: ADMIN, memberUids: [EMP, ADMIN, GUEST, GUEST2, T1], adminUids: [ADMIN],
   })
-  // c1 is a LEGACY channel: no `private`, no `allowUids`. Must still read as
-  // public for ordinary members, or this feature breaks every existing group.
-  await setDoc(doc(db, 'groups', GM, 'channels', 'c1'), { name: 'general', type: 'text' })
+  // An ordinary public channel, carrying the two fields the backfill stamps.
+  await setDoc(doc(db, 'groups', GM, 'channels', 'c1'), {
+    name: 'general', type: 'text', private: false, allowUids: [],
+  })
   await setDoc(doc(db, 'groups', GM, 'channels', 'c1', 'messages', 'm1'), { text: 'hi', author: { uid: EMP } })
+  // A channel the backfill MISSED: no `private` key at all. The rules read
+  // that field unguarded, so this one is denied rather than public — see the
+  // section on it below, and channelIsPublic() in firestore.rules.
+  await setDoc(doc(db, 'groups', GM, 'channels', 'cold'), { name: 'stale', type: 'text' })
+  await setDoc(doc(db, 'groups', GM, 'channels', 'cold', 'messages', 'om1'), { text: 'old', author: { uid: EMP } })
   // Public channel the guest IS invited to.
   await setDoc(doc(db, 'groups', GM, 'channels', 'cg'), {
     name: 'tester', type: 'text', private: false, allowUids: [GUEST],
@@ -104,14 +110,20 @@ await testEnv.withSecurityRulesDisabled(async (ctx) => {
   // Developer-owned group. EMP is also a member, to prove membership still works.
   await setDoc(doc(db, 'groups', GD), { name: 'Dev', ownerUid: DEV, memberUids: [DEV, EMP], adminUids: [DEV] })
   await setDoc(doc(db, 'groups', GD, 'categories', 'cat1'), { name: 'C', order: 0 })
-  await setDoc(doc(db, 'groups', GD, 'channels', 'dc1'), { name: 'secret', type: 'text' })
+  await setDoc(doc(db, 'groups', GD, 'channels', 'dc1'), {
+    name: 'secret', type: 'text', private: false, allowUids: [],
+  })
   await setDoc(doc(db, 'groups', GD, 'channels', 'dc1', 'messages', 'dm1'), { text: 'private', author: { uid: DEV } })
-  await setDoc(doc(db, 'groups', GD, 'channels', 'dv1'), { name: 'devvoice', type: 'voice' })
+  await setDoc(doc(db, 'groups', GD, 'channels', 'dv1'), {
+    name: 'devvoice', type: 'voice', private: false, allowUids: [],
+  })
   await setDoc(doc(db, 'groups', GD, 'channels', 'dv1', 'voiceParticipants', DEV), { uid: DEV, lastHeartbeat: new Date() })
 
   // A second developer's group, to check developers can't watch each other.
   await setDoc(doc(db, 'groups', GD2), { name: 'Dev2', ownerUid: DEV2, memberUids: [DEV2], adminUids: [DEV2] })
-  await setDoc(doc(db, 'groups', GD2, 'channels', 'd2c1'), { name: 'other', type: 'text' })
+  await setDoc(doc(db, 'groups', GD2, 'channels', 'd2c1'), {
+    name: 'other', type: 'text', private: false, allowUids: [],
+  })
 
   const hour = 60 * 60 * 1000
   const inv = (extra) => ({
@@ -135,9 +147,18 @@ const t = async (name, fn) => {
   catch (e) { console.log('  FAIL  ' + name + '\n          ' + String(e.message || e).split('\n')[0]); fail++ }
 }
 const chans = (db, g) => getDocs(collection(db, 'groups', g, 'channels'))
+// The legs a client is allowed to run — see listenChannels in lib/groups.js.
+// Nobody but an overseer may query this collection unfiltered any more.
+const chansPublic = (db, g) =>
+  getDocs(query(collection(db, 'groups', g, 'channels'), where('private', '==', false)))
+const chansNaming = (db, g, uid) =>
+  getDocs(query(collection(db, 'groups', g, 'channels'), where('allowUids', 'array-contains', uid)))
+const chansPrivate = (db, g) =>
+  getDocs(query(collection(db, 'groups', g, 'channels'), where('private', '==', true)))
+const ids = (snap) => snap.docs.map(d => d.id)
 
 console.log('\n-- baseline: existing behaviour unchanged --')
-await t('member reads own group channels', () => assertSucceeds(chans(as(EMP), GM)))
+await t('member reads own group channels', () => assertSucceeds(chansPublic(as(EMP), GM)))
 await t('member posts in own group', () => assertSucceeds(
   setDoc(doc(as(EMP), 'groups', GM, 'channels', 'c1', 'messages', 'n1'), { text: 'y', author: { uid: EMP } })))
 await t('outsider CANNOT read a group', () => assertFails(chans(as(OUT), GM)))
@@ -173,7 +194,7 @@ await t('super admin CAN still read the developer group DOC (known compromise)',
   getDoc(doc(as(SUPER), 'groups', GD))))
 
 console.log('\n-- membership is the only way in --')
-await t('member of a developer group reads it normally', () => assertSucceeds(chans(as(EMP), GD)))
+await t('member of a developer group reads it normally', () => assertSucceeds(chansPublic(as(EMP), GD)))
 await t('member of a developer group reads its messages', () => assertSucceeds(
   getDoc(doc(as(EMP), 'groups', GD, 'channels', 'dc1', 'messages', 'dm1'))))
 await t('developer reads its own group', () => assertSucceeds(chans(as(DEV), GD)))
@@ -222,12 +243,29 @@ await t('employee CANNOT create a bot', () => assertFails(
 await t('super admin still manages bots', () => assertSucceeds(
   updateDoc(doc(as(SUPER), 'bots', B1), { enabled: true })))
 
-console.log('\n-- legacy channels (no private/allowUids) still behave as public --')
-await t('member reads a legacy channel doc', () => assertSucceeds(
+console.log('\n-- a channel the backfill MISSED (no `private` key) --')
+// The exact reverse of what this suite asserted before. `ch.private` is now
+// read unguarded, because that error is the only thing refusing an unfiltered
+// list — so a channel without the key is denied rather than assumed public.
+// This is the whole reason scripts/backfill-channel-privacy.mjs has to run
+// before these rules are deployed.
+await t('member CANNOT read a channel with no `private` key', () => assertFails(
+  getDoc(doc(as(EMP), 'groups', GM, 'channels', 'cold'))))
+await t('member CANNOT read its messages', () => assertFails(
+  getDoc(doc(as(EMP), 'groups', GM, 'channels', 'cold', 'messages', 'om1'))))
+await t('member CANNOT post in it', () => assertFails(
+  setDoc(doc(as(EMP), 'groups', GM, 'channels', 'cold', 'messages', 'bad3'), { text: 'k', author: { uid: EMP } })))
+// An admin is deliberately still let in: adminOverGroup() is checked before
+// ch.private, so whoever can re-run the backfill can still see what it missed.
+await t('group admin CAN still read it, so a miss stays fixable', () => assertSucceeds(
+  getDoc(doc(as(ADMIN), 'groups', GM, 'channels', 'cold'))))
+
+console.log('\n-- a backfilled public channel behaves as before --')
+await t('member reads a public channel doc', () => assertSucceeds(
   getDoc(doc(as(EMP), 'groups', GM, 'channels', 'c1'))))
-await t('member reads legacy-channel messages', () => assertSucceeds(
+await t('member reads its messages', () => assertSucceeds(
   getDoc(doc(as(EMP), 'groups', GM, 'channels', 'c1', 'messages', 'm1'))))
-await t('member posts in a legacy channel', () => assertSucceeds(
+await t('member posts in it', () => assertSucceeds(
   setDoc(doc(as(EMP), 'groups', GM, 'channels', 'c1', 'messages', 'leg1'), { text: 'k', author: { uid: EMP } })))
 
 console.log('\n-- GUESTS: only the channels naming them --')
@@ -272,10 +310,41 @@ await t('unlisted member CANNOT post in a private channel', () => assertFails(
   setDoc(doc(as(EMP), 'groups', GM, 'channels', 'cp', 'messages', 'bad2'), { text: 'x', author: { uid: EMP } })))
 await t('group admin reads private-channel messages', () => assertSucceeds(
   getDoc(doc(as(ADMIN), 'groups', GM, 'channels', 'cp', 'messages', 'pm1'))))
-await t('unlisted member CAN still read the private channel DOC (known compromise)', () => assertSucceeds(
+// Closing this was the point of the change: the channel's NAME used to be
+// fetchable by any group member even though its contents were not.
+await t('unlisted member CANNOT read the private channel DOC', () => assertFails(
   getDoc(doc(as(EMP), 'groups', GM, 'channels', 'cp'))))
-await t('member list query still works with a private channel present', () => assertSucceeds(
-  getDocs(collection(as(EMP), 'groups', GM, 'channels'))))
+await t('listed member CAN read the private channel DOC', () => assertSucceeds(
+  getDoc(doc(as(T1), 'groups', GM, 'channels', 'cp'))))
+await t('group admin CAN read the private channel DOC', () => assertSucceeds(
+  getDoc(doc(as(ADMIN), 'groups', GM, 'channels', 'cp'))))
+
+// … which costs the unfiltered query, since the rule is evaluated against the
+// QUERY and an unfiltered one leaves `private` unknown. Each leg below pins
+// enough for the rules to prove it safe.
+await t('member CANNOT list channels unfiltered any more', () => assertFails(
+  chans(as(EMP), GM)))
+await t('member CAN list public channels', () => assertSucceeds(chansPublic(as(EMP), GM)))
+await t('member CAN list channels naming them', () => assertSucceeds(chansNaming(as(EMP), GM, EMP)))
+await t('member CANNOT list the private ones', () => assertFails(chansPrivate(as(EMP), GM)))
+await t('the allowUids leg is how a listed member gets a private channel', async () => {
+  const snap = await assertSucceeds(chansNaming(as(T1), GM, T1))
+  if (!ids(snap).includes('cp')) throw new Error('cp missing from the allowUids leg')
+})
+await t('group admin CAN list the private ones', () => assertSucceeds(chansPrivate(as(ADMIN), GM)))
+await t('super admin oversight still lists channels unfiltered', () => assertSucceeds(
+  chans(as(SUPER), GM)))
+
+// The legs return exactly what the caller may read, and nothing else — a
+// private channel does not slip into the public leg, and a channel the
+// backfill missed matches no leg at all (Firestore skips documents missing the
+// field, so it is invisible on top of being denied).
+await t('the public leg excludes private and un-backfilled channels', async () => {
+  const got = ids(await assertSucceeds(chansPublic(as(EMP), GM)))
+  if (got.includes('cp')) throw new Error('private channel matched `private == false`')
+  if (got.includes('cold')) throw new Error('keyless channel matched `private == false`')
+  if (!got.includes('c1')) throw new Error('public channel missing from its own leg')
+})
 
 console.log('\n-- the auth gate: forged identities get nothing --')
 await t('password-provider account claiming @punx.ai CANNOT read the directory', () => assertFails(

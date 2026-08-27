@@ -46,35 +46,81 @@ export function listenAllGroups(cb, onError) {
 }
 
 /**
- * Listen to channels in a group.
+ * Listen to the channels in a group that `viewer` is allowed to see.
  *
- * `guestUid` switches to the narrow query a guest is allowed to run. This is
- * not an optimisation — a Firestore list query is denied WHOLE if it matches
- * even one unreadable document, and firestore.rules denies a guest every
- * channel that doesn't name them. So an unfiltered query returns nothing at
- * all for a guest, while `allowUids array-contains me` returns exactly the
- * readable set. Single-field filter, so no composite index is needed; sorted
- * client-side for the same reason listenMyGroups is.
+ * Nobody queries this collection unfiltered any more, and the reason is worth
+ * knowing before touching any of it: a Firestore query is not checked against
+ * the documents it returns. The rule is evaluated once against the QUERY, with
+ * a `resource` that knows only what the query's filters prove — so
+ * where('private','==',false) makes that field readable as false, while an
+ * unfiltered query leaves it unknown, and reading an unknown field errors,
+ * which denies. firestore.rules reads `private` unguarded on purpose: that
+ * error is the only thing standing between an ordinary member and every
+ * private channel's name.
+ *
+ * So each caller runs the legs below and we merge them. Every leg is one the
+ * rules can prove safe, and their union is exactly what that caller may see.
+ *
+ *   guest           allowUids array-contains me   (guests see nothing else)
+ *   member          private == false, and allowUids array-contains me
+ *   admin/oversight the above, plus private == true
+ *
+ * The last leg is a *guess* at admin rights, made from the group doc and the
+ * caller's role — see channelViewer() in lib/auth. Guessing wrong is cheap by
+ * design: the leg is optional, so a denial drops it and the rest of the list
+ * still arrives. That matters because the client cannot reproduce every case
+ * the rules decide (a plain workspace admin has no admin power inside a
+ * developer-owned group).
+ *
+ * All the filters are single-field, so none of this needs a composite index.
+ * Ordering is done here rather than with orderBy for the same reason.
+ *
+ * Build `viewer` with channelViewer(profile, group). Passing nothing yields
+ * public channels only.
  */
-export function listenChannels(groupId, cb, onError, guestUid = null) {
+export function listenChannels(groupId, cb, onError, viewer = null) {
   const col = collection(db, 'groups', groupId, 'channels')
-  const q = guestUid
-    ? query(col, where('allowUids', 'array-contains', guestUid))
-    : query(col, orderBy('createdAt', 'asc'))
-  return onSnapshot(
-    q,
-    snap => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      if (guestUid) list.sort(byCreatedAt)
-      cb(list)
-    },
+  const uid = viewer?.uid || null
+
+  const legs = viewer?.guest
+    ? [{ q: query(col, where('allowUids', 'array-contains', uid)) }]
+    : [
+        { q: query(col, where('private', '==', false)) },
+        uid && { q: query(col, where('allowUids', 'array-contains', uid)) },
+        viewer?.seesPrivate
+          && { q: query(col, where('private', '==', true)), optional: true },
+      ].filter(Boolean)
+
+  // One page of results per leg, null until that leg has reported. Nothing is
+  // emitted until every leg has — a partial first list would flash a sidebar
+  // missing half its channels, and GroupHome would redirect into whichever
+  // channel happened to arrive first.
+  const pages = legs.map(() => null)
+  const emit = () => {
+    if (pages.some(page => page === null)) return
+    const byId = new Map()
+    for (const page of pages) for (const ch of page) byId.set(ch.id, ch)
+    cb([...byId.values()].sort(byCreatedAt))
+  }
+
+  const unsubs = legs.map((leg, i) => onSnapshot(
+    leg.q,
+    snap => { pages[i] = snap.docs.map(d => ({ id: d.id, ...d.data() })); emit() },
     err => {
+      if (leg.optional) {
+        // Expected whenever the admin guess was wrong. Not an error the user
+        // should ever see: they simply don't get the private channels.
+        pages[i] = []
+        emit()
+        return
+      }
       // Without this, a denied/broken query here just hangs GroupHome.jsx's
       // "Opening group…" screen forever with zero feedback.
       console.error('[groups] listenChannels failed:', err)
       onError?.(err)
     },
-  )
+  ))
+  return () => unsubs.forEach(u => u())
 }
 
 /**
@@ -127,6 +173,12 @@ export async function createGroup({ name, avatarFile, owner }) {
   batch.set(generalRef, {
     name: 'general',
     type: 'text',
+    // Both written even though #general is as public as a channel gets. The
+    // rules read `private` without an existence guard, so a channel without
+    // the key is denied outright rather than treated as public — a new group
+    // would open to an empty sidebar. See listenChannels.
+    private: false,
+    allowUids: [owner.uid],
     createdAt: serverTimestamp(),
     createdBy: owner.uid,
   })

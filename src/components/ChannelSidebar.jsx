@@ -5,7 +5,7 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useAuth, canOversee, canSeeChannel, isAdmin, isGhost, isGuest } from '../lib/auth'
+import { useAuth, canOversee, canSeeChannel, channelViewer, isAdmin, isGhost } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import {
   createCategory, createChannel, deleteCategory, deleteChannel, groupChannelsByCategory,
@@ -67,19 +67,25 @@ export default function ChannelSidebar() {
     return listenGroup(groupId, setGroup)
   }, [groupId])
 
+  const viewer = channelViewer(profile, group)
+
   useEffect(() => {
     if (!groupId) return
     setChannelsLoaded(false)
-    // A guest may only read channels naming them, and a list query that
-    // matches even one unreadable document is denied outright — so guests get
-    // the array-contains query instead of the unfiltered one.
+    // Nobody queries this collection unfiltered: the rules read `private`
+    // without an existence guard, so an unfiltered query errors on the unknown
+    // field and is denied. listenChannels runs the legs this viewer can prove.
     return listenChannels(
       groupId,
       (list) => { setChannels(list); setChannelsLoaded(true) },
       undefined,
-      isGuest(profile) ? profile?.id : null,
+      viewer,
     )
-  }, [groupId, profile])
+    // The three scalars rather than `viewer` or `group`: the group document
+    // changes on every membership edit, and resubscribing on each one would
+    // blank the sidebar for a tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId, viewer.uid, viewer.guest, viewer.seesPrivate])
 
   // If the voice channel you're sitting in gets deleted out from under you,
   // disconnect — otherwise you stay in a room that no longer exists, still

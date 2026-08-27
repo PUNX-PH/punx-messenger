@@ -276,48 +276,63 @@ service cloud.firestore {
     //   guest role → sees ONLY channels naming them, private or not, and no
     //     admin override applies because a guest is never an admin.
     //
-    // Every field read is `in`-guarded: channels created before this existed
-    // have neither key, and reading a missing key ERRORS, which denies the
-    // whole rule rather than evaluating false. Absent keys must read as
-    // "public", or this would hide every pre-existing channel.
+    // ⚠ READ THIS BEFORE TOUCHING EITHER FIELD READ BELOW.
+    //
+    // A query is NOT checked against the documents it returns. Firestore
+    // evaluates this rule once against the QUERY, with a `resource` that knows
+    // only what the query's own filters prove: where('private','==',false)
+    // makes ch.private readable as false, and an unfiltered query leaves it
+    // unknown. Reading an unknown — or genuinely absent — field is an ERROR,
+    // and an error denies. Nothing else refuses an unfiltered list; there is no
+    // per-document filtering to fall back on, and a query that gets through
+    // hands over every document it matched. (Proven on the emulator: with both
+    // reads `in`-guarded, an ordinary member's unfiltered list returned the
+    // private channel that get() denied them a line earlier.)
+    //
+    // So the two reads are written differently, on purpose:
+    //
+    //   ch.private              UNGUARDED. Errors unless a filter pinned it.
+    //                           This is the entire lock on an unfiltered list.
+    //   'allowUids' in ch && …  GUARDED, so an unknown list is merely false
+    //                           instead of erroring — without that, the two
+    //                           legs that don't mention allowUids would deny
+    //                           and every sidebar would come up empty.
+    //
+    // The corollary is that EVERY channel document must carry `private`. One
+    // that doesn't is denied outright, not treated as public: every writer
+    // stamps it at create time, and scripts/backfill-channel-privacy.mjs
+    // stamped the ones that predate the field. Run that BEFORE deploying this.
     function channelListsMe(ch) {
       return ('allowUids' in ch) && myUid() in ch.allowUids;
     }
-    function channelIsPrivate(ch) {
-      return ('private' in ch) && ch.private == true;
-    }
-    // Whether the channel DOCUMENT is readable. Deliberately weaker than
-    // channelVisible() below, and the asymmetry is load-bearing:
-    //
-    // A Firestore list query is denied WHOLE if any single matched document is
-    // unreadable — it does not silently drop the ones you can't see. So if
-    // private channel docs were denied to ordinary members, listenChannels()
-    // would fail outright for everyone in a group that has one, and there is no
-    // query filter that can express "private is false OR the field is absent"
-    // for the channels that predate this feature.
-    //
-    // A GUEST is exempt from that problem: guests only ever see channels that
-    // name them, their client queries `allowUids array-contains me`, and every
-    // channel a guest is granted has that field written at grant time. So the
-    // guest case — the one this feature exists for — is fully enforced here,
-    // with no migration.
-    //
-    // For ordinary members the residual is narrow and stated: they could fetch
-    // a private channel's NAME directly through the API. Its messages, voice
-    // roster and every write are still denied below. Closing that too would
-    // mean backfilling `private` onto every existing channel first.
-    function channelDocVisible(ch) {
-      return !isGuest() || channelListsMe(ch);
+    function channelIsPublic(ch) {
+      return ch.private == false;
     }
 
-    // Whether the channel's CONTENTS are reachable — messages, voice roster,
-    // and any write. This is the real boundary.
+    // The one boundary: whether a channel is reachable AT ALL — its own
+    // document (so its name), its messages, its voice roster, and every write.
+    //
+    // listenChannels() in src/lib/groups.js is the other half of it. These are
+    // the only queries that can be proven safe, so they are the only ones
+    // anyone runs:
+    //
+    //   guest           → `allowUids array-contains me`
+    //   member          → `private == false`, and `allowUids array-contains me`
+    //   admin/oversight → those two, plus `private == true`
+    //
+    // Operand order is load-bearing twice over. channelListsMe() comes first
+    // because it is the only one that can be proven from the array-contains
+    // leg alone — anything before it would reach ch.private and error that leg
+    // into a denial. adminOverGroup() comes before ch.private so that an admin
+    // is never locked out of a channel the backfill missed, and it costs an
+    // ordinary member nothing: both of its reads are already cached by this
+    // point, and it short-circuits before the one that isn't.
     function channelVisible(groupId, ch) {
       return (isGuest() && channelListsMe(ch))
         || (!isGuest() && (
-              !channelIsPrivate(ch)
-              || channelListsMe(ch)
+              channelListsMe(ch)
               || adminOverGroup(groupId)
+              || channelIsPublic(ch)
            ));
     }
     function channelDataOf(groupId, channelId) {
@@ -570,7 +585,7 @@ service cloud.firestore {
       match /channels/{channelId} {
         // `resource.data` is the channel itself here, so visibility costs no
         // extra read on the common path.
-        allow read: if (isGroupMember(groupId) && channelDocVisible(resource.data))
+        allow read: if (isGroupMember(groupId) && channelVisible(groupId, resource.data))
           || overseeGroup(groupId);
         // Create: group admin (incl. during batched group creation) or workspace admin
         allow create: if (isGroupAdminAfter(groupId) || adminOverGroup(groupId) || botCanManageChannels(groupId))
