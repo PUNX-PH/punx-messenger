@@ -22,7 +22,13 @@ import 'package:flutter/foundation.dart';
 /// Ports match the `emulators` block in `firebase.json`, which the web app
 /// already uses: auth 9099, firestore 8080.
 abstract final class Emulators {
-  static const enabled = bool.fromEnvironment('USE_EMULATORS');
+  /// Read as a STRING and compared, not via bool.fromEnvironment, which only
+  /// recognises the exact literals "true" and "false" — so
+  /// `--dart-define=USE_EMULATORS=1` reads as false and hands you a build that
+  /// looks like emulator mode and is quietly pointed at the live project. That
+  /// happened. Accept the obvious spellings instead.
+  static const _flag = String.fromEnvironment('USE_EMULATORS');
+  static const enabled = _flag == '1' || _flag == 'true';
 
   static const _projectId = 'demo-punx';
   static const _host = 'localhost';
