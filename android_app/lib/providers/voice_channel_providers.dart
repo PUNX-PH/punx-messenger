@@ -139,6 +139,31 @@ class _Peer {
   bool hasRemoteDescription = false;
 }
 
+/// Runs a native-only audio call, or skips it.
+///
+/// Every `Helper.*` used here — ensureAudioSession, setMicrophoneMute,
+/// setVolume, setSpeakerphoneOn, switchCamera, clearAndroidCommunicationDevice
+/// — goes through a platform channel to NativeAudioManagement. On Flutter web,
+/// which is this app's test surface rather than a product, there is no
+/// implementation and they throw MissingPluginException.
+///
+/// None of them is required to HOLD a call: they tune routing and playback,
+/// while the connection itself is pure WebRTC. So each is skipped on web and,
+/// on a device, logged rather than allowed to take a session down. An
+/// unguarded ensureAudioSession() is what made joining voice fail on web with
+/// "No implementation found for method initialize" before anything else ran.
+///
+/// Anything that must work on every platform — notably muting a track for
+/// deafen — uses `track.enabled` instead, which is not a platform call.
+Future<void> _nativeAudio(String what, Future<void> Function() op) async {
+  if (kIsWeb) return;
+  try {
+    await op();
+  } catch (e) {
+    debugPrint('[voice] $what unavailable: $e');
+  }
+}
+
 class VoiceController extends StateNotifier<VoiceUiState> {
   VoiceController(this._ref) : super(const VoiceUiState());
   final Ref _ref;
@@ -169,7 +194,7 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     try {
       // Audio session first: without it Android can route voice to the wrong
       // device or leave the stream at media (not communication) volume.
-      await Helper.ensureAudioSession();
+      await _nativeAudio('audio session', Helper.ensureAudioSession);
       // Throws if the user refuses the microphone, which is a refusal to
       // answer rather than a fault — say so plainly instead of surfacing a
       // platform exception.
@@ -260,9 +285,10 @@ class VoiceController extends StateNotifier<VoiceUiState> {
 
     // Hand the phone's audio routing back, or it can stay stuck in
     // communication mode after hanging up.
-    try {
-      await Helper.clearAndroidCommunicationDevice();
-    } catch (_) {}
+    await _nativeAudio(
+      'audio routing reset',
+      Helper.clearAndroidCommunicationDevice,
+    );
 
     state = VoiceUiState(connError: keepError);
   }
@@ -528,10 +554,10 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     final track = _localAudio?.getAudioTracks().firstOrNull;
     if (track == null) return;
     final next = !state.muted;
+    // track.enabled is the part that actually has to work everywhere; the
+    // native call below is a routing nicety on top of it.
     track.enabled = !next;
-    try {
-      await Helper.setMicrophoneMute(next, track);
-    } catch (_) {}
+    await _nativeAudio('mic mute', () => Helper.setMicrophoneMute(next, track));
     // Unmuting while deafened also un-deafens, matching Discord: being heard
     // while unable to hear anyone isn't a state that makes sense.
     final clearDeafen = !next && state.deafened;
@@ -556,9 +582,10 @@ class VoiceController extends StateNotifier<VoiceUiState> {
       final track = _localAudio?.getAudioTracks().firstOrNull;
       if (track != null) {
         track.enabled = false;
-        try {
-          await Helper.setMicrophoneMute(true, track);
-        } catch (_) {}
+        await _nativeAudio(
+          'mic mute',
+          () => Helper.setMicrophoneMute(true, track),
+        );
       }
     }
     _applyOutputToAll();
@@ -566,10 +593,13 @@ class VoiceController extends StateNotifier<VoiceUiState> {
   }
 
   void _applyOutputTo(MediaStreamTrack track) {
-    try {
-      Helper.setVolume(state.deafened ? 0 : 1, track);
-    } catch (_) {}
+    // enabled is what makes deafen real on every platform, including web;
+    // setVolume is the native refinement.
     track.enabled = !state.deafened;
+    unawaited(_nativeAudio(
+      'playback volume',
+      () => Helper.setVolume(state.deafened ? 0 : 1, track),
+    ));
   }
 
   void _applyOutputToAll() {
@@ -615,16 +645,11 @@ class VoiceController extends StateNotifier<VoiceUiState> {
   Future<void> switchCamera() async {
     final track = _activeVideoTrack();
     if (track == null) return;
-    try {
-      await Helper.switchCamera(track);
-    } catch (_) {}
+    await _nativeAudio('camera flip', () => Helper.switchCamera(track));
   }
 
-  Future<void> setSpeakerphone(bool on) async {
-    try {
-      await Helper.setSpeakerphoneOn(on);
-    } catch (_) {}
-  }
+  Future<void> setSpeakerphone(bool on) =>
+      _nativeAudio('speakerphone', () => Helper.setSpeakerphoneOn(on));
 
   void _pushRosterState() {
     final ref = state.active;
