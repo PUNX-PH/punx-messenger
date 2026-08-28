@@ -40,18 +40,6 @@ class CallUiState {
   });
 }
 
-Map<String, dynamic> _candidateToMap(RTCIceCandidate c) => {
-  'candidate': c.candidate,
-  'sdpMid': c.sdpMid,
-  'sdpMLineIndex': c.sdpMLineIndex,
-};
-
-RTCIceCandidate _candidateFromMap(Map<String, dynamic> m) => RTCIceCandidate(
-  m['candidate'] as String?,
-  m['sdpMid'] as String?,
-  m['sdpMLineIndex'] as int?,
-);
-
 /// Glues services/calls_repository.dart (Firestore signaling) to
 /// services/webrtc_service.dart (RTCPeerConnection) behind one controller,
 /// shared app-wide via [callControllerProvider] — same shape as
@@ -268,7 +256,7 @@ class CallController extends StateNotifier<CallUiState> {
       if (_appliedCandidateIds.contains(candDoc.id)) return;
       _appliedCandidateIds.add(candDoc.id);
       final pc = _pc;
-      final candidate = _candidateFromMap(candDoc.candidate);
+      final candidate = candidateFromMap(candDoc.candidate);
       if (pc != null && await pc.getRemoteDescription() != null) {
         unawaited(pc.addCandidate(candidate));
       } else {
@@ -344,7 +332,7 @@ class CallController extends StateNotifier<CallUiState> {
       final callId = _callId;
       if (callId == null) return;
       unawaited(
-        _repo.sendIceCandidate(callId, _uid!, _candidateToMap(candidate)),
+        _repo.sendIceCandidate(callId, _uid!, candidateToMap(candidate)),
       );
     };
     pc.onIceConnectionState = (iceState) {

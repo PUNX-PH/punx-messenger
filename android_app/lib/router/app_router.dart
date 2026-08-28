@@ -6,7 +6,7 @@ import '../providers/auth_providers.dart';
 import '../screens/admin/admin_panel_screen.dart';
 import '../screens/dms/dm_chat_screen.dart';
 import '../screens/dms/dms_list_screen.dart';
-import '../screens/groups/channel_chat_screen.dart';
+import '../screens/groups/channel_screen.dart';
 import '../screens/groups/channel_list_screen.dart';
 import '../screens/groups/groups_list_screen.dart';
 import '../screens/login_screen.dart';
@@ -113,7 +113,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                 routes: [
                   GoRoute(
                     path: 'c/:channelId',
-                    builder: (context, state) => ChannelChatScreen(
+                    // ChannelScreen, not ChannelChatScreen: a voice channel
+                    // has to open into the voice room, and only the channel
+                    // document says which it is.
+                    builder: (context, state) => ChannelScreen(
                       groupId: state.pathParameters['groupId']!,
                       channelId: state.pathParameters['channelId']!,
                     ),

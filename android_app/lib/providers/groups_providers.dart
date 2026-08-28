@@ -56,6 +56,19 @@ final channelsProvider = StreamProvider.family<List<Channel>, String>((
       .listenChannels(groupId, viewer: ref.watch(channelViewerProvider(groupId)));
 });
 
+/// One channel document. The chat screen only ever needed its name, but the
+/// route now has to know the `type` before it can decide which screen to show,
+/// and the voice room needs the whole thing.
+final channelProvider =
+    StreamProvider.family<Channel?, ({String groupId, String channelId})>((
+  ref,
+  key,
+) {
+  return ref
+      .watch(groupsRepositoryProvider)
+      .listenChannel(key.groupId, key.channelId);
+});
+
 final groupProvider = StreamProvider.family<Group?, String>((ref, groupId) {
   return ref.watch(groupsRepositoryProvider).listenGroup(groupId);
 });

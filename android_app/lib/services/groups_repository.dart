@@ -128,6 +128,16 @@ class GroupsRepository {
     return controller.stream;
   }
 
+  Stream<Channel?> listenChannel(String groupId, String channelId) {
+    return _db
+        .collection('groups')
+        .doc(groupId)
+        .collection('channels')
+        .doc(channelId)
+        .snapshots()
+        .map((snap) => snap.exists ? Channel.fromDoc(snap) : null);
+  }
+
   Stream<Group?> listenGroup(String groupId) {
     return _db
         .collection('groups')

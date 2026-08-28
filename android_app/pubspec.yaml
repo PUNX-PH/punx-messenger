@@ -52,6 +52,7 @@ dependencies:
   collection: ^1.19.0
   google_fonts: ^6.2.1
   flutter_webrtc: ^1.5.2
+  flutter_foreground_task: ^11.0.1
 
 dev_dependencies:
   flutter_test:

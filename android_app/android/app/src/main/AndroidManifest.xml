@@ -2,19 +2,27 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
-    <!-- 1:1 audio/video calling (see lib/services/webrtc_service.dart).
-         Deliberately NOT added yet: FOREGROUND_SERVICE(_MICROPHONE/_CAMERA)
-         and USE_FULL_SCREEN_INTENT — v1 ringing only works while the app is
-         foreground/backgrounded-but-alive (no FCM push behind it yet, see
-         services/notification_listener_service.dart for the same ceiling),
-         so a foreground service isn't needed to *receive* a ring. It would
-         be needed to keep an already-accepted call's media alive if the
-         user backgrounds mid-call — an explicit v1.1 follow-up, not v1. -->
+    <!-- 1:1 audio/video calling (see lib/services/webrtc_service.dart) and
+         voice channels (lib/providers/voice_channel_providers.dart). -->
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+
+    <!-- Voice channels keep running while the app is backgrounded, which
+         Android only permits behind a foreground service with a notification.
+         The two typed permissions are an Android 14 requirement: the declared
+         service type has to match what is actually being used, and voice
+         channels use the mic and (optionally) the camera.
+
+         NOT declared: FOREGROUND_SERVICE_MEDIA_PROJECTION. Android can watch a
+         screen share but never sends one, so there is no capture to justify
+         it. Adding it would be asking for a permission this app has no use
+         for. See lib/services/voice_foreground_service.dart. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA"/>
 
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>

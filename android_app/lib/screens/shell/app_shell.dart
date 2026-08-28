@@ -8,6 +8,7 @@ import '../../services/notification_listener_service.dart';
 import '../../services/presence_service.dart';
 import '../../theme/palette.dart';
 import '../../widgets/calls/call_overlay.dart';
+import '../../widgets/voice/voice_status_bar.dart';
 
 /// Mobile redesign of the desktop 3-pane layout (rail + sidebar + chat):
 /// bottom nav with DMs / Groups / [Admin] tabs, each owning its own nested
@@ -64,13 +65,21 @@ class AppShell extends ConsumerWidget {
           const CallOverlay(),
         ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        items: items,
-        currentIndex: currentIndex,
-        onTap: (index) => navigationShell.goBranch(
-          index,
-          initialLocation: index == navigationShell.currentIndex,
-        ),
+      // Voice sits directly above the nav bar so it is present on every tab —
+      // the connection outlives the screen you joined it from.
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const VoiceStatusBar(),
+          BottomNavigationBar(
+            items: items,
+            currentIndex: currentIndex,
+            onTap: (index) => navigationShell.goBranch(
+              index,
+              initialLocation: index == navigationShell.currentIndex,
+            ),
+          ),
+        ],
       ),
     );
   }

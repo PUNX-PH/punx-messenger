@@ -24,4 +24,20 @@ class ChannelViewer {
   /// can't reproduce (a workspace admin inside a developer-owned group, where
   /// the rules grant them nothing) costs only channels they couldn't see.
   final bool seesPrivate;
+
+  // Value equality matters here, and its absence is a live bug: this object is
+  // what channelViewerProvider hands to channelsProvider, and Riverpod decides
+  // whether to notify dependents with ==. Without it, every recomputation looks
+  // like a change, so the channel streams are torn down and resubscribed and
+  // the list blanks and refills — which reads as the page flickering.
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ChannelViewer &&
+          other.uid == uid &&
+          other.guest == guest &&
+          other.seesPrivate == seesPrivate;
+
+  @override
+  int get hashCode => Object.hash(uid, guest, seesPrivate);
 }

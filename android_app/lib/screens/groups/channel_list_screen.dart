@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../models/group.dart';
 import '../../providers/auth_providers.dart';
+import '../../providers/voice_channel_providers.dart';
+import '../../providers/users_providers.dart';
 import '../../providers/groups_providers.dart';
 import '../../router/route_paths.dart';
 import '../../services/image_service.dart';
@@ -82,12 +84,19 @@ class ChannelListScreen extends ConsumerWidget {
                               'groups/$groupId/channels/${c.id}',
                             )],
                           );
+                      final isVoice = c.type == 'voice';
                       return ListTile(
                         // A private channel only reaches this list if the
                         // viewer is allowed it — GroupsRepository
                         // .listenChannels queries for exactly what the rules
                         // will serve — so the lock is a label, not a gate.
-                        leading: c.private
+                        leading: isVoice
+                            ? const Icon(
+                                Icons.volume_up,
+                                size: 18,
+                                color: Palette.inkDim,
+                              )
+                            : c.private
                             ? const Icon(
                                 Icons.lock_outline,
                                 size: 16,
@@ -99,13 +108,21 @@ class ChannelListScreen extends ConsumerWidget {
                                   color: Palette.inkDim,
                                 ),
                               ),
+                        subtitle: isVoice
+                            ? _VoiceRosterLine(
+                                groupId: groupId,
+                                channelId: c.id,
+                              )
+                            : null,
                         title: Text(
                           c.name,
                           style: AppTextStyles.sm(
                             weight: unread ? FontWeight.w700 : FontWeight.w400,
                           ),
                         ),
-                        trailing: unread
+                        // An unread dot is meaningless for a voice channel:
+                        // there are no messages to have missed.
+                        trailing: unread && !isVoice
                             ? const SizedBox(
                                 width: 8,
                                 height: 8,
@@ -181,6 +198,44 @@ class _GroupBanner extends StatelessWidget {
         ImageService.decodeDataUrl(bannerURL),
         fit: BoxFit.cover,
       ),
+    );
+  }
+}
+
+/// Who is in a voice channel, under its name in the list.
+///
+/// Deliberately shows names rather than an avatar stack: on a phone the row is
+/// narrow, and "Rey, Emma" answers "is it worth joining" better than two 16px
+/// circles do. Renders nothing at all when the channel is empty, so a quiet
+/// list stays quiet.
+class _VoiceRosterLine extends ConsumerWidget {
+  const _VoiceRosterLine({required this.groupId, required this.channelId});
+
+  final String groupId;
+  final String channelId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final roster =
+        ref
+            .watch(
+              voiceRosterProvider((groupId: groupId, channelId: channelId)),
+            )
+            .valueOrNull ??
+        const [];
+    if (roster.isEmpty) return const SizedBox.shrink();
+
+    // The unfiltered directory: someone who has since left the workspace but is
+    // still sitting in the channel must still resolve to a name.
+    final usersById = ref.watch(usersByIdProvider);
+    final names = roster
+        .map((p) => usersById[p.uid]?.name ?? 'Someone')
+        .toList();
+
+    return Text(
+      names.join(', '),
+      overflow: TextOverflow.ellipsis,
+      style: AppTextStyles.xs(color: Palette.ok),
     );
   }
 }
