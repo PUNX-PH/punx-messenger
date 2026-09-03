@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../providers/auth_providers.dart';
 import '../../providers/calls_providers.dart';
+import '../../providers/voice_channel_providers.dart';
 import '../../services/notification_listener_service.dart';
 import '../../services/presence_service.dart';
 import '../../theme/palette.dart';
@@ -23,6 +24,7 @@ class AppShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(profileProvider).valueOrNull;
     final isSuperAdmin = profile?.role.isSuperAdmin ?? false;
+    final immersive = ref.watch(voiceImmersiveProvider);
 
     final items = <BottomNavigationBarItem>[
       const BottomNavigationBarItem(
@@ -67,20 +69,28 @@ class AppShell extends ConsumerWidget {
       ),
       // Voice sits directly above the nav bar so it is present on every tab —
       // the connection outlives the screen you joined it from.
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const VoiceStatusBar(),
-          BottomNavigationBar(
-            items: items,
-            currentIndex: currentIndex,
-            onTap: (index) => navigationShell.goBranch(
-              index,
-              initialLocation: index == navigationShell.currentIndex,
+      //
+      // Except in the voice room in landscape, where the room asks for the
+      // whole screen ([voiceImmersiveProvider]) and this chrome would eat most
+      // of the ~360 logical px of height a phone has there. The connection is
+      // unaffected; only its status row is hidden, and the room carries its own
+      // controls.
+      bottomNavigationBar: immersive
+          ? null
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const VoiceStatusBar(),
+                BottomNavigationBar(
+                  items: items,
+                  currentIndex: currentIndex,
+                  onTap: (index) => navigationShell.goBranch(
+                    index,
+                    initialLocation: index == navigationShell.currentIndex,
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
     );
   }
 }

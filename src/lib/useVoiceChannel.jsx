@@ -278,6 +278,17 @@ function useVoiceChannelEngine() {
     }
     // Without this the answer says recvonly and BOTH directions of video die.
     tx.direction = 'sendrecv'
+    // Give the adopted transceiver the same stream association the offerer sets
+    // at creation, so our ANSWER also carries an msid for video. Without it a
+    // receiver of our video gets a track with an empty `streams` — harmless on
+    // web, which accumulates tracks by hand, but the Android renderer resolves
+    // natively from a MediaStream and has nothing to work with. See the note in
+    // android_app/lib/providers/voice_channel_providers.dart.
+    const localForMsid = processedStreamRef.current
+    if (localForMsid && tx.sender.setStreams) {
+      // Chrome-only, and this app is already Chromium-targeted elsewhere.
+      try { tx.sender.setStreams(localForMsid) } catch { /* not supported */ }
+    }
     entry.videoSender = tx.sender
     // Also covers a toggle that landed during the await above, which would
     // have skipped this peer while its videoSender was still null.
@@ -296,7 +307,18 @@ function useVoiceChannelEngine() {
     const pc = createPeerConnection()
     let videoSender = null
     if (isOfferer) {
-      const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' })
+      // Pass the stream, not only a direction. Without it nothing signals an
+      // msid for this m-line and every receiver gets a video track with an
+      // empty `streams`, which is what broke Android — see adoptVideoTransceiver
+      // above and the note in
+      // android_app/lib/providers/voice_channel_providers.dart. Reusing the
+      // audio stream is deliberate: one remote MediaStream per peer carrying
+      // both tracks is exactly what ontrack already builds by hand here.
+      const localForMsid = processedStreamRef.current
+      const videoTransceiver = pc.addTransceiver('video', {
+        direction: 'sendrecv',
+        ...(localForMsid ? { streams: [localForMsid] } : {}),
+      })
       videoSender = videoTransceiver.sender
       // If my camera/screen-share was already on before this peer joined,
       // give their sender a track immediately — same replaceTrack() path

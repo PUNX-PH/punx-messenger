@@ -300,6 +300,15 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     try {
       await peer.pc.close();
     } catch (_) {}
+    // Dispose the holder stream, and only after the peer connection is closed.
+    // Left alive it stays registered in the plugin's localStreams for the rest
+    // of the process, still listing tracks that closing the peer connection has
+    // already destroyed — which is how a later join ended up resolving a
+    // disposed track. See the note in onTrack.
+    try {
+      await peer.remote?.dispose();
+    } catch (_) {}
+    peer.remote = null;
     _lastLoudAt.remove(peerUid);
 
     final ref = state.active;
@@ -357,13 +366,55 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     peer.remote = remote;
 
     pc.onTrack = (RTCTrackEvent e) async {
-      // addToNative: false — this is a holder for tracks we received, not a
-      // stream we are publishing.
-      await remote.addTrack(e.track, addToNative: false);
+      // Always prefer the stream the sender actually signalled. A remote
+      // MediaStream is owned by the peer connection and already contains its
+      // tracks natively, which is exactly what RTCVideoRenderer needs: it
+      // resolves what to draw from the NATIVE stream's videoTracks, so a stream
+      // we assembled ourselves only works if the native add also worked.
+      //
+      // The holder below is the fallback for a track that arrives with no msid,
+      // which is what a transceiver added without a stream produces. It is not
+      // merely uglier, it is unsafe, and this was the actual "I can't see the
+      // screen share" bug:
+      //   * the tracks inside it belong to the peer connection, so pc.close()
+      //     disposes them while this stream still lists them;
+      //   * Chrome re-synthesises the SAME track id for a msid-less
+      //     transceiver, so on the next join the plugin's getTrackForId matches
+      //     that dead entry first and hands back a disposed track;
+      //   * the renderer then throws `MediaStreamTrack has been disposed.` and
+      //     the tile stays blank for the rest of the session.
+      // Signalling an msid on the sending side is what avoids the whole class,
+      // so the fallback should be rare — see the matching change in
+      // src/lib/useVoiceChannel.jsx.
+      final signalled = e.streams.isNotEmpty ? e.streams.first : null;
+      var nativeAdded = true;
+      if (signalled == null) {
+        // The try/catch is not decoration. `MediaStream.addTrack` appends to
+        // the Dart-side list BEFORE calling mediaStreamAddTrack, so a native
+        // failure throws with the Dart list already updated — and, uncaught,
+        // would abort the rest of this handler and never publish `state`. The
+        // tile would then never learn the stream exists at all, which is
+        // strictly worse than a blank tile.
+        try {
+          await remote.addTrack(e.track, addToNative: true);
+        } catch (err) {
+          nativeAdded = false;
+          debugPrint('[voice] native addTrack failed (${e.track.kind}): $err');
+        }
+      }
+      final stream = signalled ?? remote;
+      debugPrint(
+        '[voice] onTrack kind=${e.track.kind} id=${e.track.id} '
+        'streams=${e.streams.length} signalled=${signalled != null} '
+        'nativeAdded=$nativeAdded peer=$peerUid',
+      );
       if (e.track.kind == 'video') peer.videoTrack = e.track;
       if (e.track.kind == 'audio') _applyOutputTo(e.track);
+      // Published after the stream is resolved, never before: the tile assigns
+      // srcObject in response to this, and the renderer reads the stream's
+      // track list at that moment.
       state = state.copyWith(
-        remoteStreams: {...state.remoteStreams, peerUid: remote},
+        remoteStreams: {...state.remoteStreams, peerUid: stream},
         remoteVideoTracks: {
           ...state.remoteVideoTracks,
           if (peer.videoTrack != null) peerUid: peer.videoTrack!,
@@ -744,3 +795,14 @@ final voiceControllerProvider =
     StateNotifierProvider<VoiceController, VoiceUiState>(
   (ref) => VoiceController(ref),
 );
+
+/// True while the voice room is asking for the entire screen — set when it is
+/// on-screen in landscape, which is where the nav chrome costs more than it is
+/// worth. [AppShell] hides its own chrome in response, so the video can run
+/// edge to edge the way Discord does when you rotate a call.
+///
+/// A flag rather than the shell deciding for itself: the shell can see the
+/// orientation and that a call is live, but not that the voice room is the
+/// route you are actually looking at — and hiding the nav bar while someone
+/// reads a DM in landscape would be its own bug.
+final voiceImmersiveProvider = StateProvider<bool>((_) => false);
