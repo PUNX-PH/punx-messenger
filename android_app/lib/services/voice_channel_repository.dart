@@ -187,31 +187,41 @@ class VoiceChannelRepository {
   ) async {
     final pairKey = voicePairKey(myUid, peerUid);
     final ref = _signal(groupId, channelId, pairKey);
-    // Delete first, always — this is the fix, not a precaution.
-    //
-    // `set` on a doc that ALREADY EXISTS is evaluated against the `update`
-    // rule, not `create`. voiceSignals' update rule allows exactly one thing:
-    // the NON-offerer attaching `answer`. So an offerer writing its full
-    // payload over a leftover doc is denied, and stays denied forever —
-    // "Missing or insufficient permissions" on joining.
-    //
-    // Leftover docs are the normal case: the teardown that removes them only
-    // runs on a clean leave, so any client that crashed or was killed leaves
-    // one behind. Self-delete is always permitted for a pair member and is a
-    // no-op when absent, so the write below is always a genuine create.
-    //
-    // Mirrors the same fix in src/lib/voiceChannel.js, and the earlier one in
-    // joinRoster. Both clients write this document, so both need it.
-    try {
-      await ref.delete();
-    } catch (_) {}
-    await ref.set({
+    final payload = <String, dynamic>{
       'uids': [myUid, peerUid]..sort(),
       'offererUid': voiceOffererUid(myUid, peerUid),
       'offer': offer,
       'answer': null,
       'createdAt': FieldValue.serverTimestamp(),
-    });
+    };
+
+    // Try the write first, and clear a leftover doc only if it is refused. Do
+    // NOT hoist the delete above this.
+    //
+    // `set` on a doc that ALREADY EXISTS is evaluated against the `update`
+    // rule, not `create`. voiceSignals' update rule allows exactly one thing —
+    // the NON-offerer attaching `answer` — so an offerer writing its full
+    // payload over a leftover doc is denied, and stays denied forever. Leftover
+    // docs are the normal case: teardown only runs on a clean leave, so any
+    // client that crashed or was killed leaves one behind.
+    //
+    // Deleting unconditionally fixed that and introduced a worse-behaved bug:
+    // it leaves a window with no doc at all, and the ANSWERER's `answer` write
+    // is an `update`, which matches no rule when the doc is missing. Answering
+    // takes hundreds of ms, so that window got hit routinely — "Couldn't answer
+    // a participant: permission-denied". Recovering only on refusal keeps the
+    // common path gap-free.
+    //
+    // Mirrors src/lib/voiceChannel.js. Both clients write this doc.
+    try {
+      await ref.set(payload);
+    } on FirebaseException catch (e) {
+      if (e.code != 'permission-denied') rethrow;
+      try {
+        await ref.delete();
+      } catch (_) {}
+      await ref.set(payload);
+    }
     return pairKey;
   }
 
