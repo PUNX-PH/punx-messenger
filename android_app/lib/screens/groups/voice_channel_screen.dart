@@ -34,6 +34,11 @@ const double _fsControlsHeight = 60;
 /// them in one layout rather than needing a separate Column for each mode.
 const double _controlsHeight = 84;
 
+/// Corner radius shared by a tile's card and the ClipRRect around its video.
+/// One constant on purpose: they have to match, and the video needs its own
+/// clip because the card's clipBehavior cannot reach a texture/platform view.
+const double _tileRadius = 10;
+
 /// The room. Port of `src/views/VoiceChannelRoom.jsx`, minus the browser-only
 /// extras (document picture-in-picture, pop-out).
 ///
@@ -696,7 +701,7 @@ class _VoiceTileState extends State<_VoiceTile> {
       child: Container(
         decoration: BoxDecoration(
           color: Palette.bgRaised,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(_tileRadius),
           border: Border.all(
             color: widget.speaking ? Palette.ok : Colors.transparent,
             width: 2,
@@ -709,13 +714,21 @@ class _VoiceTileState extends State<_VoiceTile> {
             // Mounted as soon as a track exists so it can start receiving,
             // with the avatar laid over the top until frames actually arrive.
             if (_ready && _hasVideoTrack)
-              RTCVideoView(
-                _renderer,
-                mirror: widget.isSelf && !p.screenSharing,
-                objectFit: p.screenSharing
-                    // A share centre-cropped reads as "stuck zoomed in".
-                    ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain
-                    : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+              // Its own ClipRRect, matching the card's radius. The Container's
+              // clipBehavior does not reach the video: it renders through a
+              // texture/platform view, which is composited outside the layer
+              // Flutter would clip — so the card had rounded corners and the
+              // picture inside it had square ones.
+              ClipRRect(
+                borderRadius: BorderRadius.circular(_tileRadius),
+                child: RTCVideoView(
+                  _renderer,
+                  mirror: widget.isSelf && !p.screenSharing,
+                  objectFit: p.screenSharing
+                      // A share centre-cropped reads as "stuck zoomed in".
+                      ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain
+                      : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                ),
               ),
             if (!_ready || !_hasVideoTrack || !_live)
               Center(
