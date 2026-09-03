@@ -64,6 +64,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -106,3 +107,19 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# Launcher icon generation: `dart run flutter_launcher_icons`.
+# These source images are build-time inputs only, deliberately NOT declared
+# under `flutter: assets:` — nothing loads them at runtime, so shipping them
+# inside the APK would be dead weight.
+flutter_launcher_icons:
+  android: true
+  ios: true
+  # iOS has no adaptive-icon layering and no alpha channel allowed, so it
+  # gets the flat square mark rather than the transparent foreground.
+  remove_alpha_ios: true
+  image_path: "assets/icon_punx.png"
+  # Adaptive icon (Android 8+): flat background colour behind a padded
+  # foreground, so the system mask never crops the letters.
+  adaptive_icon_background: "#17171A"
+  adaptive_icon_foreground: "assets/logo_punx.png"
