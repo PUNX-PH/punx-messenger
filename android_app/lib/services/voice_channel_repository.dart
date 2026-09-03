@@ -186,7 +186,26 @@ class VoiceChannelRepository {
     Map<String, dynamic> offer,
   ) async {
     final pairKey = voicePairKey(myUid, peerUid);
-    await _signal(groupId, channelId, pairKey).set({
+    final ref = _signal(groupId, channelId, pairKey);
+    // Delete first, always — this is the fix, not a precaution.
+    //
+    // `set` on a doc that ALREADY EXISTS is evaluated against the `update`
+    // rule, not `create`. voiceSignals' update rule allows exactly one thing:
+    // the NON-offerer attaching `answer`. So an offerer writing its full
+    // payload over a leftover doc is denied, and stays denied forever —
+    // "Missing or insufficient permissions" on joining.
+    //
+    // Leftover docs are the normal case: the teardown that removes them only
+    // runs on a clean leave, so any client that crashed or was killed leaves
+    // one behind. Self-delete is always permitted for a pair member and is a
+    // no-op when absent, so the write below is always a genuine create.
+    //
+    // Mirrors the same fix in src/lib/voiceChannel.js, and the earlier one in
+    // joinRoster. Both clients write this document, so both need it.
+    try {
+      await ref.delete();
+    } catch (_) {}
+    await ref.set({
       'uids': [myUid, peerUid]..sort(),
       'offererUid': voiceOffererUid(myUid, peerUid),
       'offer': offer,

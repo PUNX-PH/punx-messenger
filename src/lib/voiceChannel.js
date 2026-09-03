@@ -164,7 +164,25 @@ export async function pruneStaleParticipants(groupId, channelId) {
 // this pair — the other side never calls this, it just waits for the doc.
 export async function createVoiceOffer(groupId, channelId, myUid, peerUid, offer) {
   const pairKey = voicePairKey(myUid, peerUid)
-  await setDoc(signalDoc(groupId, channelId, pairKey), {
+  const ref = signalDoc(groupId, channelId, pairKey)
+  // Delete first, always — this is not belt-and-braces, it is the fix.
+  //
+  // setDoc on a doc that ALREADY EXISTS is evaluated against the `update` rule,
+  // not `create`. voiceSignals' update rule permits exactly one thing: the
+  // NON-offerer attaching `answer`. So an offerer writing its full payload over
+  // a leftover doc is denied — and it stays denied forever, surfacing as
+  // "Couldn't connect to a participant: Missing or insufficient permissions".
+  //
+  // Leftover docs are the normal case, not an edge case: the teardown that
+  // deletes them only runs on a clean leave, so any client that crashed, was
+  // killed, or had its process restarted leaves one behind. Self-delete is
+  // always permitted for a pair member and is a no-op when the doc is absent,
+  // so the write below is always a genuine create.
+  //
+  // Exactly the same trap, for the same reason, as joinRoster — see the note
+  // there before touching any setDoc that has a narrow update rule over it.
+  await deleteDoc(ref).catch(() => {})
+  await setDoc(ref, {
     uids: [myUid, peerUid].sort(),
     offererUid: voiceOffererUid(myUid, peerUid),
     offer,
