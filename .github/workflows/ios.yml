@@ -1,0 +1,119 @@
+name: Build iOS (macOS runner)
+
+# iOS cannot be built anywhere but macOS: `flutter build ipa` shells out to
+# Xcode's toolchain (xcodebuild, clang, codesign, the iOS SDK), which Apple
+# ships for macOS only. On Windows the `ipa`/`ios` subcommands do not even
+# exist. This job is how the project gets an iOS build without anyone owning a
+# Mac.
+#
+# workflow_dispatch ONLY, deliberately — no push trigger. GitHub bills macOS
+# runners at 10x the Linux rate against a private repo's minutes, so this runs
+# when someone asks for it, not on every commit.
+on:
+  workflow_dispatch:
+    inputs:
+      signed:
+        description: >-
+          Produce a distributable signed .ipa. Requires the signing secrets
+          below to be set; leave false for a compile-only check.
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: android_app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter --version
+
+      - run: flutter pub get
+
+      # Firebase needs GoogleService-Info.plist at RUNTIME, not to compile, so
+      # its absence does not fail this build — the app would launch and then
+      # fail to initialise Firebase. Wired in from a secret when present so a
+      # signed build is actually usable.
+      - name: Add GoogleService-Info.plist (if configured)
+        env:
+          PLIST_B64: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST_B64 }}
+        run: |
+          if [ -n "$PLIST_B64" ]; then
+            echo "$PLIST_B64" | base64 --decode > ios/Runner/GoogleService-Info.plist
+            echo "plist written"
+          else
+            echo "::warning::No IOS_GOOGLE_SERVICE_INFO_PLIST_B64 secret."
+            echo "::warning::The build will compile but Firebase will not initialise at launch."
+          fi
+
+      - run: flutter analyze
+
+      # Unsigned compile check. This is the valuable half: it proves the iOS
+      # project, the Podfile and every plugin (flutter_webrtc especially) build
+      # for arm64 device targets. No certificates involved.
+      - name: Build unsigned
+        if: ${{ !inputs.signed }}
+        run: flutter build ios --release --no-codesign
+
+      # Signed .ipa. Needs a distribution certificate and provisioning profile
+      # in the runner keychain; see the repo notes for generating the secrets.
+      - name: Build signed .ipa
+        if: ${{ inputs.signed }}
+        env:
+          CERT_B64: ${{ secrets.IOS_DIST_CERT_P12_B64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          PROFILE_B64: ${{ secrets.IOS_PROVISIONING_PROFILE_B64 }}
+          TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          EXPORT_METHOD: ${{ vars.IOS_EXPORT_METHOD || 'app-store' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CERT_B64:-}" ] || [ -z "${PROFILE_B64:-}" ] || [ -z "${TEAM_ID:-}" ]; then
+            echo "::error::signed=true needs IOS_DIST_CERT_P12_B64, IOS_PROVISIONING_PROFILE_B64 and IOS_TEAM_ID."
+            exit 1
+          fi
+          # Generated rather than committed: it carries the team id, and the
+          # export method differs per destination (app-store / ad-hoc /
+          # development), so pinning one in the repo would be wrong for the rest.
+          cat > ios/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>${EXPORT_METHOD}</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>manual</string>
+          </dict>
+          </plist>
+          PLIST
+          # Throwaway keychain, unlocked only for this job.
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          security create-keychain -p "" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
+          echo "$CERT_B64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "" "$KEYCHAIN" >/dev/null
+          security list-keychain -d user -s "$KEYCHAIN"
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROFILE_B64" | base64 --decode \
+            > ~/Library/MobileDevice/"Provisioning Profiles"/build.mobileprovision
+          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-${{ inputs.signed && 'ipa' || 'unsigned-app' }}
+          if-no-files-found: error
+          path: |
+            android_app/build/ios/ipa/*.ipa
+            android_app/build/ios/iphoneos/*.app
