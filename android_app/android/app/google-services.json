@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "781531419503-a2aoath00lsv6ngg426e8a2dkgfe0b98.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.punx.messenger",
+            "certificate_hash": "12bf9945d20a10ead70ed2171954de3f38855eaf"
+          }
+        },
+        {
           "client_id": "781531419503-7b385h96c5hhnm9oikb1dni1n719gg1m.apps.googleusercontent.com",
           "client_type": 3
         }
