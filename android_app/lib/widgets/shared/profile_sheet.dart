@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../providers/auth_providers.dart';
+import '../../providers/theme_providers.dart';
 import '../../providers/voice_channel_providers.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
@@ -113,6 +114,23 @@ class ProfileSheet extends ConsumerWidget {
                 style: AppTextStyles.xs(color: Palette.inkMuted),
               ),
             ),
+          SwitchListTile(
+            value: ref.watch(themeModeProvider) == ThemeMode.light,
+            onChanged: (v) => ref
+                .read(themeModeProvider.notifier)
+                .setMode(v ? ThemeMode.light : ThemeMode.dark),
+            secondary: Icon(
+              ref.watch(themeModeProvider) == ThemeMode.light
+                  ? Icons.light_mode
+                  : Icons.dark_mode,
+              color: Palette.inkDim,
+            ),
+            title: Text('Light mode', style: AppTextStyles.sm()),
+            subtitle: Text(
+              'Remembered on this device.',
+              style: AppTextStyles.xs(color: Palette.inkMuted),
+            ),
+          ),
           const _NotificationsRow(),
           const Divider(height: 1),
           ListTile(

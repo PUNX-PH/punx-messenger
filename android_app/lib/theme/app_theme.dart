@@ -23,9 +23,14 @@ abstract final class AppShadows {
   ];
 }
 
-/// Punx Messenger is dark-theme only — no light mode, matching the web app.
-ThemeData buildAppTheme() {
-  final base = ThemeData.dark(useMaterial3: true);
+/// Built for whichever palette is active. Every colour below already resolves
+/// through a `Palette` getter, so switching mode is a matter of the Material
+/// base and the ColorScheme brightness — the tokens themselves are swapped by
+/// [ThemeModeController] before this runs.
+ThemeData buildAppTheme({bool light = false}) {
+  final base = light
+      ? ThemeData.light(useMaterial3: true)
+      : ThemeData.dark(useMaterial3: true);
   final textTheme = GoogleFonts.interTextTheme(
     base.textTheme,
   ).apply(bodyColor: Palette.ink, displayColor: Palette.ink);
@@ -35,7 +40,7 @@ ThemeData buildAppTheme() {
     canvasColor: Palette.bgMain,
     textTheme: textTheme,
     colorScheme: base.colorScheme.copyWith(
-      brightness: Brightness.dark,
+      brightness: light ? Brightness.light : Brightness.dark,
       primary: Palette.brand,
       onPrimary: Colors.white,
       secondary: Palette.brand,
