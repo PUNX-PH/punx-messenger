@@ -5,18 +5,20 @@ compatibility_date = "2024-11-01"
 directory = "./dist"
 not_found_handling = "single-page-application"
 
-# Custom domain for the app.
+# NO custom domain declared here, and that is deliberate until the zone moves.
 #
-# Declared here rather than only clicked into the dashboard so the domain lives
-# in version control with everything else. `custom_domain = true` makes
-# Cloudflare create the DNS record and issue the certificate itself — the zone
-# punxai.online is already on Cloudflare (ns: bryce/jill.ns.cloudflare.com), so
-# there is no ownership TXT and no CNAME to add by hand. That verification dance
-# belongs to hosts that do not control the zone.
+# `custom_domain = true` for plexus.punxai.online failed every deploy with:
+#   Could not find zone for `plexus.punxai.online`.
+# A Workers custom domain requires the zone to be in the SAME Cloudflare
+# account as the Worker. punxai.online's nameservers are Cloudflare's
+# (bryce/jill.ns.cloudflare.com), but that only proves Cloudflare hosts the
+# zone somewhere -- NS records do not say which account holds it, and this
+# account (rey@punx.ai) has none for it.
 #
-# It resolves over HTTPS once issued, which matters: browsers only permit
-# getUserMedia/getDisplayMedia on a secure origin, so voice and screen share
-# would not work at all over plain http.
-[[routes]]
-pattern = "plexus.punxai.online"
-custom_domain = true
+# Leaving the declaration in place broke both the Git build and manual deploys,
+# since the route is applied on every deploy. Re-add it once punxai.online is a
+# zone in this account:
+#
+#   [[routes]]
+#   pattern = "plexus.punxai.online"
+#   custom_domain = true
