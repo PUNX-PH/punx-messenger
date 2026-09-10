@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -252,9 +253,15 @@ class _VoiceChannelScreenState extends ConsumerState<VoiceChannelScreen> {
                       Positioned.fill(
                         child: Padding(
                           padding: EdgeInsets.only(
-                            bottom: compact
-                                ? _fsControlsHeight
-                                : _controlsHeight,
+                            // Nothing reserved in fullscreen: the video runs
+                            // under the control bar, which floats over it
+                            // behind its own gradient scrim. _Tiles keeps the
+                            // thumbnail strip clear of the controls itself.
+                            bottom: immersive
+                                ? 0
+                                : (compact
+                                    ? _fsControlsHeight
+                                    : _controlsHeight),
                             top: voice.connError != null ? 32 : 0,
                           ),
                           child: _Tiles(
@@ -264,6 +271,7 @@ class _VoiceChannelScreenState extends ConsumerState<VoiceChannelScreen> {
                             onTapTile: _choosePin,
                             voice: voice,
                             usersById: usersById,
+                            fill: immersive,
                           ),
                         ),
                       ),
@@ -403,7 +411,15 @@ class _Tiles extends StatelessWidget {
     required this.onTapTile,
     required this.voice,
     required this.usersById,
+    this.fill = false,
   });
+
+  /// Fullscreen: the spotlight takes the entire area and everyone else floats
+  /// on top of it, rather than sharing the space as a Row. Giving the strip its
+  /// own column costs ~18% of the width, and reserving room for the control bar
+  /// costs another 60px of height — on a phone in landscape that is most of
+  /// what there is.
+  final bool fill;
 
   final List<VoiceParticipant> participants;
   final String? myUid;
@@ -443,6 +459,35 @@ class _Tiles extends StatelessWidget {
             return Padding(
               padding: const EdgeInsets.all(6),
               child: _tile(pinned, big: true),
+            );
+          }
+          // Fullscreen: video edge to edge, everyone else overlaid in the
+          // corner clear of the control bar.
+          if (fill) {
+            final stripW = (c.maxWidth * 0.16).clamp(72.0, 132.0);
+            return Stack(
+              children: [
+                Positioned.fill(child: _tile(pinned, big: true, fill: true)),
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  width: stripW,
+                  // Bounded so a full channel cannot run the strip off the
+                  // bottom of the screen and under the controls.
+                  height: (c.maxHeight - _fsControlsHeight - 16)
+                      .clamp(0.0, c.maxHeight),
+                  child: ListView.builder(
+                    itemCount: others.length,
+                    itemBuilder: (_, i) => AspectRatio(
+                      aspectRatio: 1,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: _tile(others[i]),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             );
           }
           // Wide and short: put the others down the side, so the full height
@@ -525,7 +570,7 @@ class _Tiles extends StatelessWidget {
     );
   }
 
-  Widget _tile(VoiceParticipant p, {bool big = false}) {
+  Widget _tile(VoiceParticipant p, {bool big = false, bool fill = false}) {
     final isSelf = p.uid == myUid;
     final stream = isSelf
         ? voice.localVideoStream
@@ -552,6 +597,7 @@ class _Tiles extends StatelessWidget {
       videoTrack: track,
       onTap: () => onTapTile(p.uid),
       big: big,
+      fill: fill,
     );
   }
 }
@@ -579,6 +625,7 @@ class _VoiceTile extends StatefulWidget {
     required this.videoTrack,
     required this.onTap,
     required this.big,
+    this.fill = false,
   });
 
   final VoiceParticipant participant;
@@ -589,6 +636,13 @@ class _VoiceTile extends StatefulWidget {
   final MediaStreamTrack? videoTrack;
   final VoidCallback onTap;
   final bool big;
+
+  /// Edge to edge: no aspect hug and no card chrome. A rounded, bordered card
+  /// around a fullscreen video reads as a window rather than fullscreen, and
+  /// the hug would letterbox inside an already-reduced box. `contain` on the
+  /// video still means nothing is cropped — it just letterboxes against the
+  /// whole screen instead of against a card.
+  final bool fill;
 
   @override
   State<_VoiceTile> createState() => _VoiceTileState();
@@ -615,6 +669,30 @@ class _VoiceTileState extends State<_VoiceTile> {
   bool _lastLive = false;
   double _lastAspect = 1;
 
+  /// How long to keep the buffering indicator up after the first frame.
+  ///
+  /// The wait is not only "no frames yet". A screen-share encoder emits its
+  /// first keyframe for a static page slowly, and what lands immediately after
+  /// is often black or half-painted — dimensions are known, so the avatar has
+  /// already stepped aside, and the viewer stares at a black rectangle. Holding
+  /// the spinner briefly past the first frame covers that, rather than handing
+  /// over to a picture that is not there yet.
+  static const _bufferGrace = Duration(milliseconds: 1200);
+
+  DateTime? _firstFrameAt;
+  Timer? _graceTimer;
+
+  /// Someone says they are sending video, but there is nothing watchable yet.
+  /// Driven by the roster flag rather than the track's existence: the video
+  /// transceiver is created empty at join, so a track exists for every peer
+  /// from the moment they connect and would spin forever.
+  bool get _buffering {
+    if (!widget.participant.hasVideoFlag) return false;
+    if (!_live) return true;
+    final at = _firstFrameAt;
+    return at != null && DateTime.now().difference(at) < _bufferGrace;
+  }
+
   /// Relative change in aspect ratio worth re-laying out for.
   ///
   /// A screen share renegotiates resolution constantly — the window resizes,
@@ -640,6 +718,15 @@ class _VoiceTileState extends State<_VoiceTile> {
         (aspect - _lastAspect).abs() / _lastAspect > _aspectEpsilon;
 
     if (!liveChanged && !shapeChanged) return;
+
+    if (liveChanged && live) {
+      _firstFrameAt = DateTime.now();
+      _graceTimer?.cancel();
+      // Nothing else will rebuild when the grace simply expires.
+      _graceTimer = Timer(_bufferGrace, () {
+        if (mounted) setState(() {});
+      });
+    }
 
     _lastLive = live;
     _lastAspect = aspect;
@@ -679,6 +766,7 @@ class _VoiceTileState extends State<_VoiceTile> {
   @override
   void dispose() {
     widget.videoTrack?.onUnMute = null;
+    _graceTimer?.cancel();
     _renderer.removeListener(_onRendererChanged);
     _renderer.srcObject = null;
     _renderer.dispose();
@@ -716,7 +804,7 @@ class _VoiceTileState extends State<_VoiceTile> {
     // Only for the big tile, and only once frames have actually arrived:
     // RTCVideoValue.aspectRatio reports 1.0 while the size is still unknown,
     // and squaring the tile off on that would be a visible jump.
-    if (widget.big && _live) {
+    if (widget.big && _live && !widget.fill) {
       return Center(
         child: AspectRatio(
           // The settled ratio, not the live one: laying out against a value
@@ -733,15 +821,17 @@ class _VoiceTileState extends State<_VoiceTile> {
     return GestureDetector(
       onTap: widget.onTap,
       child: Container(
-        decoration: BoxDecoration(
-          color: Palette.bgRaised,
-          borderRadius: BorderRadius.circular(_tileRadius),
-          border: Border.all(
-            color: widget.speaking ? Palette.ok : Colors.transparent,
-            width: 2,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
+        decoration: widget.fill
+            ? const BoxDecoration(color: Colors.black)
+            : BoxDecoration(
+                color: Palette.bgRaised,
+                borderRadius: BorderRadius.circular(_tileRadius),
+                border: Border.all(
+                  color: widget.speaking ? Palette.ok : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+        clipBehavior: widget.fill ? Clip.none : Clip.antiAlias,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -753,8 +843,8 @@ class _VoiceTileState extends State<_VoiceTile> {
               // texture/platform view, which is composited outside the layer
               // Flutter would clip — so the card had rounded corners and the
               // picture inside it had square ones.
-              ClipRRect(
-                borderRadius: BorderRadius.circular(_tileRadius),
+              _MaybeClip(
+                round: !widget.fill,
                 child: RTCVideoView(
                   _renderer,
                   mirror: widget.isSelf && !p.screenSharing,
@@ -767,6 +857,19 @@ class _VoiceTileState extends State<_VoiceTile> {
             if (!_ready || !_hasVideoTrack || !_live)
               Center(
                 child: Avatar(name: widget.name, size: widget.big ? 72 : 40),
+              ),
+            if (_buffering)
+              Center(
+                child: SizedBox(
+                  width: widget.big ? 34 : 20,
+                  height: widget.big ? 34 : 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: widget.big ? 3 : 2,
+                    // White rather than a palette colour: this sits on video or
+                    // on black, never on a themed surface.
+                    color: Colors.white.withValues(alpha: 0.9),
+                  ),
+                ),
               ),
             Positioned(
               left: 6,
@@ -953,4 +1056,24 @@ class _ScrimIconButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Rounds a child's corners to the tile radius, or leaves it alone.
+///
+/// The video needs its own clip because a Container's clipBehavior cannot reach
+/// a texture/platform view — but in fullscreen it must NOT be clipped, or the
+/// picture keeps card corners while filling the screen.
+class _MaybeClip extends StatelessWidget {
+  const _MaybeClip({required this.round, required this.child});
+
+  final bool round;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => round
+      ? ClipRRect(
+          borderRadius: BorderRadius.circular(_tileRadius),
+          child: child,
+        )
+      : child;
 }

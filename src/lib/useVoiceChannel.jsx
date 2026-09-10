@@ -599,6 +599,20 @@ function useVoiceChannelEngine() {
       const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
       screenStreamRef.current = screenStream
       const track = screenStream.getVideoTracks()[0]
+      // Tell the encoder this is screen content, not a face.
+      //
+      // Without a hint the encoder treats a share like camera video and
+      // optimises for smooth motion, which for a static page means it is slow
+      // to emit the first keyframe — and a receiver cannot paint ANYTHING
+      // until that keyframe lands. That is the several seconds of black a
+      // viewer sees when a share starts on a page that isn't moving.
+      //
+      // 'detail' asks for sharp text at the cost of framerate, which is the
+      // right trade for a console or a document, and makes the encoder far
+      // readier to produce a frame for still content. It does not eliminate
+      // the wait — no browser API lets a receiver request a keyframe — but it
+      // is the one lever the sender has.
+      track.contentHint = 'detail'
       peersRef.current.forEach(entry => entry.videoSender?.replaceTrack(track).catch(() => {}))
       // The browser's own "Stop sharing" bar/button ends the track directly
       // — catch that so our state doesn't get stuck showing "sharing".
