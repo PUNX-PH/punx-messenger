@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../providers/auth_providers.dart';
 import '../../providers/voice_channel_providers.dart';
@@ -91,6 +92,29 @@ class ProfileSheet extends ConsumerWidget {
             ),
           ),
           const Divider(height: 1),
+          // The web's gear menu, which is the closest thing it has to a
+          // settings screen: voice settings while connected, then
+          // notifications. Admin panel is omitted because it is a bottom-nav
+          // tab here, and Sign out follows below.
+          if (inVoice)
+            SwitchListTile(
+              value: ref.watch(voiceControllerProvider).speakerphone,
+              onChanged: (v) => ref
+                  .read(voiceControllerProvider.notifier)
+                  .setSpeakerphone(v),
+              secondary: const Icon(Icons.volume_up, color: Palette.inkDim),
+              title: Text('Speakerphone', style: AppTextStyles.sm()),
+              subtitle: Text(
+                // Deliberately not the web's device pickers. A browser
+                // enumerates and selects audio devices itself; Android routes
+                // at the OS level, so the honest mobile equivalent is choosing
+                // earpiece vs speaker and letting the system handle the rest.
+                'Play voice through the speaker instead of the earpiece.',
+                style: AppTextStyles.xs(color: Palette.inkMuted),
+              ),
+            ),
+          const _NotificationsRow(),
+          const Divider(height: 1),
           ListTile(
             leading: const Icon(Icons.logout, color: Palette.bad),
             title: Text('Sign out', style: AppTextStyles.sm(color: Palette.bad)),
@@ -163,6 +187,75 @@ class ProfileAvatarButton extends ConsumerWidget {
       tooltip: 'You',
       onPressed: () => ProfileSheet.show(context),
       icon: Avatar(name: profile.name, src: profile.photoURL, size: 28),
+    );
+  }
+}
+
+/// Notification permission, mirroring the web's three states: granted, blocked,
+/// or still askable.
+///
+/// Android 13+ requires the runtime grant, and the app currently only ever asks
+/// once, from the notification service's start(). Someone who declined then had
+/// no way to change their mind inside the app — this is that way.
+class _NotificationsRow extends StatefulWidget {
+  const _NotificationsRow();
+
+  @override
+  State<_NotificationsRow> createState() => _NotificationsRowState();
+}
+
+class _NotificationsRowState extends State<_NotificationsRow> {
+  PermissionStatus? _status;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final s = await Permission.notification.status;
+    if (mounted) setState(() => _status = s);
+  }
+
+  Future<void> _onTap() async {
+    // A permanently denied permission cannot be re-requested in-app — the
+    // dialog simply never appears — so the only honest action is to send the
+    // user to the OS settings page rather than a button that does nothing.
+    if (_status == PermissionStatus.permanentlyDenied) {
+      await openAppSettings();
+      return;
+    }
+    await Permission.notification.request();
+    await _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final granted = _status == PermissionStatus.granted;
+    final blocked = _status == PermissionStatus.permanentlyDenied;
+    final label = _status == null
+        ? 'Notifications'
+        : granted
+            ? 'Notifications: On'
+            : blocked
+                ? 'Notifications blocked'
+                : 'Enable notifications';
+
+    return ListTile(
+      leading: Icon(
+        granted ? Icons.notifications_active : Icons.notifications_off,
+        color: granted ? Palette.inkDim : Palette.warn,
+      ),
+      title: Text(label, style: AppTextStyles.sm()),
+      subtitle: blocked
+          ? Text(
+              'Turn them back on in Android settings.',
+              style: AppTextStyles.xs(color: Palette.inkMuted),
+            )
+          : null,
+      // Nothing to do when already granted; revoking is an OS-level action.
+      onTap: granted ? null : _onTap,
     );
   }
 }

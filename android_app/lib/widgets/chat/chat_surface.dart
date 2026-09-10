@@ -86,9 +86,11 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
     final containerPath = widget.path.startsWith('users/')
         ? null
         : widget.path.replaceFirst(RegExp(r'/messages$'), '');
-    final typingNames = containerPath == null
-        ? const <String>[]
-        : ref.watch(typingNamesProvider(containerPath));
+    // The LABEL, not the name list: see typingLabelProvider on why watching
+    // the list here rebuilt this whole surface every two seconds.
+    final typingLabel = containerPath == null
+        ? null
+        : ref.watch(typingLabelProvider(containerPath));
 
     final controllerState = ref.watch(chatControllerProvider(widget.path));
     final controller = ref.read(chatControllerProvider(widget.path).notifier);
@@ -155,7 +157,7 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
               onJumpToMessage: _jumpTo,
             ),
           ),
-          TypingIndicator(names: typingNames),
+          TypingIndicator(label: typingLabel),
           Composer(
             placeholder:
                 widget.composerPlaceholder ??

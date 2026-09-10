@@ -56,6 +56,7 @@ class VoiceUiState {
     this.muted = false,
     this.deafened = false,
     this.cameraOn = false,
+    this.speakerphone = false,
     this.localVideoStream,
     this.joining = false,
     this.connError,
@@ -77,6 +78,13 @@ class VoiceUiState {
   final bool muted;
   final bool deafened;
   final bool cameraOn;
+
+  /// Tracked here rather than read back from the OS: Android exposes no
+  /// reliable getter for the current routing, so this is what we last asked
+  /// for. Kept in state so the settings toggle does not forget its position
+  /// each time the sheet is closed.
+  final bool speakerphone;
+
   final MediaStream? localVideoStream;
   final bool joining;
   final String? connError;
@@ -93,6 +101,7 @@ class VoiceUiState {
     bool? muted,
     bool? deafened,
     bool? cameraOn,
+    bool? speakerphone,
     MediaStream? localVideoStream,
     bool clearLocalVideo = false,
     bool? joining,
@@ -108,6 +117,7 @@ class VoiceUiState {
       muted: muted ?? this.muted,
       deafened: deafened ?? this.deafened,
       cameraOn: cameraOn ?? this.cameraOn,
+      speakerphone: speakerphone ?? this.speakerphone,
       localVideoStream:
           clearLocalVideo ? null : (localVideoStream ?? this.localVideoStream),
       joining: joining ?? this.joining,
@@ -699,8 +709,13 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     await _nativeAudio('camera flip', () => Helper.switchCamera(track));
   }
 
-  Future<void> setSpeakerphone(bool on) =>
-      _nativeAudio('speakerphone', () => Helper.setSpeakerphoneOn(on));
+  Future<void> setSpeakerphone(bool on) async {
+    // State first so the switch responds immediately; the native call is a
+    // routing hint that is allowed to fail (see _nativeAudio) without leaving
+    // the toggle stuck mid-flight.
+    state = state.copyWith(speakerphone: on);
+    await _nativeAudio('speakerphone', () => Helper.setSpeakerphoneOn(on));
+  }
 
   void _pushRosterState() {
     final ref = state.active;

@@ -6,15 +6,18 @@ import '../../theme/text_styles.dart';
 /// Port of components/TypingIndicator.jsx. Always reserves a fixed-height
 /// row so the composer doesn't jump when someone starts/stops typing.
 class TypingIndicator extends StatelessWidget {
-  const TypingIndicator({super.key, required this.names});
+  const TypingIndicator({super.key, required this.label});
 
-  final List<String> names;
+  /// Pre-formatted by `typingLabelProvider`, null when nobody is typing. The
+  /// formatting lives there rather than here so the value being watched is a
+  /// String — see that provider on the rebuild loop this avoids.
+  final String? label;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       height: 18,
-      child: names.isEmpty
+      child: label == null
           ? const SizedBox.shrink()
           : Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -22,7 +25,7 @@ class TypingIndicator extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    _label(names),
+                    label!,
                     style: AppTextStyles.xs(color: Palette.inkMuted),
                   ),
                   const SizedBox(width: 6),
@@ -31,13 +34,6 @@ class TypingIndicator extends StatelessWidget {
               ),
             ),
     );
-  }
-
-  String _label(List<String> names) {
-    if (names.length == 1) return '${names[0]} is typing…';
-    if (names.length == 2) return '${names[0]} and ${names[1]} are typing…';
-    final extra = names.length - 2;
-    return '${names[0]}, ${names[1]}, and $extra ${extra == 1 ? 'other' : 'others'} are typing…';
   }
 }
 

@@ -77,6 +77,19 @@ class GroupsRepository {
     final subs = <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
     late final StreamController<List<Channel>> controller;
 
+    // Signature of everything the channel LIST actually renders. Notably it
+    // excludes `typing`, which is rewritten on every keystroke in any channel:
+    // the list does not show typing, so those writes must not reach it.
+    // `lastMessageAt` IS included, because the unread dot depends on it.
+    String signature(List<Channel> list) => list
+        .map((c) =>
+            '${c.id}|${c.name}|${c.type}|${c.private}'
+            '|${c.allowUids.join(",")}'
+            '|${c.lastMessageAt?.millisecondsSinceEpoch ?? 0}')
+        .join(';');
+
+    String? lastSignature;
+
     void emit() {
       if (pages.any((page) => page == null)) return;
       final byId = <String, Channel>{};
@@ -91,6 +104,17 @@ class GroupsRepository {
           final tb = b.createdAt?.millisecondsSinceEpoch ?? 0;
           return ta.compareTo(tb);
         });
+
+      // De-duplicated, and this is load-bearing rather than an optimisation.
+      // Each leg holds its own snapshot listener and they all land here, so one
+      // document change already fans out into several emissions — and the legs
+      // overlap, since a public channel that also names you matches two of
+      // them. Every emission was a new List, and List compares by IDENTITY, so
+      // Riverpod treated all of them as changes and rebuilt the whole channel
+      // list. That is what "it keeps refreshing" was.
+      final sig = signature(list);
+      if (sig == lastSignature) return;
+      lastSignature = sig;
       controller.add(list);
     }
 
@@ -136,6 +160,35 @@ class GroupsRepository {
         .doc(channelId)
         .snapshots()
         .map((snap) => snap.exists ? Channel.fromDoc(snap) : null);
+  }
+
+  /// Who can see one channel. Port of `setChannelAccess` in src/lib/groups.js.
+  ///
+  /// Two knobs with different meanings, and the difference is the whole point:
+  ///
+  ///   private    hides the channel from group members not on the list. Group
+  ///              and workspace admins still see it.
+  ///   allowUids  the list. For a GUEST it is the only thing that counts —
+  ///              guests see nothing except channels naming them, so adding a
+  ///              guest to a PUBLIC channel works without making it private.
+  ///
+  /// De-duplicated on write because the read side queries `arrayContains` and
+  /// a repeated uid would be silently wasted index space.
+  Future<void> setChannelAccess(
+    String groupId,
+    String channelId, {
+    required bool isPrivate,
+    required Iterable<String> allowUids,
+  }) async {
+    await _db
+        .collection('groups')
+        .doc(groupId)
+        .collection('channels')
+        .doc(channelId)
+        .update({
+          'private': isPrivate,
+          'allowUids': allowUids.toSet().toList(),
+        });
   }
 
   Stream<Group?> listenGroup(String groupId) {

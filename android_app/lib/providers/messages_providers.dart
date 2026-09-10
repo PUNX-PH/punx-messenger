@@ -65,6 +65,33 @@ final typingNamesProvider = Provider.family<List<String>, String>((
   return names;
 });
 
+/// The rendered "X is typing…" line, or null when nobody is.
+///
+/// This exists to stop a rebuild loop, and the type is the whole point.
+/// [typingNamesProvider] rebuilds a fresh List every [AppTiming.typingTickMs]
+/// tick, and Riverpod compares values with `==` — List uses IDENTITY equality,
+/// so two empty lists are never equal and every tick notified its listeners.
+/// The only listener was the entire chat surface, message list and composer
+/// included, so the whole screen rebuilt every 2 seconds whether or not anyone
+/// was typing. That is what "the channel is flickering" was.
+///
+/// A String does have value equality, so watching this instead means the chat
+/// surface rebuilds only when the sentence actually changes. The list provider
+/// still recomputes on the tick — that part is cheap and is what keeps
+/// staleness honest — it just no longer drags the UI along with it.
+final typingLabelProvider = Provider.family<String?, String>((
+  ref,
+  containerPath,
+) {
+  final names = ref.watch(typingNamesProvider(containerPath));
+  if (names.isEmpty) return null;
+  if (names.length == 1) return '${names[0]} is typing…';
+  if (names.length == 2) return '${names[0]} and ${names[1]} are typing…';
+  final extra = names.length - 2;
+  return '${names[0]}, ${names[1]}, and $extra '
+      '${extra == 1 ? 'other' : 'others'} are typing…';
+});
+
 class ChatUiState {
   final ChatMessage? replyingTo;
   const ChatUiState({this.replyingTo});
