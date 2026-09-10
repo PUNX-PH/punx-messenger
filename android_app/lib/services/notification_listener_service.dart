@@ -182,8 +182,17 @@ class NotificationListenerService {
     _pluginInitialized = true;
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    // iOS was never initialised, so nothing could appear there at all. The
+    // permission prompts are requested by the plugin itself on Darwin rather
+    // than by permission_handler, which is the supported path — leaving them
+    // false would initialise a plugin that is then never allowed to post.
+    const darwinInit = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
     await _plugin.initialize(
-      const InitializationSettings(android: androidInit),
+      const InitializationSettings(android: androidInit, iOS: darwinInit),
       onDidReceiveNotificationResponse: (response) {
         final path = response.payload;
         if (path != null) _ref.read(routerProvider).go(path);
