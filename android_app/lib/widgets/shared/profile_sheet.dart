@@ -102,7 +102,7 @@ class ProfileSheet extends ConsumerWidget {
               onChanged: (v) => ref
                   .read(voiceControllerProvider.notifier)
                   .setSpeakerphone(v),
-              secondary: const Icon(Icons.volume_up, color: Palette.inkDim),
+              secondary: Icon(Icons.volume_up, color: Palette.inkDim),
               title: Text('Speakerphone', style: AppTextStyles.sm()),
               subtitle: Text(
                 // Deliberately not the web's device pickers. A browser
@@ -116,7 +116,7 @@ class ProfileSheet extends ConsumerWidget {
           const _NotificationsRow(),
           const Divider(height: 1),
           ListTile(
-            leading: const Icon(Icons.logout, color: Palette.bad),
+            leading: Icon(Icons.logout, color: Palette.bad),
             title: Text('Sign out', style: AppTextStyles.sm(color: Palette.bad)),
             onTap: () => _confirmSignOut(context, ref, inVoice: inVoice),
           ),

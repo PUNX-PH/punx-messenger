@@ -60,7 +60,7 @@ void showPinnedMessagesSheet(
                   ),
                   trailing: canPin
                       ? IconButton(
-                          icon: const Icon(
+                          icon: Icon(
                             Icons.push_pin,
                             size: 16,
                             color: Palette.warn,

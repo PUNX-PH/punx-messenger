@@ -11,6 +11,8 @@ import '../../theme/text_styles.dart';
 import '../../widgets/shared/avatar.dart';
 import '../../widgets/shared/role_badge.dart';
 
+import 'bots_admin_screen.dart';
+
 /// Super-admin-only role management screen — port of AdminPanel.jsx. The
 /// route guard (app_router.dart) already keeps non-super-admins out.
 class AdminPanelScreen extends ConsumerStatefulWidget {
@@ -85,7 +87,21 @@ class _AdminPanelScreenState extends ConsumerState<AdminPanelScreen> {
 
     return Scaffold(
       backgroundColor: Palette.bgMain,
-      appBar: AppBar(title: const Text('Admin panel')),
+      appBar: AppBar(
+        title: const Text('Admin panel'),
+        actions: [
+          // Its own screen rather than a section in this Column: two long
+          // lists sharing one scroll is fine in the web's wide panel and
+          // miserable on a phone.
+          IconButton(
+            tooltip: 'Bots',
+            icon: const Icon(Icons.smart_toy_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const BotsAdminScreen()),
+            ),
+          ),
+        ],
+      ),
       body: Column(
         children: [
           Padding(
@@ -172,7 +188,7 @@ class _AdminPanelScreenState extends ConsumerState<AdminPanelScreen> {
                                 u.name,
                                 overflow: TextOverflow.ellipsis,
                                 style: u.deactivated
-                                    ? const TextStyle(
+                                    ? TextStyle(
                                         decoration:
                                             TextDecoration.lineThrough,
                                         color: Palette.inkDim,

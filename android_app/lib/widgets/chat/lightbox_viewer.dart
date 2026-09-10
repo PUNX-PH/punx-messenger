@@ -41,7 +41,7 @@ class LightboxViewer extends StatelessWidget {
               right: 8,
               child: SafeArea(
                 child: IconButton(
-                  icon: const Icon(Icons.close, color: Palette.ink),
+                  icon: Icon(Icons.close, color: Palette.ink),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ),

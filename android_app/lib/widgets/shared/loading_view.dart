@@ -17,7 +17,7 @@ class LoadingView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(
+            SizedBox(
               width: 10,
               height: 10,
               child: DecoratedBox(

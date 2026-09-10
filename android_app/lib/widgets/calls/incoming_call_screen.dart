@@ -32,7 +32,7 @@ class IncomingCallScreen extends ConsumerWidget {
               const SizedBox(height: 16),
               Text(
                 caller?.name ?? 'Someone',
-                style: const TextStyle(
+                style: TextStyle(
                   color: Palette.ink,
                   fontSize: 20,
                   fontWeight: FontWeight.w600,
@@ -41,7 +41,7 @@ class IncomingCallScreen extends ConsumerWidget {
               const SizedBox(height: 6),
               Text(
                 'Incoming ${call.type == 'audio' ? 'voice' : 'video'} call…',
-                style: const TextStyle(color: Palette.inkDim, fontSize: 14),
+                style: TextStyle(color: Palette.inkDim, fontSize: 14),
               ),
               const SizedBox(height: 32),
               Row(
@@ -100,7 +100,7 @@ class _RoundButton extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        Text(label, style: const TextStyle(color: Palette.inkMuted, fontSize: 12)),
+        Text(label, style: TextStyle(color: Palette.inkMuted, fontSize: 12)),
       ],
     );
   }

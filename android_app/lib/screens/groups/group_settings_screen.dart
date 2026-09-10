@@ -60,7 +60,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
     final profile = ref.watch(profileProvider).valueOrNull;
 
     if (group == null || profile == null) {
-      return const Scaffold(
+      return Scaffold(
         backgroundColor: Palette.bgMain,
         body: Center(child: CircularProgressIndicator()),
       );
@@ -271,7 +271,7 @@ class _MembersSection extends ConsumerWidget {
                         ),
                       if (canManage && u.id != me.id)
                         IconButton(
-                          icon: const Icon(
+                          icon: Icon(
                             Icons.person_remove_outlined,
                             color: Palette.bad,
                           ),

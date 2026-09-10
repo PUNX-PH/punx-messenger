@@ -209,7 +209,7 @@ class _VoiceChannelScreenState extends ConsumerState<VoiceChannelScreen> {
           : AppBar(
               title: Row(
                 children: [
-                  const Icon(Icons.volume_up, size: 18, color: Palette.inkDim),
+                  Icon(Icons.volume_up, size: 18, color: Palette.inkDim),
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
@@ -355,7 +355,7 @@ class _JoinPrompt extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.volume_up, size: 40, color: Palette.inkDim),
+            Icon(Icons.volume_up, size: 40, color: Palette.inkDim),
             const SizedBox(height: 12),
             Text(channelName, style: AppTextStyles.base()),
             const SizedBox(height: 4),
@@ -748,11 +748,11 @@ class _VoiceTileState extends State<_VoiceTile> {
                     ),
                   ),
                   if (p.muted)
-                    const Icon(Icons.mic_off, size: 13, color: Palette.bad),
+                    Icon(Icons.mic_off, size: 13, color: Palette.bad),
                   if (p.deafened)
-                    const Icon(Icons.headset_off, size: 13, color: Palette.bad),
+                    Icon(Icons.headset_off, size: 13, color: Palette.bad),
                   if (p.screenSharing)
-                    const Icon(Icons.screen_share,
+                    Icon(Icons.screen_share,
                         size: 13, color: Palette.brand),
                 ],
               ),

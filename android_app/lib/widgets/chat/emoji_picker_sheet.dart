@@ -250,7 +250,7 @@ class _ManageEmojiRow extends ConsumerWidget {
       ),
       title: Text(':${emoji.name}:', style: AppTextStyles.sm()),
       trailing: IconButton(
-        icon: const Icon(Icons.delete_outline, size: 18, color: Palette.bad),
+        icon: Icon(Icons.delete_outline, size: 18, color: Palette.bad),
         onPressed: () async {
           final confirmed = await showDialog<bool>(
             context: context,
@@ -264,7 +264,7 @@ class _ManageEmojiRow extends ConsumerWidget {
                 ),
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text(
+                  child: Text(
                     'Delete',
                     style: TextStyle(color: Palette.bad),
                   ),

@@ -80,7 +80,7 @@ class _SearchSheetState extends State<_SearchSheet> {
                   onChanged: (v) => setState(() => _query = v),
                   decoration: InputDecoration(
                     hintText: 'Search this chat',
-                    prefixIcon: const Icon(
+                    prefixIcon: Icon(
                       Icons.search,
                       size: 18,
                       color: Palette.inkDim,

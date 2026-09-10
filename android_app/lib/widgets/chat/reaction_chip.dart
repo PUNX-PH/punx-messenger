@@ -54,7 +54,7 @@ class ReactionChips extends StatelessWidget {
                 border: Border.all(color: Palette.lineSubtle),
                 borderRadius: BorderRadius.circular(AppRadii.sm),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.add_reaction_outlined,
                 size: 14,
                 color: Palette.inkDim,

@@ -104,7 +104,7 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
       appBar: AppBar(
         title: Row(
           children: [
-            Text(widget.icon, style: const TextStyle(color: Palette.inkDim)),
+            Text(widget.icon, style: TextStyle(color: Palette.inkDim)),
             const SizedBox(width: 6),
             Flexible(
               child: Text(widget.title, overflow: TextOverflow.ellipsis),

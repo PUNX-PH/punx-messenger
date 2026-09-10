@@ -212,7 +212,7 @@ class _CodeBlockView extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: Text(
           code,
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'monospace',
             fontSize: 13,
             color: Palette.ink,

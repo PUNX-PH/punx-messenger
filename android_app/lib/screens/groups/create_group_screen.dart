@@ -98,7 +98,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                     color: Palette.bgRaised,
                     child: _avatarBytes != null
                         ? Image.memory(_avatarBytes!, fit: BoxFit.cover)
-                        : const Icon(
+                        : Icon(
                             Icons.add_a_photo_outlined,
                             color: Palette.inkMuted,
                             size: 28,

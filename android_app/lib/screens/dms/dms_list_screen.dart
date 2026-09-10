@@ -74,7 +74,7 @@ class _DmsListScreenState extends ConsumerState<DmsListScreen> {
               style: AppTextStyles.sm(),
               decoration: InputDecoration(
                 hintText: 'Search teammates',
-                prefixIcon: const Icon(
+                prefixIcon: Icon(
                   Icons.search,
                   size: 18,
                   color: Palette.inkDim,
@@ -89,7 +89,7 @@ class _DmsListScreenState extends ConsumerState<DmsListScreen> {
             ),
           ),
           ListTile(
-            leading: const Icon(Icons.edit_note, color: Palette.inkMuted),
+            leading: Icon(Icons.edit_note, color: Palette.inkMuted),
             title: const Text('My Notes'),
             onTap: () => context.push(RoutePaths.myNotes),
           ),
@@ -193,7 +193,7 @@ class _UnreadDot extends StatelessWidget {
     return Container(
       width: 8,
       height: 8,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Palette.bad,
         shape: BoxShape.circle,
       ),

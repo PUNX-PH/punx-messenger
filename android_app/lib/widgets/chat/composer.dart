@@ -288,7 +288,7 @@ class _ComposerState extends State<Composer> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   IconButton(
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.add_photo_alternate_outlined,
                       color: Palette.inkMuted,
                     ),
@@ -296,7 +296,7 @@ class _ComposerState extends State<Composer> {
                   ),
                   IconButton(
                     tooltip: 'GIF',
-                    icon: const Icon(Icons.gif_box_outlined,
+                    icon: Icon(Icons.gif_box_outlined,
                         color: Palette.inkMuted),
                     onPressed: _sending ? null : _pickGif,
                   ),
@@ -385,7 +385,7 @@ class _ReplyPreviewBar extends StatelessWidget {
           ),
           GestureDetector(
             onTap: onCancel,
-            child: const Icon(Icons.close, size: 16, color: Palette.inkDim),
+            child: Icon(Icons.close, size: 16, color: Palette.inkDim),
           ),
         ],
       ),
@@ -433,7 +433,7 @@ class _ImagePreview extends StatelessWidget {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close, size: 16, color: Palette.inkDim),
+            icon: Icon(Icons.close, size: 16, color: Palette.inkDim),
             onPressed: onRemove,
           ),
         ],

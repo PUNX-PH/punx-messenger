@@ -80,7 +80,7 @@ class _GroupTile extends ConsumerWidget {
         ),
       ),
       trailing: hasUnread
-          ? const SizedBox(
+          ? SizedBox(
               width: 8,
               height: 8,
               child: DecoratedBox(

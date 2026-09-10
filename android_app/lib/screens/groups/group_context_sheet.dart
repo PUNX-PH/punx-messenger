@@ -27,7 +27,7 @@ void showGroupContextSheet(BuildContext context, WidgetRef ref, Group group) {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.done_all, color: Palette.ink),
+              leading: Icon(Icons.done_all, color: Palette.ink),
               title: const Text('Mark as read'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
@@ -54,7 +54,7 @@ void showGroupContextSheet(BuildContext context, WidgetRef ref, Group group) {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.settings_outlined, color: Palette.ink),
+              leading: Icon(Icons.settings_outlined, color: Palette.ink),
               title: const Text('Group settings'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
@@ -67,7 +67,7 @@ void showGroupContextSheet(BuildContext context, WidgetRef ref, Group group) {
             ),
             const Divider(height: 1),
             ListTile(
-              leading: const Icon(Icons.logout, color: Palette.bad),
+              leading: Icon(Icons.logout, color: Palette.bad),
               title: Text(
                 isOwner
                     ? 'Leave group (transfer ownership first)'
@@ -93,7 +93,7 @@ void showGroupContextSheet(BuildContext context, WidgetRef ref, Group group) {
                             TextButton(
                               onPressed: () =>
                                   Navigator.of(dialogContext).pop(true),
-                              child: const Text(
+                              child: Text(
                                 'Leave',
                                 style: TextStyle(color: Palette.bad),
                               ),

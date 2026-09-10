@@ -43,19 +43,19 @@ ThemeData buildAppTheme() {
       onSurface: Palette.ink,
       error: Palette.bad,
     ),
-    appBarTheme: const AppBarTheme(
+    appBarTheme: AppBarTheme(
       backgroundColor: Palette.bgMain,
       foregroundColor: Palette.ink,
       elevation: 0,
       surfaceTintColor: Colors.transparent,
     ),
-    bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+    bottomNavigationBarTheme: BottomNavigationBarThemeData(
       backgroundColor: Palette.bgDark,
       selectedItemColor: Palette.brand,
       unselectedItemColor: Palette.inkDim,
       type: BottomNavigationBarType.fixed,
     ),
-    dividerTheme: const DividerThemeData(
+    dividerTheme: DividerThemeData(
       color: Palette.lineSubtle,
       thickness: 1,
       space: 1,
@@ -67,15 +67,15 @@ ThemeData buildAppTheme() {
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppRadii.md),
-        borderSide: const BorderSide(color: Palette.lineSubtle),
+        borderSide: BorderSide(color: Palette.lineSubtle),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppRadii.md),
-        borderSide: const BorderSide(color: Palette.lineSubtle),
+        borderSide: BorderSide(color: Palette.lineSubtle),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppRadii.md),
-        borderSide: const BorderSide(color: Palette.brand),
+        borderSide: BorderSide(color: Palette.brand),
       ),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
@@ -88,7 +88,7 @@ ThemeData buildAppTheme() {
         ),
       ),
     ),
-    bottomSheetTheme: const BottomSheetThemeData(
+    bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: Palette.bgRaised,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.lg)),
@@ -99,7 +99,7 @@ ThemeData buildAppTheme() {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadii.md),
-        side: const BorderSide(color: Palette.lineSubtle),
+        side: BorderSide(color: Palette.lineSubtle),
       ),
     ),
     dialogTheme: DialogThemeData(
@@ -110,7 +110,7 @@ ThemeData buildAppTheme() {
     ),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: Palette.bgHover,
-      contentTextStyle: const TextStyle(color: Palette.ink),
+      contentTextStyle: TextStyle(color: Palette.ink),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadii.md),
       ),

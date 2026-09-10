@@ -71,7 +71,7 @@ class ChannelListScreen extends ConsumerWidget {
                 const Spacer(),
                 if (elevated)
                   IconButton(
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.add,
                       size: 18,
                       color: Palette.inkMuted,
@@ -212,9 +212,9 @@ class _ChannelRow extends ConsumerWidget {
           // it — listenChannels queries exactly what the rules will serve — so
           // the lock is a label, not a gate.
           child: isVoice
-              ? const Icon(Icons.volume_up, size: 18, color: Palette.inkDim)
+              ? Icon(Icons.volume_up, size: 18, color: Palette.inkDim)
               : c.private
-                  ? const Icon(Icons.lock_outline, size: 18,
+                  ? Icon(Icons.lock_outline, size: 18,
                       color: Palette.inkDim)
                   : Text('#', style: AppTextStyles.base(color: Palette.inkDim)),
         ),
@@ -240,7 +240,7 @@ class _ChannelRow extends ConsumerWidget {
       // An unread dot is meaningless for a voice channel: there are no
       // messages to have missed.
       trailing: unread && !isVoice
-          ? const SizedBox(
+          ? SizedBox(
               width: 8,
               height: 8,
               child: DecoratedBox(

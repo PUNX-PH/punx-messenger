@@ -20,22 +20,22 @@ abstract final class AppTextStyles {
   }
 
   static TextStyle xs({
-    Color color = Palette.ink,
+    Color? color,
     FontWeight weight = FontWeight.w400,
-  }) => _inter(12, 16, weight, color);
+  }) => _inter(12, 16, weight, color ?? Palette.ink);
 
   static TextStyle sm({
-    Color color = Palette.ink,
+    Color? color,
     FontWeight weight = FontWeight.w400,
-  }) => _inter(13, 18.4, weight, color);
+  }) => _inter(13, 18.4, weight, color ?? Palette.ink);
 
   static TextStyle base({
-    Color color = Palette.ink,
+    Color? color,
     FontWeight weight = FontWeight.w400,
-  }) => _inter(15, 22.4, weight, color);
+  }) => _inter(15, 22.4, weight, color ?? Palette.ink);
 
   static TextStyle lg({
-    Color color = Palette.ink,
+    Color? color,
     FontWeight weight = FontWeight.w600,
-  }) => _inter(17, 24, weight, color);
+  }) => _inter(17, 24, weight, color ?? Palette.ink);
 }

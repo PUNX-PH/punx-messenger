@@ -183,7 +183,7 @@ class _GifPickerSheetState extends State<_GifPickerSheet> {
               // A dead thumbnail must not take the grid down with it.
               errorBuilder: (_, _, _) => Container(
                 color: Palette.bgDark,
-                child: const Center(
+                child: Center(
                   child: Icon(Icons.broken_image, size: 18, color: Palette.inkMuted),
                 ),
               ),

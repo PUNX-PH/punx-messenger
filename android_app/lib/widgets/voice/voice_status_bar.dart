@@ -36,7 +36,7 @@ class VoiceStatusBar extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: [
-              const Icon(Icons.error_outline, size: 16, color: Palette.bad),
+              Icon(Icons.error_outline, size: 16, color: Palette.bad),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -60,7 +60,7 @@ class VoiceStatusBar extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           child: Row(
             children: [
-              const Icon(Icons.graphic_eq, size: 16, color: Palette.ok),
+              Icon(Icons.graphic_eq, size: 16, color: Palette.ok),
               const SizedBox(width: 8),
               Expanded(
                 child: Column(
@@ -101,7 +101,7 @@ class VoiceStatusBar extends ConsumerWidget {
               ),
               IconButton(
                 visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.call_end, size: 20, color: Palette.bad),
+                icon: Icon(Icons.call_end, size: 20, color: Palette.bad),
                 tooltip: 'Disconnect',
                 onPressed: controller.leave,
               ),

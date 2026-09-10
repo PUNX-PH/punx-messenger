@@ -13,14 +13,17 @@ class Avatar extends StatelessWidget {
     this.src,
     this.size = 32,
     this.status,
-    this.ringColor = Palette.bgDark,
+    this.ringColor,
   });
 
   final String name;
   final String? src;
   final double size;
   final String? status; // 'online' | 'away' | 'offline' | null (no dot)
-  final Color ringColor;
+  /// Defaults to the sidebar surface, resolved at build time because a
+  /// default parameter value has to be a compile-time constant and the
+  /// palette tokens are now getters.
+  final Color? ringColor;
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +43,7 @@ class Avatar extends StatelessWidget {
               child: _StatusDot(
                 status: status!,
                 avatarSize: size,
-                ringColor: ringColor,
+                ringColor: ringColor ?? Palette.bgDark,
               ),
             ),
         ],

@@ -19,7 +19,7 @@ class DmChatScreen extends ConsumerWidget {
     final contextAsync = ref.watch(dmChatContextProvider(otherUid));
 
     return contextAsync.when(
-      loading: () => const Scaffold(
+      loading: () => Scaffold(
         backgroundColor: Palette.bgMain,
         body: Center(child: CircularProgressIndicator()),
       ),

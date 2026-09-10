@@ -77,11 +77,11 @@ class MessageRow extends ConsumerWidget {
       bg = Palette.brand.withValues(alpha: 0.12);
     } else if (_mentionsMe) {
       bg = Palette.warn.withValues(alpha: 0.1);
-      leftBorder = const Border(
+      leftBorder = Border(
         left: BorderSide(color: Palette.warn, width: 2),
       );
     } else if (message.pinned) {
-      leftBorder = const Border(
+      leftBorder = Border(
         left: BorderSide(color: Palette.warn, width: 2),
       );
     }
@@ -216,7 +216,7 @@ class MessageRow extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.reply, color: Palette.ink),
+                leading: Icon(Icons.reply, color: Palette.ink),
                 title: const Text('Reply'),
                 onTap: () {
                   Navigator.of(context).pop();
@@ -225,7 +225,7 @@ class MessageRow extends ConsumerWidget {
               ),
               if (onReact != null)
                 ListTile(
-                  leading: const Icon(
+                  leading: Icon(
                     Icons.add_reaction_outlined,
                     color: Palette.ink,
                   ),
@@ -249,7 +249,7 @@ class MessageRow extends ConsumerWidget {
                 ),
               if (canEdit)
                 ListTile(
-                  leading: const Icon(Icons.edit_outlined, color: Palette.ink),
+                  leading: Icon(Icons.edit_outlined, color: Palette.ink),
                   title: const Text('Edit'),
                   onTap: () {
                     Navigator.of(context).pop();
@@ -258,8 +258,8 @@ class MessageRow extends ConsumerWidget {
                 ),
               if (canDelete)
                 ListTile(
-                  leading: const Icon(Icons.delete_outline, color: Palette.bad),
-                  title: const Text(
+                  leading: Icon(Icons.delete_outline, color: Palette.bad),
+                  title: Text(
                     'Delete',
                     style: TextStyle(color: Palette.bad),
                   ),
@@ -289,7 +289,7 @@ class MessageRow extends ConsumerWidget {
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Delete', style: TextStyle(color: Palette.bad)),
+            child: Text('Delete', style: TextStyle(color: Palette.bad)),
           ),
         ],
       ),
@@ -339,7 +339,7 @@ class _ReplyStrip extends StatelessWidget {
         onTap: () => onTap?.call(reply.messageId),
         child: Row(
           children: [
-            const Icon(
+            Icon(
               Icons.subdirectory_arrow_left,
               size: 13,
               color: Palette.inkDim,
