@@ -610,8 +610,40 @@ class _VoiceTileState extends State<_VoiceTile> {
     });
   }
 
+  /// Last values we actually laid out against, so a notification that changes
+  /// neither is dropped rather than triggering a rebuild.
+  bool _lastLive = false;
+  double _lastAspect = 1;
+
+  /// Relative change in aspect ratio worth re-laying out for.
+  ///
+  /// A screen share renegotiates resolution constantly — the window resizes,
+  /// the content changes, bandwidth adaptation steps down a simulcast layer —
+  /// and every one of those fires this listener. Rebuilding on each meant the
+  /// AspectRatio around the tile changed, which relayouts the platform texture,
+  /// and a resized texture paints BLACK for a frame. That is the share
+  /// "flickering into a black screen": not dropped frames, just relayout churn.
+  ///
+  /// 3% is loose enough to ignore resolution steps that keep the same shape
+  /// (1600x900 -> 1280x720 is identical at 16:9) and tight enough to still
+  /// follow a genuine shape change, like switching from a window to a display.
+  static const _aspectEpsilon = 0.03;
+
   void _onRendererChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final v = _renderer.value;
+    final live = v.width > 0 && v.height > 0;
+    final aspect = v.aspectRatio;
+
+    final liveChanged = live != _lastLive;
+    final shapeChanged = _lastAspect > 0 &&
+        (aspect - _lastAspect).abs() / _lastAspect > _aspectEpsilon;
+
+    if (!liveChanged && !shapeChanged) return;
+
+    _lastLive = live;
+    _lastAspect = aspect;
+    setState(() {});
   }
 
   @override
@@ -687,7 +719,9 @@ class _VoiceTileState extends State<_VoiceTile> {
     if (widget.big && _live) {
       return Center(
         child: AspectRatio(
-          aspectRatio: _renderer.value.aspectRatio,
+          // The settled ratio, not the live one: laying out against a value
+          // that changes on every resolution step is what caused the flicker.
+          aspectRatio: _lastAspect > 0 ? _lastAspect : _renderer.value.aspectRatio,
           child: tile,
         ),
       );
