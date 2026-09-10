@@ -1,4 +1,4 @@
-package com.punx.messenger
+package com.punx.plexus
 
 import io.flutter.embedding.android.FlutterActivity
 

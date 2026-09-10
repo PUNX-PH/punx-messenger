@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.punx.messenger"
+    namespace = "com.punx.plexus"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -18,7 +18,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.punx.messenger"
+        applicationId = "com.punx.plexus"
         // flutter.minSdkVersion (24) already satisfies Firebase's minSdk-23 floor.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
