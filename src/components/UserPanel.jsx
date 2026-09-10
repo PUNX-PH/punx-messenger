@@ -7,6 +7,7 @@ import { computeStatus, useTickNow } from '../lib/presence'
 import { useUsers } from '../lib/users'
 import { useNotifications } from '../lib/notifications'
 import { useVoiceChannel } from '../lib/useVoiceChannel'
+import { isLight, toggleTheme } from '../lib/theme'
 import GroupContextMenu from './GroupContextMenu'
 import VoiceSettingsPopover from './voice/VoiceSettingsPopover'
 
@@ -25,6 +26,9 @@ export default function UserPanel() {
   const now = useTickNow()
   const [menu, setMenu] = useState({ open: false, x: 0, y: 0 })
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false)
+  // Mirrors the class already on <html>, which the inline script in
+  // index.html may have set before React ever mounted.
+  const [light, setLightState] = useState(() => isLight())
   const gearBtnRef = useRef(null)
   const me = byId[profile?.id] || profile
   const status = computeStatus(me, now)
@@ -48,6 +52,11 @@ export default function UserPanel() {
     ...(canManageRoles(profile) || canManageBots(profile)
       ? [{ label: 'Admin panel', icon: <ShieldIcon />, onClick: () => navigate('/admin') }]
       : []),
+    {
+      label: light ? 'Dark mode' : 'Light mode',
+      icon: light ? <MoonIcon /> : <SunIcon />,
+      onClick: () => setLightState(toggleTheme()),
+    },
     { separator: true },
     { label: 'Sign out', icon: <SignOutIcon />, onClick: signOut, danger: true },
   ]
@@ -181,6 +190,23 @@ function DeafenedIcon() {
       <path d="M3 18v-6a9 9 0 0 1 15.3-6.4" />
       <path d="M21 15.3V12a9 9 0 0 0-.7-3.5" />
       <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+    </svg>
+  )
+}
+
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-4 h-4">
+      <circle cx="10" cy="10" r="3.5" />
+      <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.5 4.5l1.4 1.4M14.1 14.1l1.4 1.4M15.5 4.5l-1.4 1.4M5.9 14.1L4.5 15.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function MoonIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-4 h-4">
+      <path d="M16 12.5A6.5 6.5 0 0 1 7.5 4a6.5 6.5 0 1 0 8.5 8.5Z" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }

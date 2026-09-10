@@ -4,32 +4,47 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      // Channels, not hex, referenced through CSS variables so one class on
+      // <html> swaps the whole palette with no component changes.
+      //
+      // The `rgb(var(--x) / <alpha-value>)` form is required rather than
+      // stylistic: this codebase uses Tailwind opacity modifiers
+      // (bg-bad/10, bg-brand/15, bg-bg-raised/50, border-warn/40). Tailwind
+      // rewrites those into `rgb(<value> / 0.1)`, so a variable holding a hex
+      // string would produce invalid CSS and those surfaces would silently
+      // disappear. Holding the channels keeps every modifier working.
+      //
+      // Values are the same two sets as the Android app's paletteDark and
+      // paletteLight — see android_app/lib/theme/palette.dart. Keep them in
+      // step; the clients are meant to look identical.
       colors: {
-        // Surfaces — darkest at the edges, lightest where you read
         bg: {
-          deepest: '#0A0E14',   // server/group rail
-          dark:    '#13161C',   // channel sidebar
-          main:    '#1A1E26',   // chat surface
-          raised:  '#22272F',   // composer, modal, hovered row
-          hover:   '#2D323D',   // hovered button/list-item
+          deepest: 'rgb(var(--bg-deepest) / <alpha-value>)',
+          dark:    'rgb(var(--bg-dark) / <alpha-value>)',
+          main:    'rgb(var(--bg-main) / <alpha-value>)',
+          raised:  'rgb(var(--bg-raised) / <alpha-value>)',
+          hover:   'rgb(var(--bg-hover) / <alpha-value>)',
         },
         line: {
-          subtle: '#2D323D',
-          strong: '#3A4150',
+          subtle: 'rgb(var(--line-subtle) / <alpha-value>)',
+          strong: 'rgb(var(--line-strong) / <alpha-value>)',
         },
         ink: {
-          DEFAULT: '#E5E7EB',
-          muted:   '#B0B6C0',
-          dim:     '#6B7280',
+          DEFAULT: 'rgb(var(--ink) / <alpha-value>)',
+          muted:   'rgb(var(--ink-muted) / <alpha-value>)',
+          dim:     'rgb(var(--ink-dim) / <alpha-value>)',
         },
         brand: {
-          DEFAULT: '#5865F2',   // punx blurple
-          hover:   '#4752C4',
-          soft:    '#5865F226',
+          DEFAULT: 'rgb(var(--brand) / <alpha-value>)',
+          hover:   'rgb(var(--brand-hover) / <alpha-value>)',
+          // Was #5865F226, i.e. brand at ~15%. Expressed against the same
+          // variable so it tracks the brand colour in both themes instead of
+          // being a third value to remember.
+          soft:    'rgb(var(--brand) / 0.15)',
         },
-        ok:    '#10B981',
-        warn:  '#F59E0B',
-        bad:   '#EF4444',
+        ok:    'rgb(var(--ok) / <alpha-value>)',
+        warn:  'rgb(var(--warn) / <alpha-value>)',
+        bad:   'rgb(var(--bad) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],

@@ -8,7 +8,17 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <title>Punx Messenger</title>
-  </head>
+    <script>
+    // Inline and synchronous, deliberately: this has to run before the first
+    // paint or a light-mode user sees a dark flash on every load. Wrapped
+    // because localStorage throws outright in some privacy modes.
+    try {
+      if (localStorage.getItem('themeMode') === 'light') {
+        document.documentElement.classList.add('light')
+      }
+    } catch (e) {}
+  </script>
+</head>
   <body class="bg-bg-main text-ink antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
