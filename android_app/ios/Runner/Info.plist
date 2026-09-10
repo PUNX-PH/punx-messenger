@@ -70,5 +70,9 @@
 	<string>Punx Messenger uses the camera for video calls and camera in voice channels.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Punx Messenger uses the microphone for calls and voice channels.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 </dict>
 </plist>
