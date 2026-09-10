@@ -170,11 +170,15 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
                   required String text,
                   Uint8List? imageBytes,
                   String? imageName,
+                  String? remoteImageUrl,
+                  Map<String, dynamic>? remoteImageMeta,
                 }) {
                   return controller.send(
                     text: text,
                     imageBytes: imageBytes,
                     imageName: imageName,
+                    remoteImageUrl: remoteImageUrl,
+                    remoteImageMeta: remoteImageMeta,
                   );
                 },
           ),

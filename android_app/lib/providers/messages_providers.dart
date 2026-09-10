@@ -92,6 +92,8 @@ class ChatController extends StateNotifier<ChatUiState> {
     required String text,
     Uint8List? imageBytes,
     String? imageName,
+    String? remoteImageUrl,
+    Map<String, dynamic>? remoteImageMeta,
   }) async {
     final me = _ref.read(profileProvider).valueOrNull;
     if (me == null) return;
@@ -101,6 +103,8 @@ class ChatController extends StateNotifier<ChatUiState> {
       author: me,
       imageBytes: imageBytes,
       imageName: imageName,
+      remoteImageUrl: remoteImageUrl,
+      remoteImageMeta: remoteImageMeta,
       replyTo: state.replyingTo,
     );
     setReplyingTo(null);

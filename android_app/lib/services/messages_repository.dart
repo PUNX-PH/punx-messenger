@@ -42,15 +42,24 @@ class MessagesRepository {
     Uint8List? imageBytes,
     String? imageName,
     ChatMessage? replyTo,
+    String? remoteImageUrl,
+    Map<String, dynamic>? remoteImageMeta,
   }) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty && imageBytes == null) return;
+    if (trimmed.isEmpty && imageBytes == null && remoteImageUrl == null) return;
 
     final msgRef = _db.collection(path).doc();
 
     String? imageUrl;
     Map<String, dynamic>? imageMeta;
-    if (imageBytes != null) {
+    // A GIF is already hosted, so it is stored as a plain URL with no upload
+    // and no resize — exactly what Composer.jsx's sendGif does on the web.
+    // Running it through ImageService would fetch and re-encode someone else's
+    // animation into a data URL, losing the animation and bloating the doc.
+    if (remoteImageUrl != null) {
+      imageUrl = remoteImageUrl;
+      imageMeta = remoteImageMeta;
+    } else if (imageBytes != null) {
       final out = await ImageService.resizeToDataUrl(
         imageBytes,
         ImagePresets.messageImage,

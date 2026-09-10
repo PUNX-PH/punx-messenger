@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
 import '../../utils/constants.dart';
+import 'gif_picker_sheet.dart';
 import 'mention_autocomplete_overlay.dart';
 
 typedef ComposerSend =
@@ -18,6 +19,9 @@ typedef ComposerSend =
       required String text,
       Uint8List? imageBytes,
       String? imageName,
+      // A GIF is already hosted, so it travels as a URL rather than bytes.
+      String? remoteImageUrl,
+      Map<String, dynamic>? remoteImageMeta,
     });
 
 const _maxImageBytes = 10 * 1024 * 1024;
@@ -191,6 +195,23 @@ class _ComposerState extends State<Composer> {
     });
   }
 
+  Future<void> _pickGif() async {
+    final gif = await showGifPickerSheet(context);
+    if (gif == null || !mounted) return;
+    setState(() => _sending = true);
+    try {
+      await widget.onSend(
+        text: '',
+        remoteImageUrl: gif.sendUrl,
+        remoteImageMeta: gif.sendMeta,
+      );
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Failed to send.');
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
   Future<void> _submit() async {
     final rawText = _controller.text;
     if (rawText.trim().isEmpty && _imageBytes == null) return;
@@ -272,6 +293,12 @@ class _ComposerState extends State<Composer> {
                       color: Palette.inkMuted,
                     ),
                     onPressed: _sending ? null : _pickImage,
+                  ),
+                  IconButton(
+                    tooltip: 'GIF',
+                    icon: const Icon(Icons.gif_box_outlined,
+                        color: Palette.inkMuted),
+                    onPressed: _sending ? null : _pickGif,
                   ),
                   Expanded(
                     child: TextField(

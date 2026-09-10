@@ -14,6 +14,7 @@ import '../../theme/text_styles.dart';
 import '../../utils/firestore_paths.dart';
 import '../../widgets/shared/avatar.dart';
 import '../../widgets/shared/role_badge.dart';
+import '../../widgets/shared/profile_sheet.dart';
 
 /// Directory of teammates + pinned "My Notes" entry — port of
 /// DMsSidebar.jsx/DMsHome.jsx, merged into one mobile list screen (there's
@@ -59,7 +60,10 @@ class _DmsListScreenState extends ConsumerState<DmsListScreen> {
 
     return Scaffold(
       backgroundColor: Palette.bgDark,
-      appBar: AppBar(title: const Text('Direct Messages')),
+      appBar: AppBar(
+        title: const Text('Direct Messages'),
+        actions: const [ProfileAvatarButton()],
+      ),
       body: Column(
         children: [
           Padding(

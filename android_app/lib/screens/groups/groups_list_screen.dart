@@ -12,6 +12,7 @@ import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
 import 'create_group_screen.dart';
 import 'group_context_sheet.dart';
+import '../../widgets/shared/profile_sheet.dart';
 
 /// Mobile equivalent of ServerRail.jsx — vertical list of groups instead of
 /// a desktop icon rail (icon rail doesn't scale to a phone-width screen).
@@ -29,7 +30,10 @@ class GroupsListScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: Palette.bgDark,
-      appBar: AppBar(title: const Text('Groups')),
+      appBar: AppBar(
+        title: const Text('Groups'),
+        actions: const [ProfileAvatarButton()],
+      ),
       body: groups.isEmpty
           ? Center(
               child: Text(
