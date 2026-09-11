@@ -155,13 +155,56 @@ class VoiceChannelRepository {
     return now.difference(lastHeartbeat.toDate()) > staleAfter;
   }
 
+  /// True when this device's clock cannot be trusted to judge staleness.
+  ///
+  /// `lastHeartbeat` is a serverTimestamp, so comparing it against a local
+  /// DateTime.now() is only sound while the two agree. Two anchors, both of
+  /// which mean "refuse to delete anybody":
+  ///
+  ///   1. My own row looks stale. It is rewritten every 15s, so it never can
+  ///      legitimately — my clock runs fast, or my writes are failing, and
+  ///      either way every OTHER row looks stale too.
+  ///   2. I am not in this channel (the list sweeps ones I have not joined)
+  ///      and EVERY row looks stale. That is what a fast clock looks like; it
+  ///      is also a channel everyone genuinely crashed out of, and the two are
+  ///      indistinguishable from here. Ghosts in a list are cosmetic and the
+  ///      next person to JOIN clears them via anchor 1; evicting a live
+  ///      channel is not.
+  ///
+  /// This matters most for admins: the voiceParticipants delete rule lets
+  /// adminOverGroup through WITHOUT the server-side staleness re-check (it has
+  /// to, so deleting a channel can clear its roster), so an admin is the one
+  /// client whose bad clock the server will not catch.
+  static bool clockLooksWrong(
+    List<Timestamp?> heartbeats,
+    Timestamp? mine,
+    DateTime now,
+  ) {
+    if (mine != null) return isStale(mine, now);
+    final known = heartbeats.whereType<Timestamp>().toList();
+    if (known.isEmpty) return false;
+    return known.every((h) => isStale(h, now));
+  }
+
   /// Best-effort sweep for rows left behind by killed apps. Safe to run
   /// concurrently from several clients — delete is idempotent, and the rules
   /// re-verify staleness server-side before allowing it.
-  Future<void> pruneStaleParticipants(String groupId, String channelId) async {
+  Future<void> pruneStaleParticipants(
+    String groupId,
+    String channelId, [
+    String? myUid,
+  ]) async {
     try {
       final snap = await _participants(groupId, channelId).get();
       final now = DateTime.now();
+      final heartbeats =
+          snap.docs.map((d) => d.data()['lastHeartbeat'] as Timestamp?).toList();
+      Timestamp? mine;
+      for (final d in snap.docs) {
+        if (d.id == myUid) mine = d.data()['lastHeartbeat'] as Timestamp?;
+      }
+      if (clockLooksWrong(heartbeats, mine, now)) return;
+
       await Future.wait(snap.docs
           .where((d) => isStale(d.data()['lastHeartbeat'] as Timestamp?, now))
           .map((d) async {
@@ -213,6 +256,14 @@ class VoiceChannelRepository {
     // common path gap-free.
     //
     // Mirrors src/lib/voiceChannel.js. Both clients write this doc.
+    //
+    // Clear leftover candidates BEFORE publishing the offer, never after. The
+    // answerer cannot produce candidates for a negotiation it has not seen
+    // yet, so everything in there right now belongs to a dead session and
+    // nothing in flight can be lost. Sweeping afterwards would race the peer's
+    // own trickle and delete live candidates.
+    await _clearCandidates(ref);
+
     try {
       await ref.set(payload);
     } on FirebaseException catch (e) {
@@ -225,18 +276,65 @@ class VoiceChannelRepository {
     return pairKey;
   }
 
-  Future<void> attachVoiceAnswer(
+  /// Returns true when the answer was stored, false when the write was refused.
+  ///
+  /// The `update` rule permits exactly one write — the non-offerer attaching
+  /// `answer` to a doc that has none yet — so it is denied in two situations
+  /// that are both NORMAL rather than exceptional:
+  ///
+  ///   1. The doc is GONE, because [createVoiceOffer]'s recovery path deleted a
+  ///      leftover and re-offered; an update matches no rule with nothing there.
+  ///   2. The doc already HAS an answer, having been replaced and answered.
+  ///
+  /// Either way the answer being written is stale, which is not an error — so
+  /// report the refusal and let the caller re-answer the replacement offer.
+  /// Throwing here is what surfaced as "Couldn't answer a participant: Missing
+  /// or insufficient permissions" while leaving the pair permanently silent.
+  ///
+  /// Mirrors src/lib/voiceChannel.js.
+  Future<bool> attachVoiceAnswer(
     String groupId,
     String channelId,
     String pairKey,
     Map<String, dynamic> answer,
   ) async {
-    await _signal(groupId, channelId, pairKey).update({'answer': answer});
+    try {
+      await _signal(groupId, channelId, pairKey).update({'answer': answer});
+      return true;
+    } on FirebaseException catch (e) {
+      if (e.code != 'permission-denied') rethrow;
+      return false;
+    }
   }
 
-  Future<void> deleteVoiceSignal(String groupId, String channelId, String pairKey) async {
+  /// Firestore does not cascade, so a pair's ICE candidates outlive the
+  /// signalling doc unless something clears them, and are then replayed into
+  /// the NEXT negotiation for that pair — all pointing at ports from a session
+  /// that no longer exists. One real pair was found carrying 23.
+  Future<void> _clearCandidates(DocumentReference<Map<String, dynamic>> ref) async {
     try {
-      await _signal(groupId, channelId, pairKey).delete();
+      final stale = await ref.collection('candidates').get();
+      await Future.wait(stale.docs.map((d) async {
+        try {
+          await d.reference.delete();
+        } catch (_) {}
+      }));
+    } catch (_) {
+      // Best effort: never block the caller on a failed sweep.
+    }
+  }
+
+  /// Deletes a pair's signalling doc and its candidates. Same reasoning as
+  /// deleteChannel's subcollection clearing in src/lib/groups.js.
+  ///
+  /// Teardown alone cannot fully win the race: the peer keeps trickling
+  /// candidates until it notices we left, so a few land after this sweep and
+  /// outlive the doc. [createVoiceOffer] does the authoritative clear.
+  Future<void> deleteVoiceSignal(String groupId, String channelId, String pairKey) async {
+    final ref = _signal(groupId, channelId, pairKey);
+    await _clearCandidates(ref);
+    try {
+      await ref.delete();
     } catch (_) {}
   }
 

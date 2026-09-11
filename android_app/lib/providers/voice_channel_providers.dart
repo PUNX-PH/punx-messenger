@@ -147,6 +147,20 @@ class _Peer {
   MediaStream? remote;
   MediaStreamTrack? videoTrack;
   bool hasRemoteDescription = false;
+
+  /// Answerer side: the offer this connection answered. A leftover signalling
+  /// doc gets deleted and re-offered by the other side (see
+  /// VoiceChannelRepository.createVoiceOffer), so "have I answered this PEER"
+  /// is the wrong question — the replacement offer must be answered too, or
+  /// that pair stays silent for the whole session while every other pair works.
+  String? answeredOfferSdp;
+
+  /// Offerer side: the offer this connection published, and whether the answer
+  /// belonging to it has been applied. Both are set before the awaits they
+  /// guard: _onSignals is async and re-entrant (the listener redelivers on any
+  /// change), so a flag set only after an await lets two runs through.
+  String? offeredSdp;
+  bool answerApplied = false;
 }
 
 /// Runs a native-only audio call, or skips it.
@@ -227,7 +241,7 @@ class VoiceController extends StateNotifier<VoiceUiState> {
 
       _heartbeatTimer = Timer.periodic(_heartbeat, (_) {
         _repo.heartbeatRoster(groupId, channelId, myUid);
-        _repo.pruneStaleParticipants(groupId, channelId);
+        _repo.pruneStaleParticipants(groupId, channelId, myUid);
       });
       _speakingTimer = Timer.periodic(_speakingPoll, (_) => _pollSpeaking());
 
@@ -525,6 +539,12 @@ class VoiceController extends StateNotifier<VoiceUiState> {
       final peer = await _createPeerFor(peerUid, isOfferer: true);
       final offer = await peer.pc.createOffer();
       await peer.pc.setLocalDescription(offer);
+      // Remember WHICH offer is outstanding. A leftover doc can already carry
+      // an answer aimed at a previous, now-closed connection; applying that
+      // installs a DTLS fingerprint for a peer that no longer exists, and ICE
+      // then reaches `connected` while DTLS sits in `connecting` forever with
+      // no error anywhere. Only the answer alongside THIS offer is ours.
+      peer.offeredSdp = offer.sdp;
       await _repo.createVoiceOffer(ref.groupId, ref.channelId, myUid, peerUid, {
         'sdp': offer.sdp,
         'type': offer.type,
@@ -544,12 +564,27 @@ class VoiceController extends StateNotifier<VoiceUiState> {
       if (peerUid == null) continue;
 
       if (sig.offererUid != myUid) {
-        // They offer, I answer — once. An existing entry means I already have.
-        if (_peers.containsKey(peerUid) || sig.offer == null) continue;
+        // They offer, I answer — once per OFFER, not once per peer. The
+        // offerer replaces this doc when it finds a leftover from a crashed
+        // session, which is the common case since teardown only runs on a
+        // clean leave.
+        if (sig.offer == null) continue;
+        final offerSdp = sig.offer!['sdp'] as String?;
+        final existing = _peers[peerUid];
+        if (existing != null) {
+          // Same offer: answered already, or still mid-flight answering it.
+          if (existing.answeredOfferSdp == offerSdp) continue;
+          // Different offer: the doc was replaced under us, so this connection
+          // is negotiating against an offer that no longer exists. Keep the
+          // doc — it holds the offer we are about to answer.
+          await _closePeer(peerUid);
+        }
         try {
           final peer = await _createPeerFor(peerUid, isOfferer: false);
+          // Before the first await, so the guard above also means "mid-flight".
+          peer.answeredOfferSdp = offerSdp;
           await peer.pc.setRemoteDescription(RTCSessionDescription(
-            sig.offer!['sdp'] as String?,
+            offerSdp,
             sig.offer!['type'] as String?,
           ));
           // Must sit between setRemoteDescription and createAnswer.
@@ -557,17 +592,37 @@ class VoiceController extends StateNotifier<VoiceUiState> {
           await _flushPending(peer);
           final answer = await peer.pc.createAnswer();
           await peer.pc.setLocalDescription(answer);
-          await _repo.attachVoiceAnswer(ref.groupId, ref.channelId, sig.pairKey, {
+          final stored = await _repo.attachVoiceAnswer(
+              ref.groupId, ref.channelId, sig.pairKey, {
             'sdp': answer.sdp,
             'type': answer.type,
           });
+          if (!stored) {
+            // Refused: this offer was superseded while we answered it. Drop the
+            // peer so the replacement — delivered as a change to this same doc
+            // — is answered from scratch. Not an error worth showing.
+            await _closePeer(peerUid);
+          }
         } catch (e) {
           state = state.copyWith(connError: "Couldn't answer a participant: $e");
         }
       } else {
         // I offered — apply their answer, once.
         final peer = _peers[peerUid];
-        if (peer == null || sig.answer == null || peer.hasRemoteDescription) continue;
+        // `answerApplied` rather than `hasRemoteDescription`: the latter is set
+        // by _flushPending, i.e. only after setRemoteDescription has resolved,
+        // which leaves that whole span open for a redelivered snapshot to pass
+        // the guard too. Both runs then applied the same answer, the second
+        // onto an already-stable connection ("Called in wrong state: stable").
+        if (peer == null || sig.answer == null || peer.answerApplied) continue;
+        // Only the answer paired with the offer we actually wrote. Until our
+        // own createVoiceOffer lands, this doc still holds the previous
+        // session's offer/answer pair, and that answer is not ours to apply.
+        if (peer.offeredSdp == null ||
+            (sig.offer?['sdp'] as String?) != peer.offeredSdp) {
+          continue;
+        }
+        peer.answerApplied = true;
         try {
           await peer.pc.setRemoteDescription(RTCSessionDescription(
             sig.answer!['sdp'] as String?,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { listenParticipants, pruneStaleParticipants } from '../../lib/voiceChannel'
+import { useAuth } from '../../lib/auth'
 import { useUsers } from '../../lib/users'
 import { useVoiceChannel } from '../../lib/useVoiceChannel'
 import Avatar from '../Avatar'
@@ -23,16 +24,20 @@ const COMPACT_THRESHOLD = 5
 export default function VoiceParticipants({ groupId, channelId }) {
   const [participants, setParticipants] = useState([])
   const { byId } = useUsers()
+  const { profile } = useAuth()
   const { speakingUids } = useVoiceChannel()
+  // Only so the sweep below can sanity-check this device's clock against a
+  // server timestamp before deleting anyone — see pruneStaleParticipants.
+  const myUid = profile?.id
 
   useEffect(() => {
     return listenParticipants(groupId, channelId, setParticipants, () => {})
   }, [groupId, channelId])
 
   useEffect(() => {
-    const t = setInterval(() => pruneStaleParticipants(groupId, channelId), PRUNE_INTERVAL_MS)
+    const t = setInterval(() => pruneStaleParticipants(groupId, channelId, myUid), PRUNE_INTERVAL_MS)
     return () => clearInterval(t)
-  }, [groupId, channelId])
+  }, [groupId, channelId, myUid])
 
   if (participants.length === 0) return null
 

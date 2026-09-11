@@ -181,7 +181,13 @@ function useVoiceChannelEngine() {
   // for an explicit full leave (looped over every peer) and reactively when
   // the roster listener reports that peer has gone — either side may notice
   // first, so the Firestore delete is idempotent by design.
-  const closePeer = useCallback((peerUid) => {
+  // keepSignal: tear down only the local peer connection, leaving the pair's
+  // signaling doc alone. Used by the re-answer recovery in handleSignalDocs —
+  // there the doc holds the offerer's CURRENT offer, the very thing we are
+  // about to answer, so deleting it destroys the negotiation we are trying to
+  // rescue and leaves the pair half-connected (the offerer hears us, we hear
+  // nothing). Every other caller means "this pair is over", and should delete.
+  const closePeer = useCallback((peerUid, { keepSignal = false } = {}) => {
     const entry = peersRef.current.get(peerUid)
     if (!entry) return
     entry.unsubCandidates?.()
@@ -195,7 +201,7 @@ function useVoiceChannelEngine() {
       return next
     })
     const ch = activeChannelRef.current
-    if (ch && myUid) {
+    if (!keepSignal && ch && myUid) {
       deleteVoiceSignal(ch.groupId, ch.channelId, voicePairKey(myUid, peerUid)).catch(() => {})
     }
   }, [myUid, detachAnalyser])
@@ -352,6 +358,19 @@ function useVoiceChannelEngine() {
       // null for the answerer until adoptVideoTransceiver() fills it in.
       pc, videoSender,
       unsubCandidates: null, pendingCandidates: [], appliedCandidateIds: new Set(),
+      // Both are set SYNCHRONOUSLY, before the awaits they guard. handleSignalDocs
+      // is async and re-entrant — the signal listener redelivers every doc on any
+      // change, including each trickling ICE candidate — so a guard that reads
+      // state only set after an await (pc.currentRemoteDescription, say) lets two
+      // concurrent runs through and applies the same SDP twice.
+      //
+      // answerer side: which offer this connection answered, so a REPLACED
+      // offer reads as new work rather than being skipped.
+      answeredOfferSdp: null,
+      // offerer side: the offer this connection published, and whether the
+      // answer belonging to it has been consumed.
+      offeredSdp: null,
+      answerApplied: false,
     }
     peersRef.current.set(peerUid, entry)
 
@@ -385,9 +404,16 @@ function useVoiceChannelEngine() {
     const ch = activeChannelRef.current
     if (!ch || !myUid || peersRef.current.has(peerUid)) return
     try {
-      const { pc } = createPeerFor(peerUid, { isOfferer: true })
+      const { pc, entry } = createPeerFor(peerUid, { isOfferer: true })
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
+      // Remember WHICH offer is outstanding. A leftover doc can already carry
+      // an answer aimed at some previous, now-closed connection, and applying
+      // that gives a DTLS fingerprint for a peer that no longer exists: ICE
+      // reaches `connected` and DTLS then sits in `connecting` forever, with
+      // no error anywhere. The answer we want is the one sitting alongside
+      // THIS offer, so the guard below compares against it.
+      entry.offeredSdp = offer.sdp
       await createVoiceOffer(ch.groupId, ch.channelId, myUid, peerUid, { sdp: offer.sdp, type: offer.type })
     } catch (e) {
       setConnError(`Couldn't connect to a participant: ${e.message}`)
@@ -404,12 +430,28 @@ function useVoiceChannelEngine() {
       if (!peerUid) continue
 
       if (sig.offererUid !== myUid) {
-        // Peer is the offerer for this pair — answer once, the first time
-        // their offer shows up. peersRef already having an entry means
-        // I've already answered (or am mid-flight answering) this pair.
-        if (peersRef.current.has(peerUid) || !sig.offer) continue
+        // Peer is the offerer for this pair — answer their offer once. Keyed on
+        // the OFFER, not merely on the peer: createVoiceOffer deletes and
+        // re-offers when it finds a leftover doc from a crashed session, and
+        // that is the common case, since teardown only runs on a clean leave.
+        // A guard of `peersRef.has(peerUid)` alone skipped the replacement
+        // offer forever, so whichever pair lost that race stayed silent for the
+        // rest of the session while every other pair worked — "some people
+        // can't hear them, others can".
+        if (!sig.offer) continue
+        const existing = peersRef.current.get(peerUid)
+        if (existing) {
+          // Same offer: already answered it, or still mid-flight answering.
+          if (existing.answeredOfferSdp === sig.offer.sdp) continue
+          // Different offer: the doc was replaced underneath us. The old peer
+          // connection is negotiating against an offer that no longer exists.
+          closePeer(peerUid, { keepSignal: true })
+        }
         try {
           const { pc, entry } = createPeerFor(peerUid, { isOfferer: false })
+          // Synchronously, before the first await — this is what makes the
+          // guard above mean "mid-flight" and not just "finished".
+          entry.answeredOfferSdp = sig.offer.sdp
           await pc.setRemoteDescription(new RTCSessionDescription(sig.offer))
           // Must sit between setRemoteDescription and createAnswer: it's what
           // makes the answer advertise sendrecv for video instead of recvonly.
@@ -417,14 +459,34 @@ function useVoiceChannelEngine() {
           flushPending(pc, entry)
           const answer = await pc.createAnswer()
           await pc.setLocalDescription(answer)
-          await attachVoiceAnswer(ch.groupId, ch.channelId, sig.id, { sdp: answer.sdp, type: answer.type })
+          const stored = await attachVoiceAnswer(
+            ch.groupId, ch.channelId, sig.id, { sdp: answer.sdp, type: answer.type },
+          )
+          if (!stored) {
+            // Refused: this offer was superseded while we answered it. Drop the
+            // peer so the replacement offer — which the listener delivers as a
+            // change to this same doc — is answered from scratch above. Not an
+            // error the user should see; the recovery is automatic.
+            closePeer(peerUid, { keepSignal: true })
+          }
         } catch (e) {
           setConnError(`Couldn't answer a participant: ${e.message}`)
         }
       } else {
         // I'm the offerer — apply the answer once it arrives.
         const entry = peersRef.current.get(peerUid)
-        if (!entry || !sig.answer || entry.pc.currentRemoteDescription) continue
+        // `entry.answerApplied` rather than `pc.currentRemoteDescription`: the
+        // latter is only populated once setRemoteDescription RESOLVES, leaving
+        // the whole duration of that call as a window in which a redelivered
+        // snapshot passes the guard too. Both runs then applied the same answer,
+        // and the second landed on an already-stable connection — "Failed to set
+        // remote answer sdp: Called in wrong state: stable".
+        if (!entry || !sig.answer || entry.answerApplied) continue
+        // Only the answer paired with the offer I actually wrote. Until my own
+        // createVoiceOffer lands, this doc still holds the previous session's
+        // offer/answer pair; that answer is not mine to apply.
+        if (!entry.offeredSdp || sig.offer?.sdp !== entry.offeredSdp) continue
+        entry.answerApplied = true
         try {
           await entry.pc.setRemoteDescription(new RTCSessionDescription(sig.answer))
           flushPending(entry.pc, entry)
@@ -433,7 +495,7 @@ function useVoiceChannelEngine() {
         }
       }
     }
-  }, [myUid, createPeerFor, adoptVideoTransceiver])
+  }, [myUid, createPeerFor, adoptVideoTransceiver, closePeer])
 
   // Roster listener's added/removed lists drive peer-connection lifecycle
   // directly — this fires identically whether "added" means a genuinely new
@@ -485,7 +547,7 @@ function useVoiceChannelEngine() {
 
       heartbeatIntervalRef.current = setInterval(() => {
         heartbeatRoster(groupId, channelId, myUid)
-        pruneStaleParticipants(groupId, channelId)
+        pruneStaleParticipants(groupId, channelId, myUid)
       }, HEARTBEAT_MS)
 
       unsubSignalsRef.current = listenMyVoiceSignals(groupId, channelId, myUid, handleSignalDocs, (err) =>

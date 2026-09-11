@@ -8,3 +8,6 @@ dist
 .DS_Store
 .claude/
 .vercel/
+
+# Build artefact that duplicates the tracked android_app/ios/ tree
+android_app/ios.zip

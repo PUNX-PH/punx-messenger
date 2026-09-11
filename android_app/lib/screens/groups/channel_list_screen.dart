@@ -308,9 +308,13 @@ class _VoiceRosterLineState extends ConsumerState<_VoiceRosterLine> {
   }
 
   void _prune() {
+    // The uid is only so the sweep can sanity-check this device's clock
+    // against a server timestamp before deleting anyone — see
+    // VoiceChannelRepository.clockLooksWrong.
+    final myUid = ref.read(authStateProvider).value?.uid;
     ref
         .read(voiceChannelRepositoryProvider)
-        .pruneStaleParticipants(widget.groupId, widget.channelId);
+        .pruneStaleParticipants(widget.groupId, widget.channelId, myUid);
   }
 
   @override

@@ -72,4 +72,57 @@ void main() {
       expect(staleAfter, const Duration(seconds: 120));
     });
   });
+
+  // `lastHeartbeat` is a serverTimestamp compared against a LOCAL clock, so a
+  // device running fast judges healthy rows to be ancient. Non-admins are
+  // caught by the rules' own request.time re-check; admins are not, because
+  // that clause has to stay open for deleteChannel. These are the guards that
+  // stand in for the check the server will not make.
+  group('clock sanity before pruning', () {
+    final now = DateTime.utc(2026, 1, 1, 12, 0, 0);
+    Timestamp ago(Duration d) => Timestamp.fromDate(now.subtract(d));
+    final fresh = ago(const Duration(seconds: 10));
+    final ancient = ago(const Duration(minutes: 30));
+
+    test('a healthy row of my own means the clock is fine', () {
+      expect(
+        VoiceChannelRepository.clockLooksWrong([fresh, ancient], fresh, now),
+        isFalse,
+      );
+    });
+
+    test('my own row reading as stale means the clock is wrong', () {
+      // It is rewritten every 15s, so this cannot legitimately happen.
+      expect(
+        VoiceChannelRepository.clockLooksWrong([ancient, ancient], ancient, now),
+        isTrue,
+      );
+    });
+
+    test('sweeping a channel I am not in: a mix is trustworthy', () {
+      expect(
+        VoiceChannelRepository.clockLooksWrong([fresh, ancient], null, now),
+        isFalse,
+      );
+    });
+
+    test('sweeping a channel I am not in: all-stale is refused', () {
+      // Indistinguishable from a fast clock, so the whole channel would go.
+      expect(
+        VoiceChannelRepository.clockLooksWrong([ancient, ancient], null, now),
+        isTrue,
+      );
+    });
+
+    test('an empty channel is not a clock problem', () {
+      expect(VoiceChannelRepository.clockLooksWrong([], null, now), isFalse);
+    });
+
+    test('unresolved serverTimestamps are ignored, not read as ancient', () {
+      // A brand-new joiner's row reads back null for a moment. Counting that
+      // as stale is what once deleted people seconds after they joined.
+      expect(VoiceChannelRepository.clockLooksWrong([null, null], null, now), isFalse);
+      expect(VoiceChannelRepository.clockLooksWrong([null, fresh], null, now), isFalse);
+    });
+  });
 }

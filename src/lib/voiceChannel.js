@@ -138,10 +138,52 @@ export function listenParticipants(groupId, channelId, cb, onError) {
 // tabs, since Firestore has no server-side disconnect hook). Safe for
 // multiple clients to call concurrently — delete is idempotent, and
 // firestore.rules re-verifies staleness server-side before allowing it.
-export async function pruneStaleParticipants(groupId, channelId) {
+export async function pruneStaleParticipants(groupId, channelId, myUid) {
   try {
     const snap = await getDocs(participantsCol(groupId, channelId))
     const now = Date.now()
+
+    // Sanity-check this device's clock against the server before deleting
+    // anyone. `lastHeartbeat` is a serverTimestamp and mine is rewritten every
+    // HEARTBEAT_MS, so my own row can never legitimately look stale to me. If
+    // it does, either my clock runs fast or my heartbeats are failing — and in
+    // both cases every OTHER row looks stale too, so a sweep would evict the
+    // whole channel.
+    //
+    // This matters most for admins: the voiceParticipants delete rule lets
+    // adminOverGroup through WITHOUT the server-side staleness check (it has
+    // to, so deleting a channel can clear its roster), so an admin is the one
+    // client whose bad clock the server will not catch.
+    const heartbeats = snap.docs
+      .map(d => d.data().lastHeartbeat?.toMillis?.())
+      .filter(ms => ms != null)
+    const mine = myUid ? snap.docs.find(d => d.id === myUid) : null
+    const myHb = mine?.data().lastHeartbeat?.toMillis?.()
+
+    // Anchor 1 — my own row, when I am in this channel. The strongest signal
+    // available, since my row can never legitimately look stale to me.
+    if (myHb != null && now - myHb > STALE_MS) {
+      console.warn(
+        '[voiceChannel] skipping stale-participant prune: my own heartbeat reads as ' +
+        `${Math.round((now - myHb) / 1000)}s old, so this clock or my writes are wrong`,
+      )
+      return
+    }
+
+    // Anchor 2 — the sidebar sweeps channels I am NOT in, so there is no row
+    // of mine to check. "Every single row looks stale" is the signature of a
+    // fast clock, and also of a channel everyone genuinely crashed out of; the
+    // two are indistinguishable from here. Refuse the sweep either way: ghosts
+    // lingering in a sidebar is cosmetic and the next person to JOIN clears
+    // them (they have anchor 1), whereas evicting a live channel is not.
+    if (myHb == null && heartbeats.length > 0 && heartbeats.every(ms => now - ms > STALE_MS)) {
+      console.warn(
+        '[voiceChannel] skipping stale-participant prune: every row in this channel ' +
+        'looks stale and none is mine, which is what a fast clock looks like',
+      )
+      return
+    }
+
     await Promise.all(snap.docs.map(d => {
       const hb = d.data().lastHeartbeat?.toMillis?.()
       // A serverTimestamp() write can briefly read back as unresolved right
@@ -191,6 +233,13 @@ export async function createVoiceOffer(groupId, channelId, myUid, peerUid, offer
   // that window was wide enough to hit routinely — "Couldn't answer a
   // participant: permission-denied". Recovering only when needed keeps the
   // common path gap-free and confines the window to the rare stale case.
+  // Clear leftover candidates BEFORE publishing the offer, never after. The
+  // answerer cannot produce candidates for a negotiation it has not seen yet,
+  // so at this instant everything in there belongs to a dead session and
+  // nothing in flight can be lost. Sweeping after the offer would race the
+  // peer's own trickle and delete live candidates.
+  await clearVoiceCandidates(ref)
+
   try {
     await setDoc(ref, payload)
   } catch (e) {
@@ -201,12 +250,55 @@ export async function createVoiceOffer(groupId, channelId, myUid, peerUid, offer
   return pairKey
 }
 
+// Returns true when the answer was stored, false when the write was refused.
+//
+// The `update` rule permits exactly one write — the non-offerer attaching
+// `answer` to a doc that has none yet — so this is denied in two situations
+// that are both NORMAL rather than exceptional:
+//
+//   1. The doc is GONE. createVoiceOffer's recovery path deletes a leftover
+//      doc and re-offers; an update matches no rule while nothing is there.
+//   2. The doc already HAS an answer, because it was replaced and answered.
+//
+// Both mean "the offer I just answered is no longer the current one", not
+// "something is broken" — the answer being written is stale either way. So
+// this reports the refusal instead of throwing, and the caller drops the peer
+// so the replacement offer gets answered fresh. Throwing here is what surfaced
+// as "Couldn't answer a participant: Missing or insufficient permissions"
+// while leaving the pair permanently silent.
 export async function attachVoiceAnswer(groupId, channelId, pairKey, answer) {
-  await updateDoc(signalDoc(groupId, channelId, pairKey), { answer })
+  try {
+    await updateDoc(signalDoc(groupId, channelId, pairKey), { answer })
+    return true
+  } catch (e) {
+    if (e?.code !== 'permission-denied') throw e
+    return false
+  }
 }
 
+// Firestore has no cascading delete, so a pair's ICE candidates outlive the
+// signaling doc unless something clears them, and they then get replayed into
+// the NEXT negotiation for the same pair — all pointing at ports from a
+// session that no longer exists. One real pair was found carrying 23.
+async function clearVoiceCandidates(ref) {
+  try {
+    const stale = await getDocs(collection(ref, 'candidates'))
+    await Promise.all(stale.docs.map(d => deleteDoc(d.ref).catch(() => {})))
+  } catch {
+    // Best effort — never block the caller on a failed sweep.
+  }
+}
+
+// Deletes a pair's signaling doc and its candidates. Same reasoning as
+// deleteChannel in lib/groups.js, which clears subcollections for this reason.
+//
+// Teardown alone cannot fully win the race: the peer keeps trickling
+// candidates until it notices we left, so a few can land after this sweep and
+// then outlive the doc. createVoiceOffer does the authoritative clear.
 export async function deleteVoiceSignal(groupId, channelId, pairKey) {
-  await deleteDoc(signalDoc(groupId, channelId, pairKey)).catch(() => {})
+  const ref = signalDoc(groupId, channelId, pairKey)
+  await clearVoiceCandidates(ref)
+  await deleteDoc(ref).catch(() => {})
 }
 
 export async function sendVoiceIceCandidate(groupId, channelId, pairKey, fromUid, candidate) {
