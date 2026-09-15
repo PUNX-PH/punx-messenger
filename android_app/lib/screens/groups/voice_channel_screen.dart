@@ -84,6 +84,11 @@ class _VoiceChannelScreenState extends ConsumerState<VoiceChannelScreen> {
   /// with no nav bar on every other tab.
   late final StateController<bool> _immersiveCtl;
 
+  /// Same holding pattern as [_immersiveCtl], for the same reason: cleared from
+  /// [dispose] after the element is defunct. Leaving it set would keep the
+  /// status bar hidden on every other screen.
+  late final StateController<String?> _roomOnScreenCtl;
+
   bool _immersive = false;
 
   /// Explicit fullscreen choice, overriding the orientation default.
@@ -108,6 +113,12 @@ class _VoiceChannelScreenState extends ConsumerState<VoiceChannelScreen> {
   void initState() {
     super.initState();
     _immersiveCtl = ref.read(voiceImmersiveProvider.notifier);
+    _roomOnScreenCtl = ref.read(voiceRoomOnScreenProvider.notifier);
+    // Deferred for the same reason the dispose write is: initState runs during
+    // a build, and Riverpod rejects a provider write there.
+    final id = widget.channelId;
+    final ctl = _roomOnScreenCtl;
+    WidgetsBinding.instance.addPostFrameCallback((_) => ctl.state = id);
   }
 
   @override
@@ -120,7 +131,15 @@ class _VoiceChannelScreenState extends ConsumerState<VoiceChannelScreen> {
     // provider while the widget tree was building". The controller is captured
     // in a local because `this` is defunct by the time the callback runs.
     final ctl = _immersiveCtl;
-    WidgetsBinding.instance.addPostFrameCallback((_) => ctl.state = false);
+    final roomCtl = _roomOnScreenCtl;
+    final id = widget.channelId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ctl.state = false;
+      // Only clear our own id: pushing straight from one voice room to another
+      // disposes this screen AFTER the next one has registered, and clearing
+      // unconditionally would blank the new room's claim.
+      if (roomCtl.state == id) roomCtl.state = null;
+    });
     super.dispose();
   }
 

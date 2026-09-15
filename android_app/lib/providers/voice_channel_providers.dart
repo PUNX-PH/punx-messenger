@@ -876,3 +876,16 @@ final voiceControllerProvider =
 /// route you are actually looking at — and hiding the nav bar while someone
 /// reads a DM in landscape would be its own bug.
 final voiceImmersiveProvider = StateProvider<bool>((_) => false);
+
+/// The channel id of the voice room currently on screen, or null.
+///
+/// Exists so [VoiceStatusBar] can stand down while the room it describes is
+/// already visible. Without it the room's own control row and the status bar
+/// both sit on screen in portrait, giving TWO mic/deafen/leave buttons for one
+/// piece of state — which is exactly the duplication ProfileSheet refuses to
+/// add for the same reason.
+///
+/// A channel id rather than a bool, deliberately: you can open a voice channel
+/// you have NOT joined while connected to a different one, and there the bar is
+/// the only thing telling you where you actually are, so it must stay.
+final voiceRoomOnScreenProvider = StateProvider<String?>((_) => null);

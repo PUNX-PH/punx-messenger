@@ -26,6 +26,17 @@ class AppShell extends ConsumerWidget {
     final isSuperAdmin = profile?.role.isSuperAdmin ?? false;
     final immersive = ref.watch(voiceImmersiveProvider);
 
+    // The room already shows mic, deafen and leave, so the status bar would be
+    // a second set of controls for the same state sitting right below it. Only
+    // when the room on screen IS the channel you are connected to: opening a
+    // voice channel you have not joined leaves the bar as the one thing saying
+    // where you actually are.
+    final roomOnScreen = ref.watch(voiceRoomOnScreenProvider);
+    final connectedTo = ref.watch(
+      voiceControllerProvider.select((v) => v.active?.channelId),
+    );
+    final roomIsThisCall = roomOnScreen != null && roomOnScreen == connectedTo;
+
     final items = <BottomNavigationBarItem>[
       const BottomNavigationBarItem(
         icon: Icon(Icons.mail_outline),
@@ -80,7 +91,7 @@ class AppShell extends ConsumerWidget {
           : Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const VoiceStatusBar(),
+                if (!roomIsThisCall) const VoiceStatusBar(),
                 BottomNavigationBar(
                   items: items,
                   currentIndex: currentIndex,
