@@ -10,7 +10,10 @@ import 'reply_snapshot.dart';
 class ChatMessage {
   final String id;
   final String text;
-  final String? imageURL; // base64 data URL, or null — no Firebase Storage
+  /// Either an inline base64 data URL (uploads — this app has no Firebase
+  /// Storage) or a remote https URL (a GIF from the picker, hosted by Klipy).
+  /// Anything rendering it must handle BOTH; see ImageService.isRemoteUrl.
+  final String? imageURL;
   final ImageMeta? imageMeta;
   final MessageAuthor author;
   final List<String> mentionedUids;

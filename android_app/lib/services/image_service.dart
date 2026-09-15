@@ -145,4 +145,14 @@ abstract final class ImageService {
     final b64 = commaIdx >= 0 ? dataUrl.substring(commaIdx + 1) : dataUrl;
     return base64Decode(b64);
   }
+
+  /// True when a stored image is a remote URL rather than an inline data URL.
+  ///
+  /// `imageURL` on a message carries BOTH shapes. Uploads are inlined as
+  /// base64 (there is no Firebase Storage in this app), but a GIF from the
+  /// picker is an https link to Klipy's CDN, which must never be handed to
+  /// [decodeDataUrl] — it would try to base64-decode the URL text itself and
+  /// throw, which renders as an empty grey box rather than as an error.
+  static bool isRemoteUrl(String s) =>
+      s.startsWith('http://') || s.startsWith('https://');
 }

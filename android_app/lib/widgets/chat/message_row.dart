@@ -368,25 +368,81 @@ class _ReplyStrip extends StatelessWidget {
   }
 }
 
+/// A message's image, which arrives in one of two shapes.
+///
+/// Uploads are inlined as base64 data URLs (this app has no Firebase Storage),
+/// but a GIF from the picker is an https link to Klipy's CDN. Decoding the
+/// second as if it were the first throws inside build, and a build that throws
+/// paints the default error box — which is the empty grey rectangle GIFs
+/// showed everywhere, on both platforms, whichever client sent them.
 class _MessageImage extends StatelessWidget {
   const _MessageImage({required this.dataUrl});
+
+  /// Despite the name, either an inline data URL or a remote https URL.
   final String dataUrl;
 
   @override
   Widget build(BuildContext context) {
-    final Uint8List bytes = ImageService.decodeDataUrl(dataUrl);
+    final remote = ImageService.isRemoteUrl(dataUrl);
+
+    Uint8List? bytes;
+    if (!remote) {
+      try {
+        bytes = ImageService.decodeDataUrl(dataUrl);
+      } catch (_) {
+        // Malformed inline data: show the placeholder rather than taking the
+        // whole message list down with us.
+        bytes = null;
+      }
+    }
+
+    final Widget image = remote
+        ? Image.network(
+            dataUrl,
+            fit: BoxFit.contain,
+            errorBuilder: (_, _, _) => const _ImageUnavailable(),
+          )
+        : bytes == null
+            ? const _ImageUnavailable()
+            : Image.memory(bytes, fit: BoxFit.contain);
+
+    void openLightbox() {
+      if (remote) {
+        LightboxViewer.showUrl(context, dataUrl);
+      } else if (bytes != null) {
+        LightboxViewer.show(context, bytes);
+      }
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: GestureDetector(
-        onTap: () => LightboxViewer.show(context, bytes),
+        onTap: openLightbox,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxHeight: 260, maxWidth: 320),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(AppRadii.md),
-            child: Image.memory(bytes, fit: BoxFit.contain),
+            child: image,
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Shown instead of a silent blank box when an image cannot be displayed, so
+/// a broken one reads as broken rather than as a rendering glitch.
+class _ImageUnavailable extends StatelessWidget {
+  const _ImageUnavailable();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 160,
+      height: 120,
+      color: Palette.bgDeepest,
+      alignment: Alignment.center,
+      child: Icon(Icons.broken_image_outlined, color: Palette.inkMuted),
     );
   }
 }

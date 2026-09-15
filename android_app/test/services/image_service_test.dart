@@ -88,5 +88,34 @@ void main() {
       expect(redecoded!.width, 32);
       expect(redecoded.height, 32);
     });
+
+    test('throws on a remote URL, which is why isRemoteUrl must gate it', () {
+      expect(() => ImageService.decodeDataUrl('https://cdn.klipy.co/a.webp'),
+          throwsFormatException);
+    });
+  });
+
+  // A message's `imageURL` carries two different shapes: uploads inlined as
+  // base64, and GIFs from the picker as https links to Klipy. Decoding the
+  // second as if it were the first throws inside build, and a build that
+  // throws paints the default error box — which is why every GIF rendered as
+  // an empty grey rectangle with nothing in the logs to explain it.
+  group('ImageService.isRemoteUrl', () {
+    test('https and http links are remote', () {
+      expect(ImageService.isRemoteUrl('https://cdn.klipy.co/a/b.webp'), isTrue);
+      expect(ImageService.isRemoteUrl('http://127.0.0.1:8787/x.gif'), isTrue);
+    });
+
+    test('inline data URLs are not', () {
+      expect(
+          ImageService.isRemoteUrl('data:image/png;base64,iVBORw0KGgo='), isFalse);
+      expect(
+          ImageService.isRemoteUrl('data:image/webp;base64,UklGRg=='), isFalse);
+    });
+
+    test('a bare base64 payload is not, even when it decodes to a URL', () {
+      // decodeDataUrl tolerates a comma-less string, so this shape reaches it.
+      expect(ImageService.isRemoteUrl('aHR0cHM6Ly9leGFtcGxlLmNvbQ=='), isFalse);
+    });
   });
 }

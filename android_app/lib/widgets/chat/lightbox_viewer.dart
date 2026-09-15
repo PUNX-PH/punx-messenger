@@ -9,16 +9,27 @@ import '../../theme/palette.dart';
 /// fullscreen view + close), but `InteractiveViewer` gives pinch-zoom for
 /// free on mobile, which is a reasonable superset rather than a regression.
 class LightboxViewer extends StatelessWidget {
-  const LightboxViewer({super.key, required this.bytes});
+  /// Exactly one of [bytes] and [url] is non-null: an inlined upload, or a
+  /// remote GIF. See ImageService.isRemoteUrl.
+  const LightboxViewer({super.key, this.bytes, this.url})
+      : assert((bytes == null) != (url == null),
+            'pass exactly one of bytes or url');
 
-  final Uint8List bytes;
+  final Uint8List? bytes;
+  final String? url;
 
-  static void show(BuildContext context, Uint8List bytes) {
+  static void show(BuildContext context, Uint8List bytes) =>
+      _push(context, LightboxViewer(bytes: bytes));
+
+  static void showUrl(BuildContext context, String url) =>
+      _push(context, LightboxViewer(url: url));
+
+  static void _push(BuildContext context, Widget viewer) {
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
         barrierColor: Colors.black.withValues(alpha: 0.85),
-        pageBuilder: (context, _, _) => LightboxViewer(bytes: bytes),
+        pageBuilder: (context, _, _) => viewer,
       ),
     );
   }
@@ -33,7 +44,9 @@ class LightboxViewer extends StatelessWidget {
           children: [
             Center(
               child: InteractiveViewer(
-                child: Image.memory(bytes, fit: BoxFit.contain),
+                child: bytes != null
+                    ? Image.memory(bytes!, fit: BoxFit.contain)
+                    : Image.network(url!, fit: BoxFit.contain),
               ),
             ),
             Positioned(
