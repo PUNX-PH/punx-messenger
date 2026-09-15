@@ -102,6 +102,15 @@ function useVoiceChannelEngine() {
   const cameraStreamRef = useRef(null) // raw getUserMedia video stream, only while cameraOn
   const screenStreamRef = useRef(null) // raw getDisplayMedia stream, only while screenSharing — mutually exclusive with camera
   const peersRef = useRef(new Map()) // peerUid -> { pc, videoSender, unsubCandidates, pendingCandidates, appliedCandidateIds }
+  // peerUid -> the offer SDP already answered for that pair. Deliberately NOT
+  // on the peer entry: closing a peer must not erase the fact that we
+  // answered, because voiceSignals' update rule permits exactly one answer per
+  // document. A second answer is refused, and treating that refusal as "the
+  // offer was superseded, drop the peer and retry" loops — rebuilding the peer
+  // connection on every redelivery, so a remote renderer never holds a track
+  // long enough to paint and a screen share sits on its spinner forever.
+  // Cleared only when a pair genuinely ends, so a rejoin negotiates cleanly.
+  const answeredOffersRef = useRef(new Map())
   const unsubRosterRef = useRef(null)
   const unsubSignalsRef = useRef(null)
   const heartbeatIntervalRef = useRef(null)
@@ -227,6 +236,7 @@ function useVoiceChannelEngine() {
 
     if (ch && myUid) leaveRoster(ch.groupId, ch.channelId, myUid).catch(() => {})
 
+    answeredOffersRef.current.clear()
     activeChannelRef.current = null
     setActiveChannel(null)
     setParticipants([])
@@ -440,17 +450,25 @@ function useVoiceChannelEngine() {
         // can't hear them, others can".
         if (!sig.offer) continue
         const existing = peersRef.current.get(peerUid)
+        const alreadyAnswered = answeredOffersRef.current.get(peerUid) === sig.offer.sdp
         if (existing) {
           // Same offer: already answered it, or still mid-flight answering.
-          if (existing.answeredOfferSdp === sig.offer.sdp) continue
+          if (alreadyAnswered) continue
           // Different offer: the doc was replaced underneath us. The old peer
           // connection is negotiating against an offer that no longer exists.
           closePeer(peerUid, { keepSignal: true })
+        } else if (alreadyAnswered) {
+          // No peer, but we DID answer this exact offer. The doc already
+          // carries that answer and the rule allows only one, so answering
+          // again is refused — and retrying on every redelivery is the loop
+          // described on answeredOffersRef. Wait for a genuinely new offer.
+          continue
         }
+        // Recorded synchronously, before the awaits, so a redelivery mid-flight
+        // is skipped — and kept across a close so the loop cannot restart.
+        answeredOffersRef.current.set(peerUid, sig.offer.sdp)
         try {
           const { pc, entry } = createPeerFor(peerUid, { isOfferer: false })
-          // Synchronously, before the first await — this is what makes the
-          // guard above mean "mid-flight" and not just "finished".
           entry.answeredOfferSdp = sig.offer.sdp
           await pc.setRemoteDescription(new RTCSessionDescription(sig.offer))
           // Must sit between setRemoteDescription and createAnswer: it's what
@@ -463,10 +481,10 @@ function useVoiceChannelEngine() {
             ch.groupId, ch.channelId, sig.id, { sdp: answer.sdp, type: answer.type },
           )
           if (!stored) {
-            // Refused: this offer was superseded while we answered it. Drop the
-            // peer so the replacement offer — which the listener delivers as a
-            // change to this same doc — is answered from scratch above. Not an
-            // error the user should see; the recovery is automatic.
+            // Refused, so this answer never landed. Drop the half-built peer,
+            // but KEEP the answeredOffersRef entry: retrying the same offer
+            // would be refused identically. The replacement offer, when it
+            // comes, carries different SDP and so passes the guard above.
             closePeer(peerUid, { keepSignal: true })
           }
         } catch (e) {
@@ -511,6 +529,8 @@ function useVoiceChannelEngine() {
     })
     removed.forEach(uid => {
       if (uid === myUid) return
+      // They left: forget the answered offer so a rejoin negotiates cleanly.
+      answeredOffersRef.current.delete(uid)
       closePeer(uid)
     })
   }, [myUid, offerTo, closePeer])

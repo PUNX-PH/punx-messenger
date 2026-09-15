@@ -198,6 +198,19 @@ class VoiceController extends StateNotifier<VoiceUiState> {
   String? get _myUid => _ref.read(profileProvider).valueOrNull?.id;
 
   final Map<String, _Peer> _peers = {};
+
+  /// peerUid -> the offer SDP we have already answered for that pair.
+  ///
+  /// Deliberately OUTSIDE [_Peer]: closing a peer must not erase the fact that
+  /// we answered, because voiceSignals' update rule permits exactly one answer
+  /// per document. Answering a second time is refused, and treating that
+  /// refusal as "the offer was superseded, drop the peer and retry" is a loop
+  /// — one that rebuilt the peer connection on every redelivery, so the remote
+  /// renderer never held a track long enough to paint and a share sat on its
+  /// spinner forever.
+  ///
+  /// Cleared only when a pair genuinely ends, so a rejoin negotiates cleanly.
+  final Map<String, String?> _answeredOffers = {};
   MediaStream? _localAudio;
   MediaStream? _cameraStream;
   StreamSubscription<RosterUpdate>? _rosterSub;
@@ -295,6 +308,7 @@ class VoiceController extends StateNotifier<VoiceUiState> {
       await _closePeer(uid, deleteSignal: true);
     }
     _peers.clear();
+    _answeredOffers.clear();
     _lastLoudAt.clear();
 
     if (ref != null && myUid != null) {
@@ -571,17 +585,29 @@ class VoiceController extends StateNotifier<VoiceUiState> {
         if (sig.offer == null) continue;
         final offerSdp = sig.offer!['sdp'] as String?;
         final existing = _peers[peerUid];
+        final alreadyAnswered = _answeredOffers.containsKey(peerUid) &&
+            _answeredOffers[peerUid] == offerSdp;
+
         if (existing != null) {
           // Same offer: answered already, or still mid-flight answering it.
-          if (existing.answeredOfferSdp == offerSdp) continue;
+          if (alreadyAnswered) continue;
           // Different offer: the doc was replaced under us, so this connection
           // is negotiating against an offer that no longer exists. Keep the
           // doc — it holds the offer we are about to answer.
           await _closePeer(peerUid);
+        } else if (alreadyAnswered) {
+          // No peer, but we DID answer this exact offer. The document already
+          // carries that answer and the rule allows only one, so answering
+          // again is refused — and retrying on every redelivery is the loop
+          // described on [_answeredOffers]. Wait for a genuinely new offer.
+          continue;
         }
+
+        // Recorded before the awaits so a redelivery mid-flight is skipped,
+        // and kept across a close so the loop above cannot restart.
+        _answeredOffers[peerUid] = offerSdp;
         try {
           final peer = await _createPeerFor(peerUid, isOfferer: false);
-          // Before the first await, so the guard above also means "mid-flight".
           peer.answeredOfferSdp = offerSdp;
           await peer.pc.setRemoteDescription(RTCSessionDescription(
             offerSdp,
@@ -598,9 +624,10 @@ class VoiceController extends StateNotifier<VoiceUiState> {
             'type': answer.type,
           });
           if (!stored) {
-            // Refused: this offer was superseded while we answered it. Drop the
-            // peer so the replacement — delivered as a change to this same doc
-            // — is answered from scratch. Not an error worth showing.
+            // Refused, so this answer never landed. Drop the half-built peer,
+            // but KEEP the _answeredOffers entry: retrying the same offer would
+            // be refused identically. The replacement offer, when it comes,
+            // carries different SDP and so passes the guard above.
             await _closePeer(peerUid);
           }
         } catch (e) {
@@ -655,6 +682,8 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     }
     for (final uid in update.removed) {
       if (uid == myUid) continue;
+      // They left: forget the answered offer so a rejoin negotiates cleanly.
+      _answeredOffers.remove(uid);
       _closePeer(uid);
     }
   }
