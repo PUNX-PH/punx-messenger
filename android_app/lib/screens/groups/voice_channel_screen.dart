@@ -597,7 +597,8 @@ class _Tiles extends StatelessWidget {
     final track = isSelf ? null : voice.remoteVideoTracks[p.uid];
     // A participant who has left the workspace still has to render: usersById
     // is the unfiltered directory for exactly this reason.
-    final name = usersById[p.uid]?.name ?? 'Someone';
+    final user = usersById[p.uid];
+    final name = user?.name ?? 'Someone';
 
     return _VoiceTile(
       // Do NOT make this a GlobalKey. Tried, reverted: the intent was to let
@@ -610,6 +611,7 @@ class _Tiles extends StatelessWidget {
       key: ValueKey('tile_${p.uid}'),
       participant: p,
       name: name,
+      photoURL: user?.photoURL,
       isSelf: isSelf,
       speaking: voice.speakingUids.contains(p.uid),
       stream: stream,
@@ -638,6 +640,7 @@ class _VoiceTile extends StatefulWidget {
     super.key,
     required this.participant,
     required this.name,
+    required this.photoURL,
     required this.isSelf,
     required this.speaking,
     required this.stream,
@@ -649,6 +652,13 @@ class _VoiceTile extends StatefulWidget {
 
   final VoiceParticipant participant;
   final String name;
+
+  /// Passed through to [Avatar] so a tile without video shows the person's
+  /// picture, as the web's VoiceParticipants does. Omitting it made every
+  /// tile fall back to the initial, so nobody ever had a picture in a call
+  /// regardless of their account.
+  final String? photoURL;
+
   final bool isSelf;
   final bool speaking;
   final MediaStream? stream;
@@ -875,7 +885,11 @@ class _VoiceTileState extends State<_VoiceTile> {
               ),
             if (!_ready || !_hasVideoTrack || !_live)
               Center(
-                child: Avatar(name: widget.name, size: widget.big ? 72 : 40),
+                child: Avatar(
+                  name: widget.name,
+                  src: widget.photoURL,
+                  size: widget.big ? 72 : 40,
+                ),
               ),
             if (_buffering)
               Center(
