@@ -222,6 +222,7 @@ class VoiceController extends StateNotifier<VoiceUiState> {
   StreamSubscription<List<VoiceSignal>>? _signalsSub;
   Timer? _heartbeatTimer;
   Timer? _speakingTimer;
+  Timer? _videoStatsTimer; // DIAGNOSTIC, see _logVideoStats
   final Map<String, DateTime> _lastLoudAt = {};
 
   // ---------- join / leave ----------
@@ -262,6 +263,11 @@ class VoiceController extends StateNotifier<VoiceUiState> {
         _repo.pruneStaleParticipants(groupId, channelId, myUid);
       });
       _speakingTimer = Timer.periodic(_speakingPoll, (_) => _pollSpeaking());
+      // DIAGNOSTIC: is remote video arriving and failing to decode, or not
+      // arriving at all? Those need opposite fixes and the UI cannot tell them
+      // apart — a blank tile looks identical either way.
+      _videoStatsTimer =
+          Timer.periodic(const Duration(seconds: 1), (_) => _logVideoStats());
 
       _signalsSub = _repo
           .listenMySignals(groupId, channelId, myUid)
@@ -306,11 +312,13 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     _signalsSub = null;
     _heartbeatTimer?.cancel();
     _speakingTimer?.cancel();
+    _videoStatsTimer?.cancel();
     _heartbeatTimer = null;
     _speakingTimer = null;
+    _videoStatsTimer = null;
 
     for (final uid in _peers.keys.toList()) {
-      await _closePeer(uid, deleteSignal: true);
+      await _closePeer(uid, deleteSignal: true, reason: 'teardown');
     }
     _peers.clear();
     _answeredOffers.clear();
@@ -336,8 +344,14 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     state = VoiceUiState(connError: keepError);
   }
 
-  Future<void> _closePeer(String peerUid, {bool deleteSignal = false}) async {
+  Future<void> _closePeer(
+    String peerUid, {
+    bool deleteSignal = false,
+    String reason = '?',
+  }) async {
     final peer = _peers.remove(peerUid);
+    debugPrint('[voice] trace peer:close $peerUid reason=$reason '
+        'existed=${peer != null} deleteSignal=$deleteSignal');
     if (peer == null) return;
     await peer.candidatesSub?.cancel();
     try {
@@ -381,6 +395,7 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     final myUid = _myUid!;
     final pc = await _webrtc.createConnection();
     final peer = _Peer(pc);
+    debugPrint('[voice] trace peer:create $peerUid isOfferer=$isOfferer');
 
     if (isOfferer) {
       final tx = await pc.addTransceiver(
@@ -479,7 +494,7 @@ class VoiceController extends StateNotifier<VoiceUiState> {
       // No ICE-restart flow, same as the 1:1 system: a failed pair drops rather
       // than leaving a dead silent tile.
       if (s == RTCIceConnectionState.RTCIceConnectionStateFailed) {
-        _closePeer(peerUid);
+        _closePeer(peerUid, reason: 'ice-failed');
       }
     };
 
@@ -599,7 +614,7 @@ class VoiceController extends StateNotifier<VoiceUiState> {
           // Different offer: the doc was replaced under us, so this connection
           // is negotiating against an offer that no longer exists. Keep the
           // doc — it holds the offer we are about to answer.
-          await _closePeer(peerUid);
+          await _closePeer(peerUid, reason: 'offer-replaced');
         } else if (alreadyAnswered) {
           // No peer, but we DID answer this exact offer. The document already
           // carries that answer and the rule allows only one, so answering
@@ -633,7 +648,7 @@ class VoiceController extends StateNotifier<VoiceUiState> {
             // but KEEP the _answeredOffers entry: retrying the same offer would
             // be refused identically. The replacement offer, when it comes,
             // carries different SDP and so passes the guard above.
-            await _closePeer(peerUid);
+            await _closePeer(peerUid, reason: 'answer-refused');
           }
         } catch (e) {
           state = state.copyWith(connError: "Couldn't answer a participant: $e");
@@ -689,7 +704,7 @@ class VoiceController extends StateNotifier<VoiceUiState> {
       if (uid == myUid) continue;
       // They left: forget the answered offer so a rejoin negotiates cleanly.
       _answeredOffers.remove(uid);
-      _closePeer(uid);
+      _closePeer(uid, reason: 'roster-removed');
     }
   }
 
@@ -742,37 +757,42 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     _pushRosterState();
   }
 
-  /// [justArrived] marks a track handed to us by `onTrack`, which must delay
-  /// the native volume call.
+  /// [justArrived] marks a track handed to us by `onTrack`.
   ///
-  /// `Helper.setVolume` on a remote audio track in the instant it arrives
-  /// ABORTS the process: libwebrtc raises SIGABRT on its own signalling thread,
-  /// inside the call, and a native abort cannot be caught — the try/catch in
-  /// [_nativeAudio] is no protection. Traced precisely: `setEnabled` returns,
-  /// the volume call is entered, and nothing after it ever runs.
+  /// **Touching a remote audio track in the instant it arrives aborts the
+  /// process.** libwebrtc raises SIGABRT on its own signalling thread; a native
+  /// abort cannot be caught, so the try/catch in [_nativeAudio] is no
+  /// protection and nothing reaches the logs. It is a race — some joins
+  /// survive — which is why it reads as "the app dies when I open voice,
+  /// usually".
   ///
-  /// Setting `enabled` is safe and is what actually makes deafen real, so the
-  /// volume call is only a refinement — but it cannot simply be dropped,
-  /// because on Android remote audio plays through the audio session as soon as
-  /// the track arrives and enabled alone has been unreliable there. So it is
-  /// deferred out of the arrival callback instead, by which point libwebrtc has
-  /// finished dispatching and the track is established.
+  /// Both writes are implicated, not just the volume one: `enabled` is a
+  /// fire-and-forget channel call, so its Dart setter returns long before the
+  /// native side runs, and a trace showing the setter "completing" proves
+  /// nothing about what happens 2ms later.
+  ///
+  /// The way out is that the write is almost never needed. A remote track
+  /// arrives enabled and at full volume already, which is exactly what a
+  /// listener who is not deafened wants — so the common path now touches
+  /// nothing at all. Only a deafened listener needs it, and even then it waits
+  /// for the arrival to settle.
   void _applyOutputTo(MediaStreamTrack track, {bool justArrived = false}) {
-    track.enabled = !state.deafened;
-
-    final apply = () => _nativeAudio(
-          'playback volume',
-          () => Helper.setVolume(state.deafened ? 0 : 1, track),
-        );
-
     if (!justArrived) {
-      unawaited(apply());
+      track.enabled = !state.deafened;
+      unawaited(_nativeAudio(
+        'playback volume',
+        () => Helper.setVolume(state.deafened ? 0 : 1, track),
+      ));
       return;
     }
+
+    if (!state.deafened) return; // nothing to change; do not touch it
+
     unawaited(Future<void>.delayed(_volumeSettleDelay, () async {
-      // The session may have ended, or this peer left, while we waited.
-      if (!mounted || state.active == null) return;
-      await apply();
+      // Undeafened while we waited, or the session ended: leave it alone.
+      if (!mounted || state.active == null || !state.deafened) return;
+      track.enabled = false;
+      await _nativeAudio('playback volume', () => Helper.setVolume(0, track));
     }));
   }
 
@@ -849,6 +869,42 @@ class VoiceController extends StateNotifier<VoiceUiState> {
   /// instead: inbound-rtp for each peer, media-source for my own mic.
   /// Failures are swallowed — a missing level means "not speaking", never an
   /// error the user sees.
+  /// DIAGNOSTIC: dump the inbound video counters for every peer.
+  ///
+  /// `bytesReceived > 0` with `framesDecoded == 0` means the packets arrive and
+  /// the decoder cannot handle them — a codec problem. `bytesReceived == 0`
+  /// means nothing is being sent to us at all, which is a negotiation problem.
+  Future<void> _logVideoStats() async {
+    for (final entry in _peers.entries) {
+      try {
+        final reports = await entry.value.pc.getStats();
+        for (final r in reports) {
+          if (r.type == 'inbound-rtp' && r.values['kind'] == 'video') {
+            debugPrint(
+              '[voice] vstats peer=${entry.key.substring(0, 6)} '
+              'bytes=${r.values['bytesReceived']} '
+              'packets=${r.values['packetsReceived']} '
+              'framesDecoded=${r.values['framesDecoded']} '
+              'framesDropped=${r.values['framesDropped']} '
+              'frameWidth=${r.values['frameWidth']} '
+              'frameHeight=${r.values['frameHeight']} '
+              'codec=${r.values['codecId']} '
+              'decoder=${r.values['decoderImplementation']}',
+            );
+          }
+          if (r.type == 'codec') {
+            final mime = r.values['mimeType'];
+            if (mime is String && mime.startsWith('video')) {
+              debugPrint('[voice] vcodec ${r.values['codecId'] ?? r.id} $mime');
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[voice] vstats failed: $e');
+      }
+    }
+  }
+
   Future<void> _pollSpeaking() async {
     final myUid = _myUid;
     if (myUid == null || state.active == null) return;
