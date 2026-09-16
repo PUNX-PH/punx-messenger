@@ -361,7 +361,23 @@ function useVoiceChannelEngine() {
     pc.oniceconnectionstatechange = () => {
       // No reconnect/ICE-restart flow in v1 (same as the 1:1 call system) —
       // a failed pair just drops, rather than leaving a dead silent tile.
-      if (pc.iceConnectionState === 'failed') closePeer(peerUid)
+      //
+      // SAY SO. This used to drop in silence, and silence is expensive here:
+      // the SDP still negotiates, tracks still arrive, tiles still appear — so
+      // everything looks connected while no media can flow. A screen share
+      // that never painted was chased through the renderer, the codec and the
+      // signalling before anyone thought to check whether ICE had succeeded.
+      //
+      // The usual cause is not a bug: with no TURN server configured, a pair
+      // that cannot reach each other directly has nothing to relay through,
+      // and fails exactly like this. See getIceServers in lib/webrtc.js.
+      if (pc.iceConnectionState === 'failed') {
+        setConnError(
+          "Couldn't connect to a participant — your networks may not be able to " +
+          'reach each other directly.',
+        )
+        closePeer(peerUid)
+      }
     }
 
     const entry = {

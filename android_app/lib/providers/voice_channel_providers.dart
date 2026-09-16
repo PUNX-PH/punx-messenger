@@ -222,7 +222,6 @@ class VoiceController extends StateNotifier<VoiceUiState> {
   StreamSubscription<List<VoiceSignal>>? _signalsSub;
   Timer? _heartbeatTimer;
   Timer? _speakingTimer;
-  Timer? _videoStatsTimer; // DIAGNOSTIC, see _logVideoStats
   final Map<String, DateTime> _lastLoudAt = {};
 
   // ---------- join / leave ----------
@@ -263,11 +262,6 @@ class VoiceController extends StateNotifier<VoiceUiState> {
         _repo.pruneStaleParticipants(groupId, channelId, myUid);
       });
       _speakingTimer = Timer.periodic(_speakingPoll, (_) => _pollSpeaking());
-      // DIAGNOSTIC: is remote video arriving and failing to decode, or not
-      // arriving at all? Those need opposite fixes and the UI cannot tell them
-      // apart — a blank tile looks identical either way.
-      _videoStatsTimer =
-          Timer.periodic(const Duration(seconds: 1), (_) => _logVideoStats());
 
       _signalsSub = _repo
           .listenMySignals(groupId, channelId, myUid)
@@ -312,10 +306,8 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     _signalsSub = null;
     _heartbeatTimer?.cancel();
     _speakingTimer?.cancel();
-    _videoStatsTimer?.cancel();
     _heartbeatTimer = null;
     _speakingTimer = null;
-    _videoStatsTimer = null;
 
     for (final uid in _peers.keys.toList()) {
       await _closePeer(uid, deleteSignal: true, reason: 'teardown');
@@ -493,11 +485,24 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     pc.onIceConnectionState = (RTCIceConnectionState s) {
       // No ICE-restart flow, same as the 1:1 system: a failed pair drops rather
       // than leaving a dead silent tile.
+      //
+      // SAY SO. This used to drop in silence, and silence is expensive here:
+      // the SDP still negotiates, tracks still arrive, the tile still appears —
+      // so everything looks connected while no media can flow. A screen share
+      // that never painted was chased through the renderer, the codec and the
+      // signalling before anyone checked whether ICE had succeeded.
+      //
+      // The usual cause is not a bug: with no TURN server configured, a pair
+      // that cannot reach each other directly has nothing to relay through and
+      // fails exactly like this. See AppConfig.iceServers.
       if (s == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+        state = state.copyWith(
+          connError: "Couldn't connect to a participant — your networks may not "
+              'be able to reach each other directly.',
+        );
         _closePeer(peerUid, reason: 'ice-failed');
       }
     };
-
     _peers[peerUid] = peer;
 
     peer.candidatesSub = _repo
@@ -869,42 +874,6 @@ class VoiceController extends StateNotifier<VoiceUiState> {
   /// instead: inbound-rtp for each peer, media-source for my own mic.
   /// Failures are swallowed — a missing level means "not speaking", never an
   /// error the user sees.
-  /// DIAGNOSTIC: dump the inbound video counters for every peer.
-  ///
-  /// `bytesReceived > 0` with `framesDecoded == 0` means the packets arrive and
-  /// the decoder cannot handle them — a codec problem. `bytesReceived == 0`
-  /// means nothing is being sent to us at all, which is a negotiation problem.
-  Future<void> _logVideoStats() async {
-    for (final entry in _peers.entries) {
-      try {
-        final reports = await entry.value.pc.getStats();
-        for (final r in reports) {
-          if (r.type == 'inbound-rtp' && r.values['kind'] == 'video') {
-            debugPrint(
-              '[voice] vstats peer=${entry.key.substring(0, 6)} '
-              'bytes=${r.values['bytesReceived']} '
-              'packets=${r.values['packetsReceived']} '
-              'framesDecoded=${r.values['framesDecoded']} '
-              'framesDropped=${r.values['framesDropped']} '
-              'frameWidth=${r.values['frameWidth']} '
-              'frameHeight=${r.values['frameHeight']} '
-              'codec=${r.values['codecId']} '
-              'decoder=${r.values['decoderImplementation']}',
-            );
-          }
-          if (r.type == 'codec') {
-            final mime = r.values['mimeType'];
-            if (mime is String && mime.startsWith('video')) {
-              debugPrint('[voice] vcodec ${r.values['codecId'] ?? r.id} $mime');
-            }
-          }
-        }
-      } catch (e) {
-        debugPrint('[voice] vstats failed: $e');
-      }
-    }
-  }
-
   Future<void> _pollSpeaking() async {
     final myUid = _myUid;
     if (myUid == null || state.active == null) return;
