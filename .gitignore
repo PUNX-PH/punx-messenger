@@ -11,3 +11,8 @@ dist
 
 # Build artefact that duplicates the tracked android_app/ios/ tree
 android_app/ios.zip
+
+# Release signing — holds passwords and a path to a keystore kept outside the repo
+android_app/android/key.properties
+*.jks
+*.keystore

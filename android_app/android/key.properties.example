@@ -1,0 +1,8 @@
+# Copy to key.properties (gitignored) and fill in. NEVER commit the real one.
+#
+# The keystore itself lives OUTSIDE this repo — losing it means you can never
+# update the app on Play again, and a public repo is no place for it.
+storeFile=D:/WebProjects/Keys/punx-upload.jks
+storePassword=
+keyAlias=upload
+keyPassword=
