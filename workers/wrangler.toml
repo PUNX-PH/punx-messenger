@@ -13,6 +13,12 @@ id = "681bf145d9ab4199b60e8a47fa38999b"
 # KEEP IN SYNC with the matching VITE_* vars in .env.local / firestore.rules.
 [vars]
 FIREBASE_PROJECT_ID = "punx-msg"
+
+# Cloudflare TURN. The ID is not a secret; the token that goes with it is, and
+# lives as a Worker secret (`wrangler secret put TURN_KEY_API_TOKEN`) exactly
+# like KLIPY_API_KEY. Without BOTH set, /turn/credentials returns 503 and the
+# clients fall back to STUN-only — the behaviour they had before.
+TURN_KEY_ID = "ae9b92196ded56734e03dfab7ee3b9fe"
 ALLOWED_EMAIL_DOMAIN = "punx.ai"
 ALLOWED_EXTRA_EMAILS = "perezjohnrey43@gmail.com"
 

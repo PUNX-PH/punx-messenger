@@ -19,6 +19,10 @@ abstract final class GifService {
   /// Override with `--dart-define=GIFS_WORKER_URL=...` to point at
   /// `wrangler dev` locally. Mirrors the web's VITE_GIFS_WORKER_URL, whose
   /// deployed value is this Worker.
+  /// Also used by [TurnService], which calls the same Worker with the same
+  /// auth — one deployment, one URL to keep right.
+  static const workerUrl = _workerUrl;
+
   static const _workerUrl = String.fromEnvironment(
     'GIFS_WORKER_URL',
     defaultValue: 'https://punx-messenger-gifs.rey-433.workers.dev',

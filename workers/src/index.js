@@ -7,11 +7,15 @@
 //   2. Minting Firebase custom tokens for bots, which needs a service-account
 //      key that obviously can't ship to a client (see routes/bots.js and
 //      docs/BOTS.md).
+//   3. Minting short-lived TURN credentials, for the same reason: the key that
+//      issues them must not reach a browser, and what it issues expires (see
+//      routes/turn.js).
 // Firebase/Firestore remains the real backend for everything else.
 
 import { AuthError } from './auth.js'
 import * as bots from './routes/bots.js'
 import * as gifs from './routes/gifs.js'
+import * as turn from './routes/turn.js'
 
 function corsHeaders(request, env) {
   const origin = request.headers.get('Origin') || ''
@@ -47,6 +51,11 @@ export default {
       }
       if (url.pathname === '/gifs/trending' && request.method === 'GET') {
         return withCors(await gifs.trendingGifs(request, env), cors)
+      }
+      // Short-lived TURN credentials, one per signed-in caller. See
+      // routes/turn.js for why this cannot be a build-time constant.
+      if (url.pathname === '/turn/credentials' && request.method === 'GET') {
+        return withCors(await turn.issueIceServers(request, env), cors)
       }
       // Bots call this server-to-server, so CORS is irrelevant to them — but
       // it's echoed anyway so the endpoint stays testable from a browser.

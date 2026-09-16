@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../models/call.dart';
+import '../services/turn_service.dart';
 import '../services/calls_repository.dart';
 import '../services/webrtc_service.dart';
 import '../utils/constants.dart';
@@ -320,7 +321,10 @@ class CallController extends StateNotifier<CallUiState> {
   // accept() set it before creating the peer connection) so these closures
   // never race a not-yet-known call id.
   Future<RTCPeerConnection> _setupPeerConnection() async {
-    final pc = await _webrtc.createConnection();
+    // TURN when the Worker can mint it, STUN alone otherwise. Never throws.
+    final pc = await _webrtc.createConnection(
+      iceServers: await TurnService.iceServers(),
+    );
     _pc = pc;
 
     pc.onTrack = (event) {

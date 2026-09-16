@@ -21,6 +21,58 @@ export function getIceServers() {
   }
 }
 
+// TURN credentials, fetched once per session and reused.
+//
+// They cannot be a build-time constant like the STUN list above: the key that
+// issues them must stay server-side, and what it issues expires. The Worker
+// mints one per signed-in user against the Firebase ID token the client
+// already holds — same route and same auth as the GIF proxy.
+//
+// The promise is cached rather than the value, so N peers joining at once
+// share one request instead of racing N of them.
+let icePromise = null
+
+/**
+ * Resolves the ICE server list to build peer connections with: STUN plus TURN
+ * when the Worker can mint it, STUN alone when it cannot.
+ *
+ * Failure is deliberately quiet and non-fatal. No TURN means hard-to-reach
+ * pairs fail to connect — which is exactly where this app was before TURN
+ * existed — whereas throwing here would stop voice working for everybody,
+ * including the majority who never need a relay.
+ */
+export async function resolveIceServers() {
+  const base = getIceServers()
+  // An explicit VITE_ICE_SERVERS is someone deliberately overriding the
+  // config; don't second-guess it with a fetch.
+  if (import.meta.env.VITE_ICE_SERVERS) return base
+
+  const workerUrl = import.meta.env.VITE_GIFS_WORKER_URL
+  if (!workerUrl) return base
+
+  if (!icePromise) {
+    icePromise = (async () => {
+      const { auth } = await import('./firebase')
+      const user = auth.currentUser
+      if (!user) return base
+      const res = await fetch(`${workerUrl}/turn/credentials`, {
+        headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+      })
+      if (!res.ok) throw new Error(`TURN request failed: ${res.status}`)
+      const { iceServers } = await res.json()
+      if (!Array.isArray(iceServers) || !iceServers.length) throw new Error('TURN returned nothing')
+      // Keep STUN alongside: a direct path is always preferable to a relayed
+      // one, and ICE will pick the relay only when it has to.
+      return [...base, ...iceServers]
+    })().catch(e => {
+      console.warn('[webrtc] no TURN available, falling back to STUN-only:', e.message)
+      icePromise = null // let a later join try again
+      return base
+    })
+  }
+  return icePromise
+}
+
 export function createPeerConnection(iceServers = getIceServers()) {
   return new RTCPeerConnection({ iceServers })
 }

@@ -14,7 +14,7 @@ import {
   listenRenegotiations, markFailed, markMissed, newCallId, proposeRenegotiation,
   sendIceCandidate, sweepStaleOutboundCalls, upgradeCallToVideo,
 } from './calls'
-import { createPeerConnection, getLocalStream, stopStream } from './webrtc'
+import { createPeerConnection, getLocalStream, stopStream, resolveIceServers } from './webrtc'
 
 const NO_ANSWER_TIMEOUT_MS = 45_000
 const TERMINAL_STATES = ['declined', 'cancelled', 'missed', 'ended', 'failed']
@@ -175,8 +175,8 @@ function useCallEngine() {
   // callIdRef.current must already be set before this runs (both startCall
   // and accept() set it before creating the peer connection) so these
   // closures never race a not-yet-known call id.
-  const setupPeerConnection = () => {
-    const pc = createPeerConnection()
+  const setupPeerConnection = (iceServers) => {
+    const pc = createPeerConnection(iceServers ?? undefined)
     pcRef.current = pc
 
     const remote = new MediaStream()
@@ -240,7 +240,8 @@ function useCallEngine() {
     try {
       const stream = await getLocalStream({ video: callType === 'video' })
       setLocalStreamBoth(stream)
-      const pc = setupPeerConnection()
+      // TURN when the Worker can mint it, STUN alone otherwise. Never throws.
+      const pc = setupPeerConnection(await resolveIceServers())
       stream.getTracks().forEach(t => pc.addTrack(t, stream))
 
       const offer = await pc.createOffer()
@@ -272,7 +273,7 @@ function useCallEngine() {
     try {
       const stream = await getLocalStream({ video: call.type === 'video' })
       setLocalStreamBoth(stream)
-      const pc = setupPeerConnection()
+      const pc = setupPeerConnection(await resolveIceServers())
       stream.getTracks().forEach(t => pc.addTrack(t, stream))
 
       await pc.setRemoteDescription(new RTCSessionDescription(call.offer))

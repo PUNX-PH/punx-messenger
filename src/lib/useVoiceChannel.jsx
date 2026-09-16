@@ -17,7 +17,7 @@ import {
   leaveRoster, listenMyVoiceSignals, listenParticipants, listenVoiceCandidates,
   pruneStaleParticipants, sendVoiceIceCandidate, setRosterState, voiceOffererUid, voicePairKey,
 } from './voiceChannel'
-import { createPeerConnection, getLocalStream, stopStream } from './webrtc'
+import { createPeerConnection, getLocalStream, resolveIceServers, stopStream } from './webrtc'
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v))
 
@@ -111,6 +111,10 @@ function useVoiceChannelEngine() {
   // long enough to paint and a screen share sits on its spinner forever.
   // Cleared only when a pair genuinely ends, so a rejoin negotiates cleanly.
   const answeredOffersRef = useRef(new Map())
+  // Resolved once per join and reused for every peer in the session, so a
+  // channel of six does not mint six TURN credentials. Null until join()
+  // fills it, at which point createPeerFor stops falling back to STUN-only.
+  const iceServersRef = useRef(null)
   const unsubRosterRef = useRef(null)
   const unsubSignalsRef = useRef(null)
   const heartbeatIntervalRef = useRef(null)
@@ -320,7 +324,9 @@ function useVoiceChannelEngine() {
   // both sides is what caused remote video to fail in one direction.
   const createPeerFor = useCallback((peerUid, { isOfferer }) => {
     const ch = activeChannelRef.current
-    const pc = createPeerConnection()
+    // iceServersRef is populated by join() before any peer is built; the
+    // fallback covers only the case of a peer arriving before that resolves.
+    const pc = createPeerConnection(iceServersRef.current ?? undefined)
     let videoSender = null
     if (isOfferer) {
       // Pass the stream, not only a direction. Without it nothing signals an
@@ -559,6 +565,9 @@ function useVoiceChannelEngine() {
     setConnError(null)
     setJoining(true)
     try {
+      // Before any peer is built, so every connection this session gets the
+      // same list. Never throws — it degrades to STUN-only on its own.
+      iceServersRef.current = await resolveIceServers()
       const preferredInput = voicePrefsRef.current.inputDeviceId
       const audioProcessing = audioProcessingFrom(voicePrefsRef.current)
       let stream

@@ -24,9 +24,14 @@ RTCIceCandidate candidateFromMap(Map<String, dynamic> m) => RTCIceCandidate(
 class WebrtcService {
   // Named createConnection (not createPeerConnection) so it doesn't shadow
   // the package-level createPeerConnection() this delegates to.
-  Future<RTCPeerConnection> createConnection() {
+  /// [iceServers] overrides the compiled-in STUN list — pass the resolved list
+  /// from [TurnService] so a pair that cannot connect directly has a relay.
+  /// Omitting it keeps the STUN-only behaviour.
+  Future<RTCPeerConnection> createConnection({
+    List<Map<String, dynamic>>? iceServers,
+  }) {
     return createPeerConnection({
-      'iceServers': AppConfig.iceServers,
+      'iceServers': iceServers ?? AppConfig.iceServers,
     }, const {});
   }
 

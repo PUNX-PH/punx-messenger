@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../models/voice_participant.dart';
+import '../services/turn_service.dart';
 import '../services/voice_channel_repository.dart';
 import '../services/voice_foreground_service.dart';
 import '../services/webrtc_service.dart';
@@ -216,6 +217,11 @@ class VoiceController extends StateNotifier<VoiceUiState> {
   ///
   /// Cleared only when a pair genuinely ends, so a rejoin negotiates cleanly.
   final Map<String, String?> _answeredOffers = {};
+
+  /// Resolved once per join and reused for every peer in the session, so a
+  /// channel of six mints one TURN credential rather than six. Null until
+  /// [join] fills it, at which point peers stop falling back to STUN-only.
+  List<Map<String, dynamic>>? _iceServers;
   MediaStream? _localAudio;
   MediaStream? _cameraStream;
   StreamSubscription<RosterUpdate>? _rosterSub;
@@ -254,6 +260,10 @@ class VoiceController extends StateNotifier<VoiceUiState> {
 
       final ref = VoiceChannelRef(groupId, channelId, channelName);
       state = state.copyWith(active: ref);
+
+      // Before any peer is built, so every connection this session gets the
+      // same list. Never throws — it degrades to STUN-only on its own.
+      _iceServers = await TurnService.iceServers();
 
       await _repo.joinRoster(groupId, channelId, myUid);
 
@@ -385,7 +395,7 @@ class VoiceController extends StateNotifier<VoiceUiState> {
   Future<_Peer> _createPeerFor(String peerUid, {required bool isOfferer}) async {
     final ref = state.active!;
     final myUid = _myUid!;
-    final pc = await _webrtc.createConnection();
+    final pc = await _webrtc.createConnection(iceServers: _iceServers);
     final peer = _Peer(pc);
     debugPrint('[voice] trace peer:create $peerUid isOfferer=$isOfferer');
 
