@@ -188,6 +188,11 @@ Future<void> _nativeAudio(String what, Future<void> Function() op) async {
   }
 }
 
+/// How long to wait before touching a freshly-arrived remote audio track
+/// natively. Long enough for libwebrtc to finish dispatching the track event;
+/// short enough that a deafened listener does not hear a burst first.
+const _volumeSettleDelay = Duration(milliseconds: 300);
+
 class VoiceController extends StateNotifier<VoiceUiState> {
   VoiceController(this._ref) : super(const VoiceUiState());
   final Ref _ref;
@@ -447,7 +452,7 @@ class VoiceController extends StateNotifier<VoiceUiState> {
         'nativeAdded=$nativeAdded peer=$peerUid',
       );
       if (e.track.kind == 'video') peer.videoTrack = e.track;
-      if (e.track.kind == 'audio') _applyOutputTo(e.track);
+      if (e.track.kind == 'audio') _applyOutputTo(e.track, justArrived: true);
       // Published after the stream is resolved, never before: the tile assigns
       // srcObject in response to this, and the renderer reads the stream's
       // track list at that moment.
@@ -737,14 +742,38 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     _pushRosterState();
   }
 
-  void _applyOutputTo(MediaStreamTrack track) {
-    // enabled is what makes deafen real on every platform, including web;
-    // setVolume is the native refinement.
+  /// [justArrived] marks a track handed to us by `onTrack`, which must delay
+  /// the native volume call.
+  ///
+  /// `Helper.setVolume` on a remote audio track in the instant it arrives
+  /// ABORTS the process: libwebrtc raises SIGABRT on its own signalling thread,
+  /// inside the call, and a native abort cannot be caught — the try/catch in
+  /// [_nativeAudio] is no protection. Traced precisely: `setEnabled` returns,
+  /// the volume call is entered, and nothing after it ever runs.
+  ///
+  /// Setting `enabled` is safe and is what actually makes deafen real, so the
+  /// volume call is only a refinement — but it cannot simply be dropped,
+  /// because on Android remote audio plays through the audio session as soon as
+  /// the track arrives and enabled alone has been unreliable there. So it is
+  /// deferred out of the arrival callback instead, by which point libwebrtc has
+  /// finished dispatching and the track is established.
+  void _applyOutputTo(MediaStreamTrack track, {bool justArrived = false}) {
     track.enabled = !state.deafened;
-    unawaited(_nativeAudio(
-      'playback volume',
-      () => Helper.setVolume(state.deafened ? 0 : 1, track),
-    ));
+
+    final apply = () => _nativeAudio(
+          'playback volume',
+          () => Helper.setVolume(state.deafened ? 0 : 1, track),
+        );
+
+    if (!justArrived) {
+      unawaited(apply());
+      return;
+    }
+    unawaited(Future<void>.delayed(_volumeSettleDelay, () async {
+      // The session may have ended, or this peer left, while we waited.
+      if (!mounted || state.active == null) return;
+      await apply();
+    }));
   }
 
   void _applyOutputToAll() {
