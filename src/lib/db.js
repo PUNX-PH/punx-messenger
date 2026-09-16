@@ -38,10 +38,33 @@ export async function ensureDmConvo(me, other) {
 }
 
 // Listen to messages in a path
-export function listenMessages(path, cb, lim = 200) {
-  const q = query(collection(db, ...path.split('/')), orderBy('createdAt', 'asc'), fbLimit(lim))
+// Live window over the MOST RECENT `lim` messages.
+//
+// Ordered DESCENDING in the query and reversed for display, which is not a
+// stylistic choice: `orderBy('createdAt', 'asc')` with a limit returns the
+// OLDEST n, so a channel past the limit showed its first ever messages and
+// never the recent ones, with no way to reach them. Descending takes the newest
+// n, which is the window a chat actually wants.
+//
+// Paging works by growing `lim` and resubscribing, rather than by fetching a
+// separate older page and stitching it on. One listener means edits, deletes
+// and reactions stay live across the whole loaded range — with a stitched page
+// only the newest slice would keep updating.
+// How many messages a channel opens with, and how many more each page adds.
+// Smaller than the old flat 200: opening is faster, and paging makes the rest
+// reachable rather than unreachable.
+export const MESSAGE_PAGE = 50
+
+export function listenMessages(path, cb, lim = MESSAGE_PAGE) {
+  const q = query(collection(db, ...path.split('/')), orderBy('createdAt', 'desc'), fbLimit(lim))
   return onSnapshot(q, (snap) => {
-    cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    docs.reverse() // oldest first, the order the list renders in
+    // `hasMore` is inferred from a full page: if the window is saturated there
+    // is probably more behind it. It can be wrong once, on a channel whose
+    // total is an exact multiple of the page size — the cost is one extra
+    // fetch that returns nothing new, and the caller stops asking.
+    cb(docs, { hasMore: snap.size >= lim })
   })
 }
 

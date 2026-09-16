@@ -10,6 +10,9 @@ import { computeStatus, useTickNow } from '../lib/presence'
 
 export default function MessageList({
   messages, emptyTitle, emptyDesc,
+  hasMore = false,        // older messages exist behind the loaded window
+  loadingMore = false,
+  onLoadOlder,            // () => void  (widen the window)
   canPin, onTogglePin,
   canDeleteAny,
   onEdit, onDelete,
@@ -34,10 +37,58 @@ export default function MessageList({
   const { byName: emojiByName } = useEmojis()
   const now = useTickNow()
 
+  // Distinguishing "a new message arrived" from "older ones were prepended" is
+  // the whole job here: the first should follow the conversation down, the
+  // second must not move the view at all. Length alone cannot tell them apart,
+  // so the id of the oldest loaded message is the tell.
+  const firstIdRef = useRef(null)
+  const anchorRef = useRef(null)   // scroll metrics captured just before a page lands
+  const stickToBottomRef = useRef(true)
+
+  // Follow new messages only when already reading the latest. Someone scrolled
+  // up mid-history should stay where they are rather than being yanked down.
+  const NEAR_BOTTOM_PX = 120
+  const onScroll = () => {
+    const el = containerRef.current
+    if (!el) return
+    stickToBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
+
+    if (!hasMore || loadingMore || !onLoadOlder) return
+    if (el.scrollTop < 200) {
+      // Capture BEFORE the taller list renders, so the offset can be restored.
+      anchorRef.current = { height: el.scrollHeight, top: el.scrollTop }
+      onLoadOlder()
+    }
+  }
+
   useEffect(() => {
     if (scrollToId) return
-    endRef.current?.scrollIntoView({ block: 'end' })
-  }, [messages?.length, scrollToId])
+    const el = containerRef.current
+    const firstId = messages?.[0]?.id ?? null
+    const grewAtTop = firstIdRef.current !== null
+      && firstId !== firstIdRef.current
+      && anchorRef.current !== null
+    firstIdRef.current = firstId
+
+    if (grewAtTop && el) {
+      // Older messages landed above the viewport. Keep the same content under
+      // the reader's eyes by re-applying the distance from the bottom.
+      const { height, top } = anchorRef.current
+      anchorRef.current = null
+      el.scrollTop = el.scrollHeight - height + top
+      return
+    }
+
+    if (stickToBottomRef.current) endRef.current?.scrollIntoView({ block: 'end' })
+  }, [messages?.length, messages?.[0]?.id, scrollToId])
+
+  // A different conversation is a fresh start: back to the newest, following.
+  useEffect(() => {
+    stickToBottomRef.current = true
+    firstIdRef.current = null
+    anchorRef.current = null
+  }, [meUid, emptyTitle])
 
   useEffect(() => {
     if (!scrollToId) return
@@ -70,8 +121,17 @@ export default function MessageList({
   }
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto scrollbar-thin">
+    <div ref={containerRef} onScroll={onScroll} className="flex-1 overflow-y-auto scrollbar-thin">
       <div className="py-4 px-4 space-y-4">
+        {(hasMore || loadingMore) && (
+          <div className="grid place-items-center py-2 text-xs text-ink-muted">
+            {loadingMore ? 'Loading earlier messages…' : (
+              <button onClick={onLoadOlder} className="hover:text-ink transition-colors">
+                Load earlier messages
+              </button>
+            )}
+          </div>
+        )}
         {groups.map((g, i) => (
           <Group
             key={i}

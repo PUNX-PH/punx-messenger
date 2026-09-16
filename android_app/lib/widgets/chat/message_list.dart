@@ -22,6 +22,8 @@ class MessageListView extends StatefulWidget {
     required this.emptyTitle,
     required this.emptyDesc,
     this.canPin = false,
+    this.hasMore = false,
+    this.onLoadOlder,
     this.scrollToId,
     this.onReply,
     this.onEdit,
@@ -40,6 +42,13 @@ class MessageListView extends StatefulWidget {
   final String emptyTitle;
   final String emptyDesc;
 
+  /// Whether older messages exist behind the loaded window, i.e. whether
+  /// scrolling to the top should fetch more.
+  final bool hasMore;
+
+  /// Widens the loaded window by one page. See messageLimitProvider.
+  final VoidCallback? onLoadOlder;
+
   /// Set (to a new, non-null value) to scroll a specific message into view
   /// and briefly highlight it, pausing normal auto-follow-latest behavior.
   final String? scrollToId;
@@ -57,13 +66,30 @@ class MessageListView extends StatefulWidget {
 
 class _MessageListViewState extends State<MessageListView> {
   final _scrollController = ScrollController();
+  double? _anchorExtent; // scroll metrics captured just before a page lands
+  String? _firstId;
   final Map<String, GlobalKey> _rowKeys = {};
   String? _highlightId;
 
   @override
   void initState() {
     super.initState();
+    _firstId = widget.messages.isEmpty ? null : widget.messages.first.id;
     WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
+    _scrollController.addListener(_onScroll);
+  }
+
+  /// Near the top and more history behind us: widen the window.
+  ///
+  /// The extent is captured BEFORE the taller list renders, so
+  /// [didUpdateWidget] can restore the reader's position afterwards.
+  void _onScroll() {
+    if (!widget.hasMore || widget.onLoadOlder == null) return;
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels > 200) return;
+    if (_anchorExtent != null) return; // a page is already in flight
+    _anchorExtent = _scrollController.position.maxScrollExtent;
+    widget.onLoadOlder!();
   }
 
   @override
@@ -76,12 +102,30 @@ class _MessageListViewState extends State<MessageListView> {
       );
     } else if (widget.scrollToId == null &&
         widget.messages.length != oldWidget.messages.length) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
+      final firstId = widget.messages.isEmpty ? null : widget.messages.first.id;
+      final grewAtTop = _firstId != null && firstId != _firstId && _anchorExtent != null;
+      _firstId = firstId;
+
+      if (grewAtTop) {
+        // Older messages landed above the viewport. Restoring the distance
+        // from the BOTTOM keeps the same content under the reader's eyes;
+        // jumping to the end here is what would yank them out of history.
+        final before = _anchorExtent!;
+        _anchorExtent = null;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!_scrollController.hasClients) return;
+          final after = _scrollController.position.maxScrollExtent;
+          _scrollController.jumpTo(_scrollController.position.pixels + (after - before));
+        });
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
+      }
     }
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
   }

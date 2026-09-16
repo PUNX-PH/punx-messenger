@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  listenMessages, sendMessage, setMessagePinned,
+  listenMessages, MESSAGE_PAGE, sendMessage, setMessagePinned,
   editMessageText, deleteMessage, toggleReaction, markRead,
   listenContainer, setTyping,
 } from '../lib/db'
@@ -80,10 +80,29 @@ export default function ChatSurface({
       .filter(Boolean)
   }, [container, profile?.uid, nowTick, usersById])
 
+  // How many messages are currently subscribed. Grows when the list asks for
+  // older ones; resets whenever the conversation changes, so switching channels
+  // never starts you deep in someone else's history.
+  const [limit, setLimit] = useState(MESSAGE_PAGE)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+
+  useEffect(() => { setLimit(MESSAGE_PAGE) }, [path])
+
   useEffect(() => {
     if (!path) return
-    return listenMessages(path, setMessages)
-  }, [path])
+    return listenMessages(path, (docs, meta) => {
+      setMessages(docs)
+      setHasMore(meta.hasMore)
+      setLoadingMore(false)
+    }, limit)
+  }, [path, limit])
+
+  const loadOlder = useCallback(() => {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    setLimit(n => n + MESSAGE_PAGE)
+  }, [loadingMore, hasMore])
 
   // Mark this container read whenever we have messages and the user is here.
   // Skips the personal /users/{uid}/notes path — nothing to track unread for.
@@ -214,6 +233,9 @@ export default function ChatSurface({
 
       <MessageList
         messages={messages}
+        hasMore={hasMore}
+        loadingMore={loadingMore}
+        onLoadOlder={loadOlder}
         emptyTitle={empty?.title || 'This is the start of the conversation'}
         emptyDesc={empty?.desc || 'Say hi 👋'}
         canPin={canPin && !readOnly}

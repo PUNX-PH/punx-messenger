@@ -14,12 +14,22 @@ final messagesRepositoryProvider = Provider<MessagesRepository>(
   (ref) => MessagesRepository(),
 );
 
-/// Live messages at a given collection path (channel/DM/notes).
-final messagesProvider = StreamProvider.family<List<ChatMessage>, String>((
+/// How many messages are currently subscribed for a given path.
+///
+/// Keyed by path so switching channels never starts you deep in another
+/// conversation's history, and reset to one page whenever a channel is opened
+/// fresh. Growing it resubscribes [messagesProvider] with a wider window.
+final messageLimitProvider =
+    StateProvider.family<int, String>((ref, path) => AppTiming.messagePageSize);
+
+/// Live messages at a given collection path (channel/DM/notes), newest window
+/// first, plus whether older messages exist behind it.
+final messagesProvider = StreamProvider.family<MessagePage, String>((
   ref,
   path,
 ) {
-  return ref.watch(messagesRepositoryProvider).listenMessages(path);
+  final limit = ref.watch(messageLimitProvider(path));
+  return ref.watch(messagesRepositoryProvider).listenMessages(path, limit: limit);
 });
 
 /// Live container doc (channel or DM convo) — used for the `typing` map.

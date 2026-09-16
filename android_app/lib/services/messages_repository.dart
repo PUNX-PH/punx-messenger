@@ -14,21 +14,45 @@ import 'image_service.dart';
 /// slash-joined Firestore path, e.g. `'dms/<id>/messages'` or
 /// `'groups/<gid>/channels/<cid>/messages'`, matching the web app's
 /// convention exactly (paths are shared/interoperable between clients).
+/// One page of a channel's history, plus whether older messages exist behind it.
+class MessagePage {
+  const MessagePage(this.messages, {required this.hasMore});
+  final List<ChatMessage> messages;
+  final bool hasMore;
+}
+
 class MessagesRepository {
   MessagesRepository({FirebaseFirestore? firestore})
     : _db = firestore ?? FirebaseFirestore.instance;
   final FirebaseFirestore _db;
 
-  Stream<List<ChatMessage>> listenMessages(
+  /// Live window over the MOST RECENT [limit] messages, oldest-first for
+  /// display.
+  ///
+  /// Ordered DESCENDING in the query and reversed here, which is not cosmetic:
+  /// `orderBy('createdAt')` ascending with a limit returns the OLDEST n, so a
+  /// channel past the limit showed its first ever messages and never the
+  /// recent ones, with no way to reach them.
+  ///
+  /// Paging grows [limit] and resubscribes rather than fetching a separate
+  /// older page: one listener keeps edits, deletes and reactions live across
+  /// the whole loaded range. Mirrors listenMessages in src/lib/db.js.
+  Stream<MessagePage> listenMessages(
     String path, {
-    int limit = AppTiming.messageLoadLimit,
+    int limit = AppTiming.messagePageSize,
   }) {
     return _db
         .collection(path)
-        .orderBy('createdAt')
+        .orderBy('createdAt', descending: true)
         .limit(limit)
         .snapshots()
-        .map((snap) => snap.docs.map(ChatMessage.fromDoc).toList());
+        .map((snap) {
+          final docs = snap.docs.map(ChatMessage.fromDoc).toList().reversed.toList();
+          // A saturated window probably has more behind it. Can be wrong once,
+          // on a total that is an exact multiple of the page size; the cost is
+          // one fetch that returns nothing new.
+          return MessagePage(docs, hasMore: snap.docs.length >= limit);
+        });
   }
 
   /// Sends a message at the given collection path. `imageBytes`/`imageName`

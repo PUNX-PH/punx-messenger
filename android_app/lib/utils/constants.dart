@@ -23,6 +23,13 @@ abstract final class AppTiming {
   static const messageGroupingWindowMs = 5 * 60000;
 
   // db.js listenMessages() / SearchDropdown.jsx
+  /// How many messages a channel opens with, and how many more each page adds.
+  /// Smaller than the old flat 200: opening is faster, and paging makes the
+  /// rest reachable rather than unreachable. Mirrors MESSAGE_PAGE in
+  /// src/lib/db.js.
+  static const messagePageSize = 50;
+
+  @Deprecated('Use messagePageSize; the old flat limit had no paging behind it')
   static const messageLoadLimit = 200;
   static const searchResultCap = 100;
 

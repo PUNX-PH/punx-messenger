@@ -10,6 +10,7 @@ import '../../providers/emojis_providers.dart';
 import '../../providers/messages_providers.dart';
 import '../../providers/users_providers.dart';
 import '../../theme/palette.dart';
+import '../../utils/constants.dart';
 import 'composer.dart';
 import 'message_list.dart';
 import 'pinned_messages_sheet.dart';
@@ -75,7 +76,9 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
   @override
   Widget build(BuildContext context) {
     final messagesAsync = ref.watch(messagesProvider(widget.path));
-    final messages = messagesAsync.valueOrNull ?? const <ChatMessage>[];
+    final page = messagesAsync.valueOrNull;
+    final messages = page?.messages ?? const <ChatMessage>[];
+    final hasMore = page?.hasMore ?? false;
     final usersById = ref.watch(usersByIdProvider);
     final emojiByName = ref.watch(emojiByNameProvider);
     // Active only, for the @-picker and for resolving a typed mention — a
@@ -141,6 +144,10 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
           Expanded(
             child: MessageListView(
               messages: messages,
+              hasMore: hasMore,
+              onLoadOlder: () => ref
+                  .read(messageLimitProvider(widget.path).notifier)
+                  .update((n) => n + AppTiming.messagePageSize),
               meUid: meUid,
               usersById: usersById,
               emojiByName: emojiByName,
