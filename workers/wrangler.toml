@@ -18,7 +18,7 @@ FIREBASE_PROJECT_ID = "punx-msg"
 # lives as a Worker secret (`wrangler secret put TURN_KEY_API_TOKEN`) exactly
 # like KLIPY_API_KEY. Without BOTH set, /turn/credentials returns 503 and the
 # clients fall back to STUN-only — the behaviour they had before.
-TURN_KEY_ID = "be6c1cb7f241fa693bdf065a3833def7"
+TURN_KEY_ID = "c722358fa67855ac30e5792bb385fe81"
 ALLOWED_EMAIL_DOMAIN = "punx.ai"
 ALLOWED_EXTRA_EMAILS = "perezjohnrey43@gmail.com"
 
