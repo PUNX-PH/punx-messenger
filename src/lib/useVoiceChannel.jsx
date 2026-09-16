@@ -23,6 +23,37 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v))
 
 const HEARTBEAT_MS = 15_000
 
+// ---- Screen-share ceiling ----
+// A share is the only thing here that moves real bandwidth: voice is ~32kbps,
+// a 1080p share is tens of times that, and in a mesh every viewer gets their
+// own copy — so the sender uploads it N times and, for anyone who needs a
+// relay, it is also the only part of a TURN bill worth looking at.
+//
+// 720p is the ceiling rather than the target. Under the bitrate cap WebRTC
+// scales itself down when it has to, so a busy screen settles around 480p and
+// a static document stays sharp at 720p. Text legibility is what matters for a
+// shared console or document, and `contentHint = 'detail'` already trades
+// framerate for sharpness.
+const SHARE_MAX_HEIGHT = 720
+const SHARE_MAX_WIDTH = 1280
+const SHARE_MAX_BITRATE = 1_200_000 // bits/sec
+
+// Applies the ceiling to one peer's video sender. Safe to call repeatedly, and
+// on a sender with no encodings yet — which is why it is guarded rather than
+// assuming `encodings[0]` exists.
+async function capShareBitrate(sender) {
+  if (!sender) return
+  try {
+    const params = sender.getParameters()
+    if (!params.encodings || params.encodings.length === 0) params.encodings = [{}]
+    params.encodings[0].maxBitrate = SHARE_MAX_BITRATE
+    await sender.setParameters(params)
+  } catch {
+    // Not supported, or the sender went away mid-call. The share still works,
+    // it just runs at whatever the browser picks.
+  }
+}
+
 // ---- Speaking detection (Web Audio) ----
 // Purely a UI affordance (the glowing ring in VoiceParticipants) — never
 // gates any signaling decision, so a browser that can't do Web Audio for
@@ -313,7 +344,10 @@ function useVoiceChannelEngine() {
     // Also covers a toggle that landed during the await above, which would
     // have skipped this peer while its videoSender was still null.
     const track = activeVideoTrack()
-    if (track) tx.sender.replaceTrack(track).catch(() => {})
+    if (track) {
+      tx.sender.replaceTrack(track).catch(() => {})
+      if (screenStreamRef.current) capShareBitrate(tx.sender)
+    }
   }, [activeVideoTrack])
 
   // Creates a peer connection for one participant. `isOfferer` decides who
@@ -347,7 +381,11 @@ function useVoiceChannelEngine() {
       // toggleCamera/toggleScreenShare use, just applied at connection setup
       // instead of after the fact.
       const track = activeVideoTrack()
-      if (track) videoSender.replaceTrack(track).catch(() => {})
+      if (track) {
+        videoSender.replaceTrack(track).catch(() => {})
+        // Someone joining mid-share gets the ceiling too.
+        if (screenStreamRef.current) capShareBitrate(videoSender)
+      }
     }
     // Send the gain-processed stream (raw mic -> input-volume GainNode),
     // not the raw mic stream directly — see buildGainGraph.
@@ -703,7 +741,17 @@ function useVoiceChannelEngine() {
       if (cameraOn) stopCameraTracks()
       // Video only — capturing system audio too would need a second audio
       // transceiver (out of scope for v1; see the voice-channels plan).
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+      // Constrain at CAPTURE as well as at the encoder. Capturing a 4K monitor
+      // and downscaling wastes the sender's CPU every frame before a single
+      // byte is sent; asking for less up front avoids that work entirely.
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          width: { max: SHARE_MAX_WIDTH },
+          height: { max: SHARE_MAX_HEIGHT },
+          frameRate: { max: 30 },
+        },
+        audio: false,
+      })
       screenStreamRef.current = screenStream
       const track = screenStream.getVideoTracks()[0]
       // Tell the encoder this is screen content, not a face.
@@ -720,7 +768,20 @@ function useVoiceChannelEngine() {
       // the wait — no browser API lets a receiver request a keyframe — but it
       // is the one lever the sender has.
       track.contentHint = 'detail'
-      peersRef.current.forEach(entry => entry.videoSender?.replaceTrack(track).catch(() => {}))
+      // Belt and braces on the resolution. The constraints above are the
+      // request; browsers have been known to hand back a full-resolution
+      // display track anyway, and then the encoder downscales every frame
+      // instead of the capture pipeline doing it once. Re-asserting on the
+      // track is the part that actually binds when that happens.
+      track.applyConstraints({
+        width: { max: SHARE_MAX_WIDTH },
+        height: { max: SHARE_MAX_HEIGHT },
+        frameRate: { max: 30 },
+      }).catch(() => { /* not all display tracks accept these; the bitrate cap still applies */ })
+      peersRef.current.forEach(entry => {
+        entry.videoSender?.replaceTrack(track).catch(() => {})
+        capShareBitrate(entry.videoSender)
+      })
       // The browser's own "Stop sharing" bar/button ends the track directly
       // — catch that so our state doesn't get stuck showing "sharing".
       track.onended = () => stopScreenShareTracks()
