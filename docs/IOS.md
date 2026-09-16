@@ -96,6 +96,25 @@ early breaks the build rather than saving a step. Add it in Xcode once the
 account exists, which creates the App ID capability and the entitlement
 together.
 
+## What iOS already has, for free
+
+`android_app/` is one Flutter codebase, so everything shipped for Android is
+in the iOS build the moment someone compiles it. Nothing on this list needs
+iOS-specific work:
+
+- **TURN relay** for voice channels and calls (`lib/services/turn_service.dart`)
+  — reaches the same Worker with the same Firebase ID token, no extra config
+- The **native abort on joining voice** — remote audio tracks are left alone on
+  arrival, which was a libwebrtc SIGABRT, not an Android quirk
+- Voice signalling fixes, ICE-failure reporting, voice-tile avatars
+- GIF rendering, message paging, single set of voice controls
+
+One thing genuinely differs: `ensureAudioSession` has no Android implementation
+in flutter_webrtc and logs "audio session unavailable" there. On iOS it should
+actually run — worth watching the first time voice is exercised on a device.
+
+See `docs/VOICE.md` for how voice works and how to diagnose it.
+
 ## Known gaps
 
 - No `GoogleService-Info.plist` (step 1) — the app cannot launch without it
