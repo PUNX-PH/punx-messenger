@@ -884,12 +884,30 @@ class _VoiceTileState extends State<_VoiceTile> {
                 ),
               ),
             if (!_ready || !_hasVideoTrack || !_live)
-              Center(
-                child: Avatar(
-                  name: widget.name,
-                  src: widget.photoURL,
-                  size: widget.big ? 72 : 40,
-                ),
+              // Sized against the tile rather than fixed, because `big` is a
+              // two-value guess at a dimension that varies continuously. A
+              // solo call gives this tile the whole screen, and a 72dp avatar
+              // marooned in ~350dp of empty card is what makes a working call
+              // look like a failed one. Scaling it keeps the camera-off state
+              // reading as a person.
+              //
+              // Clamped at both ends: the floor keeps a face recognisable in a
+              // crowded grid, and the ceiling stops a solo tile turning into a
+              // full-bleed portrait.
+              LayoutBuilder(
+                builder: (context, c) {
+                  final shortest = c.biggest.shortestSide;
+                  final size = shortest.isFinite
+                      ? (shortest * 0.32).clamp(40.0, 136.0)
+                      : (widget.big ? 72.0 : 40.0);
+                  return Center(
+                    child: Avatar(
+                      name: widget.name,
+                      src: widget.photoURL,
+                      size: size,
+                    ),
+                  );
+                },
               ),
             if (_buffering)
               Center(
@@ -952,6 +970,9 @@ class _Controls extends StatelessWidget {
 
   /// Drop the labels and tighten the padding. Set on short viewports, where
   /// every row of chrome is height taken straight off the video.
+  ///
+  /// This forces compact. The row also drops labels on its own when they no
+  /// longer fit the width — see [_labelsFit].
   final bool compact;
 
   /// No solid background — the caller is floating this over video and supplies
@@ -960,58 +981,136 @@ class _Controls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(vertical: compact ? 2 : 10),
-      color: transparent ? null : Palette.bgDark,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _CtlButton(
-            icon: voice.muted ? Icons.mic_off : Icons.mic,
-            label: voice.muted ? 'Unmute' : 'Mute',
-            active: voice.muted,
-            onTap: controller.toggleMute,
-            showLabel: !compact,
-          ),
-          _CtlButton(
-            icon: voice.deafened ? Icons.headset_off : Icons.headset,
-            label: 'Deafen',
-            active: voice.deafened,
-            onTap: controller.toggleDeafen,
-            showLabel: !compact,
-          ),
-          _CtlButton(
-            icon: voice.cameraOn ? Icons.videocam : Icons.videocam_off,
-            label: 'Camera',
-            active: voice.cameraOn,
-            onTap: controller.toggleCamera,
-            showLabel: !compact,
-          ),
-          if (voice.cameraOn)
-            _CtlButton(
-              icon: Icons.cameraswitch,
-              label: 'Flip',
-              onTap: controller.switchCamera,
-              showLabel: !compact,
-            ),
-          if (onEnterFullscreen != null)
-            _CtlButton(
-              icon: Icons.fullscreen,
-              label: 'Fullscreen',
-              onTap: onEnterFullscreen!,
-              showLabel: !compact,
-            ),
-          _CtlButton(
-            icon: Icons.call_end,
-            label: 'Leave',
-            danger: true,
-            onTap: controller.leave,
-            showLabel: !compact,
-          ),
-        ],
+    final buttons = <_CtlSpec>[
+      _CtlSpec(
+        icon: voice.muted ? Icons.mic_off : Icons.mic,
+        label: voice.muted ? 'Unmute' : 'Mute',
+        // Measured as the longer of the two states, so toggling the mic cannot
+        // tip the whole row between labelled and compact mid-call.
+        measureAs: 'Unmute',
+        active: voice.muted,
+        onTap: controller.toggleMute,
       ),
+      _CtlSpec(
+        icon: voice.deafened ? Icons.headset_off : Icons.headset,
+        label: 'Deafen',
+        active: voice.deafened,
+        onTap: controller.toggleDeafen,
+      ),
+      _CtlSpec(
+        icon: voice.cameraOn ? Icons.videocam : Icons.videocam_off,
+        label: 'Camera',
+        active: voice.cameraOn,
+        onTap: controller.toggleCamera,
+      ),
+      if (voice.cameraOn)
+        _CtlSpec(
+          icon: Icons.cameraswitch,
+          label: 'Flip',
+          onTap: controller.switchCamera,
+        ),
+      if (onEnterFullscreen != null)
+        _CtlSpec(
+          icon: Icons.fullscreen,
+          label: 'Fullscreen',
+          onTap: onEnterFullscreen!,
+        ),
+      _CtlSpec(
+        icon: Icons.call_end,
+        label: 'Leave',
+        danger: true,
+        onTap: controller.leave,
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final showLabels =
+            !compact && _labelsFit(context, buttons, constraints.maxWidth);
+        return Container(
+          padding: EdgeInsets.symmetric(vertical: showLabels ? 10 : 2),
+          color: transparent ? null : Palette.bgDark,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              for (final b in buttons)
+                _CtlButton(
+                  icon: b.icon,
+                  label: b.label,
+                  active: b.active,
+                  danger: b.danger,
+                  onTap: b.onTap,
+                  showLabel: showLabels,
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
+
+  /// Whether every label can be drawn at the user's text size without the row
+  /// running off the screen.
+  ///
+  /// `compact` alone was a height decision — it fired on short viewports,
+  /// where a row of chrome costs video. Width was never asked about, and width
+  /// is what the accessibility font-size setting changes. At 1.3x on a 411dp
+  /// phone the five-button row already reaches both screen edges with a few
+  /// pixels between "Camera" and "Fullscreen"; turning the camera on adds
+  /// "Flip" and makes six. Android's scale goes to 2.0.
+  ///
+  /// Measured rather than guessed at with a breakpoint, because the inputs are
+  /// the user's font scale, their screen width, and which optional buttons are
+  /// present — three things a hardcoded threshold would have to predict.
+  static bool _labelsFit(
+    BuildContext context,
+    List<_CtlSpec> buttons,
+    double maxWidth,
+  ) {
+    if (!maxWidth.isFinite) return true;
+
+    // Mirrors _CtlButton: horizontal padding either side of a column whose
+    // width is the wider of the icon and the label.
+    const hPadding = 10.0;
+    const iconWidth = 24.0;
+    final scaler = MediaQuery.textScalerOf(context);
+    final style = AppTextStyles.xs(color: Palette.inkDim);
+
+    var needed = 0.0;
+    for (final b in buttons) {
+      final painter = TextPainter(
+        text: TextSpan(text: b.measureAs ?? b.label, style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      needed += math.max(iconWidth, painter.width) + hPadding * 2;
+    }
+    return needed <= maxWidth;
+  }
+}
+
+/// One control, described before it is built so the row can measure its label
+/// and decide whether any of them are drawn at all.
+class _CtlSpec {
+  const _CtlSpec({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.measureAs,
+    this.active = false,
+    this.danger = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  /// The string to size against, when the visible label changes with state.
+  final String? measureAs;
+
+  final bool active;
+  final bool danger;
 }
 
 class _CtlButton extends StatelessWidget {

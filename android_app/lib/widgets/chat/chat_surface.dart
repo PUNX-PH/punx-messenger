@@ -114,29 +114,59 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
             ),
           ],
         ),
+        // Search and pin moved into the overflow, and the reason is the title.
+        //
+        // A DM carried four trailing icons — search, pin, call, video — which
+        // on a 360dp bar leaves the name about 110dp and renders a two-letter
+        // stub: "@ Re…" for a person whose name is the entire point of the
+        // screen. Material 3 caps a top app bar at three actions and sends the
+        // rest to an overflow for exactly this reason.
+        //
+        // These two are the ones that go because they are the ones you reach
+        // for rarely and deliberately. Call and video stay out, being both
+        // frequent and time-sensitive, and a channel now carries the overflow
+        // alone.
         actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            tooltip: 'Search this chat',
-            onPressed: () => showSearchSheet(
-              context,
-              messages: messages,
-              usersById: usersById,
-              onJump: _jumpTo,
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.push_pin_outlined),
-            tooltip: 'Pinned messages',
-            onPressed: () => showPinnedMessagesSheet(
-              context,
-              messages: messages,
-              canPin: widget.canPin,
-              onJump: _jumpTo,
-              onUnpin: (m) => controller.togglePin(m),
-            ),
-          ),
           ...?widget.headerActions,
+          PopupMenuButton<_ChatMenuAction>(
+            tooltip: 'More',
+            position: PopupMenuPosition.under,
+            onSelected: (action) => switch (action) {
+              _ChatMenuAction.search => showSearchSheet(
+                  context,
+                  messages: messages,
+                  usersById: usersById,
+                  onJump: _jumpTo,
+                ),
+              _ChatMenuAction.pinned => showPinnedMessagesSheet(
+                  context,
+                  messages: messages,
+                  canPin: widget.canPin,
+                  onJump: _jumpTo,
+                  onUnpin: (m) => controller.togglePin(m),
+                ),
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: _ChatMenuAction.search,
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.search),
+                  title: Text('Search this chat'),
+                ),
+              ),
+              PopupMenuItem(
+                value: _ChatMenuAction.pinned,
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.push_pin_outlined),
+                  title: Text('Pinned messages'),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: Column(
@@ -196,3 +226,7 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
     );
   }
 }
+
+/// The two secondary chat actions, which live in the app bar's overflow so the
+/// conversation's name keeps the room it needs. See the `actions:` note above.
+enum _ChatMenuAction { search, pinned }
