@@ -54,6 +54,31 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <!-- The service the FOREGROUND_SERVICE_* permissions above exist for.
+             flutter_foreground_task declares only its two receivers in its own
+             manifest; since v6 the SERVICE is deliberately left to the app,
+             because android:foregroundServiceType has to name what this
+             particular app actually does with it and only the app knows that.
+
+             Its absence did not fail the build or the permissions — it failed
+             at the moment of starting voice, as
+
+               ActivityManager: Unable to start service Intent
+               { cmp=com.punx.plexus/...ForegroundService } U=0: not found
+
+             which nothing surfaces to the user: the call connects, and the
+             audio simply dies the next time the app is backgrounded. That is
+             the failure the whole file comment above was written to prevent.
+
+             Types mirror the permissions exactly — mic always, camera when the
+             tile is on. NOT mediaProjection; see the note above. -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="microphone|camera"
+            android:exported="false"
+            android:stopWithTask="true" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
