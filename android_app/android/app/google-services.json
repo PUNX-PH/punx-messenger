@@ -37,6 +37,13 @@
             {
               "client_id": "781531419503-7b385h96c5hhnm9oikb1dni1n719gg1m.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "781531419503-ed16c0ji55g8rrq7a28ftdkul65i0mrc.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.punx.plexus"
+              }
             }
           ]
         }
@@ -50,6 +57,14 @@
         }
       },
       "oauth_client": [
+        {
+          "client_id": "781531419503-jnh3irocs8c968v7t35ai4n1dav11qc9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.punx.plexus",
+            "certificate_hash": "d579bfc7e76b023419cb4893a55664be6f33844d"
+          }
+        },
         {
           "client_id": "781531419503-mg364a2oj0c4m18imd5ui7vij04c2l88.apps.googleusercontent.com",
           "client_type": 1,
@@ -74,6 +89,13 @@
             {
               "client_id": "781531419503-7b385h96c5hhnm9oikb1dni1n719gg1m.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "781531419503-ed16c0ji55g8rrq7a28ftdkul65i0mrc.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.punx.plexus"
+              }
             }
           ]
         }
