@@ -86,16 +86,42 @@ void main() {
 
     test('a healthy row of my own means the clock is fine', () {
       expect(
-        VoiceChannelRepository.clockLooksWrong([fresh, ancient], fresh, now),
+        VoiceChannelRepository.clockLooksWrong([fresh, ancient], fresh, now,
+            joined: true),
         isFalse,
       );
     });
 
     test('my own row reading as stale means the clock is wrong', () {
-      // It is rewritten every 15s, so this cannot legitimately happen.
+      // It is rewritten every 15s, so this cannot legitimately happen —
+      // while I am in the channel, which is what `joined` asserts.
       expect(
-        VoiceChannelRepository.clockLooksWrong([ancient, ancient], ancient, now),
+        VoiceChannelRepository.clockLooksWrong([ancient, ancient], ancient, now,
+            joined: true),
         isTrue,
+      );
+    });
+
+    test('my own STALE row is not a clock anchor when I am not joined', () {
+      // The ghost case, and the bug this guards. A force-killed app leaves a
+      // row bearing my uid; teardown only runs on a clean leave. Read as an
+      // anchor it claims my clock is broken and aborts the sweep, which made
+      // my own leftover the one row that could never be cleared from a list.
+      // Somebody else is plainly alive here, so nothing is wrong with anyone's
+      // clock and the sweep must proceed.
+      expect(
+        VoiceChannelRepository.clockLooksWrong([ancient, fresh], ancient, now),
+        isFalse,
+      );
+    });
+
+    test('my own FRESH row is not a clock anchor when I am not joined', () {
+      // Seconds after a force-kill this is what the leftover looks like, and
+      // it is why the age test alone never caught it. Still not an anchor:
+      // `joined` is the only thing that says whether the row is mine-and-live.
+      expect(
+        VoiceChannelRepository.clockLooksWrong([fresh, ancient], fresh, now),
+        isFalse,
       );
     });
 

@@ -161,15 +161,23 @@ class VoiceChannelRepository {
   /// DateTime.now() is only sound while the two agree. Two anchors, both of
   /// which mean "refuse to delete anybody":
   ///
-  ///   1. My own row looks stale. It is rewritten every 15s, so it never can
-  ///      legitimately — my clock runs fast, or my writes are failing, and
-  ///      either way every OTHER row looks stale too.
+  ///   1. My own row looks stale WHILE I AM IN THE CHANNEL. It is rewritten
+  ///      every 15s, so it never can legitimately — my clock runs fast, or my
+  ///      writes are failing, and either way every OTHER row looks stale too.
   ///   2. I am not in this channel (the list sweeps ones I have not joined)
   ///      and EVERY row looks stale. That is what a fast clock looks like; it
   ///      is also a channel everyone genuinely crashed out of, and the two are
   ///      indistinguishable from here. Ghosts in a list are cosmetic and the
   ///      next person to JOIN clears them via anchor 1; evicting a live
   ///      channel is not.
+  ///
+  /// [joined] is what keeps anchor 1 honest, and leaving it out was a bug. A
+  /// row bearing my uid does NOT imply I am in the channel: a force-killed app
+  /// leaves exactly such a row, and teardown only runs on a clean leave. Read
+  /// as an anchor it says "my own heartbeat is ancient, so my clock must be
+  /// broken" — when the truth is that the row belongs to a session that died.
+  /// The sweep then aborted without deleting anything, which made my own ghost
+  /// the one row on earth that could never be swept from a list.
   ///
   /// This matters most for admins: the voiceParticipants delete rule lets
   /// adminOverGroup through WITHOUT the server-side staleness re-check (it has
@@ -178,9 +186,10 @@ class VoiceChannelRepository {
   static bool clockLooksWrong(
     List<Timestamp?> heartbeats,
     Timestamp? mine,
-    DateTime now,
-  ) {
-    if (mine != null) return isStale(mine, now);
+    DateTime now, {
+    bool joined = false,
+  }) {
+    if (joined && mine != null) return isStale(mine, now);
     final known = heartbeats.whereType<Timestamp>().toList();
     if (known.isEmpty) return false;
     return known.every((h) => isStale(h, now));
@@ -189,11 +198,19 @@ class VoiceChannelRepository {
   /// Best-effort sweep for rows left behind by killed apps. Safe to run
   /// concurrently from several clients — delete is idempotent, and the rules
   /// re-verify staleness server-side before allowing it.
+  /// [joined] must be true only while this client is actually connected to
+  /// this channel. It gates the clock anchor, and it also decides what my own
+  /// row means: connected, it is my live heartbeat; not connected, it is a
+  /// leftover from a session that died, and no heartbeat age has to elapse
+  /// before that is knowable — this device knows it is not in the channel.
+  /// Deleting it needs no staleness argument either way, because self-delete
+  /// is unconditionally permitted by the rules.
   Future<void> pruneStaleParticipants(
     String groupId,
-    String channelId, [
+    String channelId, {
     String? myUid,
-  ]) async {
+    bool joined = false,
+  }) async {
     try {
       final snap = await _participants(groupId, channelId).get();
       final now = DateTime.now();
@@ -203,9 +220,22 @@ class VoiceChannelRepository {
       for (final d in snap.docs) {
         if (d.id == myUid) mine = d.data()['lastHeartbeat'] as Timestamp?;
       }
-      if (clockLooksWrong(heartbeats, mine, now)) return;
+
+      // My own orphan goes first and unconditionally. It is the one row whose
+      // liveness is not a guess — and the one users actually report, because
+      // being shown sitting in a channel you are looking at from outside reads
+      // as the app lying rather than as lag.
+      if (!joined && myUid != null && mine != null) {
+        try {
+          await _participant(groupId, channelId, myUid).delete();
+        } catch (_) {}
+        mine = null;
+      }
+
+      if (clockLooksWrong(heartbeats, mine, now, joined: joined)) return;
 
       await Future.wait(snap.docs
+          .where((d) => d.id != myUid)
           .where((d) => isStale(d.data()['lastHeartbeat'] as Timestamp?, now))
           .map((d) async {
             try {

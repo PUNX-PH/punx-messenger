@@ -291,31 +291,54 @@ class _VoiceRosterLine extends ConsumerStatefulWidget {
 
 class _VoiceRosterLineState extends ConsumerState<_VoiceRosterLine> {
   Timer? _pruneTimer;
+  Timer? _firstPrune;
 
   @override
   void initState() {
     super.initState();
-    // Same cadence as the web's sidebar sweep. Not fired on the first frame:
-    // a doc written moments ago can read back with an unresolved timestamp, and
-    // the sweep already refuses to judge those.
+    // Same cadence as the web's sidebar sweep.
     _pruneTimer = Timer.periodic(const Duration(seconds: 30), (_) => _prune());
+
+    // A first pass shortly after mount, because the periodic timer alone never
+    // ran in the case that matters. Opening this list is what you do in order
+    // to JOIN a channel, so the visit lasts a few seconds and the first tick at
+    // +30s never arrives — the sweep existed but effectively only ran for
+    // someone who left the list sitting open.
+    //
+    // Delayed rather than immediate: a doc written moments ago can read back
+    // with an unresolved timestamp. The sweep already refuses to judge those,
+    // so this is belt-and-braces, not the reason for the delay.
+    _firstPrune = Timer(const Duration(seconds: 2), _prune);
   }
 
   @override
   void dispose() {
     _pruneTimer?.cancel();
+    _firstPrune?.cancel();
     super.dispose();
   }
 
   void _prune() {
     // The uid is only so the sweep can sanity-check this device's clock
     // against a server timestamp before deleting anyone — see
-    // VoiceChannelRepository.clockLooksWrong.
+    // VoiceChannelRepository.clockLooksWrong. `joined` is what tells it
+    // whether a row bearing that uid is my heartbeat or my leftover.
     final myUid = ref.read(authStateProvider).value?.uid;
-    ref
-        .read(voiceChannelRepositoryProvider)
-        .pruneStaleParticipants(widget.groupId, widget.channelId, myUid);
+    ref.read(voiceChannelRepositoryProvider).pruneStaleParticipants(
+          widget.groupId,
+          widget.channelId,
+          myUid: myUid,
+          joined: _joinedHere,
+        );
   }
+
+  /// Whether this client is connected to THIS voice channel right now.
+  bool get _joinedHere =>
+      ref
+          .read(voiceControllerProvider)
+          .active
+          ?.same(widget.groupId, widget.channelId) ??
+      false;
 
   @override
   Widget build(BuildContext context) {
@@ -332,8 +355,24 @@ class _VoiceRosterLineState extends ConsumerState<_VoiceRosterLine> {
     // Filtered for display as well as swept, so a ghost disappears on the next
     // frame rather than waiting for a delete to land — and stays gone even if
     // that delete is refused.
+    //
+    // My own row is filtered on a different test to everyone else's. Theirs is
+    // a guess from heartbeat age, and has to be: a silent client is
+    // indistinguishable from a dead one, so it gets staleAfter's worth of
+    // benefit of the doubt. Mine is not a guess. If this device is not in the
+    // channel then that row is a leftover, however recently it was written —
+    // and after a force-kill it is written seconds ago, so the age test passed
+    // and the app showed you sitting in a channel you were looking at from the
+    // outside for the next two minutes.
     final now = DateTime.now();
+    final myUid = ref.watch(authStateProvider).value?.uid;
+    final joinedHere = ref
+            .watch(voiceControllerProvider)
+            .active
+            ?.same(groupId, channelId) ??
+        false;
     final roster = all
+        .where((p) => p.uid != myUid || joinedHere)
         .where((p) => !VoiceChannelRepository.isStale(p.lastHeartbeat, now))
         .toList();
     if (roster.isEmpty) return const SizedBox.shrink();

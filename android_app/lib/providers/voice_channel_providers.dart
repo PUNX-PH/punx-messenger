@@ -269,7 +269,8 @@ class VoiceController extends StateNotifier<VoiceUiState> {
 
       _heartbeatTimer = Timer.periodic(_heartbeat, (_) {
         _repo.heartbeatRoster(groupId, channelId, myUid);
-        _repo.pruneStaleParticipants(groupId, channelId, myUid);
+        _repo.pruneStaleParticipants(groupId, channelId,
+            myUid: myUid, joined: true);
       });
       _speakingTimer = Timer.periodic(_speakingPoll, (_) => _pollSpeaking());
 
