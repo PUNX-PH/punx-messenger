@@ -54,7 +54,16 @@ export async function resolveIceServers() {
     icePromise = (async () => {
       const { auth } = await import('./firebase')
       const user = auth.currentUser
-      if (!user) return base
+      // Throw rather than return, so the catch below clears icePromise.
+      //
+      // The Worker mints TURN against the caller's ID token, so "no user yet"
+      // means "too early", not "no TURN available" — and returning base here
+      // RESOLVED the cached promise with a STUN-only list. Only a rejection
+      // clears that cache, so joining a call before auth had settled left the
+      // whole page relay-less until a reload: pairs that could reach each
+      // other directly worked, pairs that needed a relay did not, and nothing
+      // said why.
+      if (!user) throw new Error('not signed in yet')
       const res = await fetch(`${workerUrl}/turn/credentials`, {
         headers: { Authorization: `Bearer ${await user.getIdToken()}` },
       })

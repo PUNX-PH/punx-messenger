@@ -23,6 +23,19 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v))
 
 const HEARTBEAT_MS = 15_000
 
+// How often to ask each peer connection whether audio is still arriving.
+const REPAIR_POLL_MS = 4_000
+// How long a pair may deliver no new inbound audio bytes before it counts as
+// dead. Generous, because this window also covers a pair that has not finished
+// connecting yet: a relayed candidate pair over TURN can take several seconds,
+// and tearing one down mid-negotiation would turn slow into never. The
+// answerer waits twice this, so the two sides do not both re-offer.
+const STALL_MS = 12_000
+// Per-peer cap. Reset the moment audio flows again, so a pair that recovers
+// keeps its full budget for later; a pair that genuinely cannot connect stops
+// rather than churning for the rest of the call.
+const MAX_REPAIRS = 3
+
 // ---- Screen-share ceiling ----
 // A share is the only thing here that moves real bandwidth: voice is ~32kbps,
 // a 1080p share is tens of times that, and in a mesh every viewer gets their
@@ -111,6 +124,10 @@ function useVoiceChannelEngine() {
 
   const [activeChannel, setActiveChannel] = useState(null) // { groupId, channelId, channelName } | null
   const [participants, setParticipants] = useState([])
+  // Mirror of `participants`, because rejoinMesh needs the CURRENT roster from
+  // inside an interval callback, where the state captured at subscribe time is
+  // whatever it was when the call started.
+  const participantsRef = useRef([])
   const [remoteStreams, setRemoteStreams] = useState({}) // { [peerUid]: MediaStream }
   const [speakingUids, setSpeakingUids] = useState(() => new Set())
   const [muted, setMuted] = useState(false)
@@ -142,6 +159,11 @@ function useVoiceChannelEngine() {
   // long enough to paint and a screen share sits on its spinner forever.
   // Cleared only when a pair genuinely ends, so a rejoin negotiates cleanly.
   const answeredOffersRef = useRef(new Map())
+  // peerUid -> { attempts, lastBytes, lastProgressAt }. Deliberately NOT part
+  // of the peer entry: the whole point is that it outlives the connection it
+  // describes, so a rebuilt pair remembers how many times it has been rebuilt.
+  const repairRef = useRef(new Map())
+  const repairIntervalRef = useRef(null)
   // Resolved once per join and reused for every peer in the session, so a
   // channel of six does not mint six TURN credentials. Null until join()
   // fills it, at which point createPeerFor stops falling back to STUN-only.
@@ -253,6 +275,9 @@ function useVoiceChannelEngine() {
   const teardown = useCallback(async () => {
     clearInterval(heartbeatIntervalRef.current)
     heartbeatIntervalRef.current = null
+    clearInterval(repairIntervalRef.current)
+    repairIntervalRef.current = null
+    repairRef.current.clear()
     unsubRosterRef.current?.(); unsubRosterRef.current = null
     unsubSignalsRef.current?.(); unsubSignalsRef.current = null
 
@@ -275,6 +300,7 @@ function useVoiceChannelEngine() {
     activeChannelRef.current = null
     setActiveChannel(null)
     setParticipants([])
+    participantsRef.current = []
     setRemoteStreams({})
     speakingSetRef.current = new Set()
     setSpeakingUids(new Set())
@@ -581,6 +607,7 @@ function useVoiceChannelEngine() {
   // already-present participant I'm just now discovering.
   const handleRosterChange = useCallback((all, { added, removed }) => {
     setParticipants(all)
+    participantsRef.current = all
     if (!myUid) return
     added.forEach(uid => {
       if (uid === myUid || peersRef.current.has(uid)) return
@@ -591,9 +618,131 @@ function useVoiceChannelEngine() {
       if (uid === myUid) return
       // They left: forget the answered offer so a rejoin negotiates cleanly.
       answeredOffersRef.current.delete(uid)
+      repairRef.current.delete(uid)
       closePeer(uid)
     })
   }, [myUid, offerTo, closePeer])
+
+  /**
+   * Rebuild a pair that has gone quiet.
+   *
+   * "I can hear some people but not others" was unrecoverable inside a call.
+   * Peer lifecycle is driven purely by roster DELTAS, and a pair that dies
+   * does not change the roster — nobody left. So the connection stayed dead
+   * for the rest of the session while every other pair kept working, and the
+   * only cure was leaving and rejoining the channel.
+   *
+   * Liveness is measured as inbound audio bytes, not connection state, because
+   * every silent failure mode reports a different state and some report a
+   * healthy one:
+   *
+   *   - `disconnected` was never handled at all (only `failed` was), so a pair
+   *     that blipped and did not recover sat there with no error and no
+   *     teardown.
+   *   - An offer whose answer never arrives never starts ICE, so it never
+   *     reaches `failed` either.
+   *   - The DTLS trap in docs/VOICE.md leaves ICE `connected` and DTLS
+   *     `connecting` forever, which looks perfectly healthy from the outside.
+   *
+   * Bytes tell all three apart from a working pair, and cost one getStats()
+   * per peer per tick. A muted peer still sends RTP silence, so mute does not
+   * read as death.
+   *
+   * Only ONE side should re-offer or the two collide, so the deterministic
+   * offerer repairs first and the answerer waits twice as long before taking
+   * over. That second window is what covers one-way audio, where the offerer's
+   * own inbound is healthy and it will never notice anything is wrong.
+   *
+   * Attempts are capped and the count lives in repairRef, OUTSIDE the peer
+   * entry — a retry whose memory dies with the thing being retried is an
+   * infinite loop, which is the same trap `answeredOffers` exists to avoid.
+   */
+  /**
+   * Put myself back in the roster after being pruned, and rebuild the mesh.
+   *
+   * Re-adding the row is necessary but nowhere near sufficient. Peers react to
+   * roster DELTAS, and the delta only helps the other side: they see me as
+   * `added` and whoever is my pair's offerer will offer. From MY side nothing
+   * changed — those uids were in `all` before and after, so no `added` fires,
+   * and `offerTo` refuses any pair still sitting in peersRef. Half the mesh
+   * would come back and half would stay silent, which is the original bug with
+   * a smaller blast radius.
+   *
+   * So tear down every peer and rebuild deliberately: offer to the pairs I own
+   * and let the other side offer for the rest, which it will, because from
+   * where it stands I have just joined.
+   */
+  const rejoinMesh = useCallback(async (groupId, channelId) => {
+    if (!myUid) return
+    try {
+      await joinRoster(groupId, channelId, myUid)
+    } catch {
+      return // Still evicted; the next heartbeat tries again.
+    }
+    for (const peerUid of Array.from(peersRef.current.keys())) {
+      answeredOffersRef.current.delete(peerUid)
+      repairRef.current.delete(peerUid)
+      closePeer(peerUid)
+    }
+    for (const p of participantsRef.current) {
+      const uid = p.uid ?? p
+      if (uid === myUid) continue
+      if (voiceOffererUid(myUid, uid) === myUid) offerTo(uid)
+    }
+  }, [myUid, closePeer, offerTo])
+
+  const repairTick = useCallback(async () => {
+    const ch = activeChannelRef.current
+    if (!ch || !myUid) return
+    const now = Date.now()
+
+    for (const [peerUid, entry] of Array.from(peersRef.current.entries())) {
+      let bytes = 0
+      try {
+        const stats = await entry.pc.getStats()
+        stats.forEach(r => {
+          if (r.type === 'inbound-rtp' && r.kind === 'audio') bytes += r.bytesReceived || 0
+        })
+      } catch {
+        continue // A connection being torn down under us is not a stall.
+      }
+      if (!peersRef.current.has(peerUid)) continue // closed while awaiting stats
+
+      const st = repairRef.current.get(peerUid)
+        ?? { attempts: 0, lastBytes: -1, lastProgressAt: now }
+
+      if (bytes > st.lastBytes) {
+        st.lastBytes = bytes
+        st.lastProgressAt = now
+        st.attempts = 0 // audio is flowing; earlier trouble no longer counts
+        repairRef.current.set(peerUid, st)
+        continue
+      }
+
+      const iAmOfferer = voiceOffererUid(myUid, peerUid) === myUid
+      const stalledFor = now - st.lastProgressAt
+      if (stalledFor < (iAmOfferer ? STALL_MS : STALL_MS * 2)) {
+        repairRef.current.set(peerUid, st)
+        continue
+      }
+
+      if (st.attempts >= MAX_REPAIRS) {
+        repairRef.current.set(peerUid, st)
+        continue
+      }
+
+      // Whichever side gets here does the offering, deterministic role or not.
+      // The role exists to stop both sides offering at once on join; by now
+      // the other side has had its turn and did not fix this.
+      st.attempts += 1
+      st.lastProgressAt = now
+      st.lastBytes = -1
+      repairRef.current.set(peerUid, st)
+      answeredOffersRef.current.delete(peerUid)
+      closePeer(peerUid)
+      offerTo(peerUid)
+    }
+  }, [myUid, closePeer, offerTo])
 
   const join = useCallback(async (groupId, channelId, channelName) => {
     if (!myUid || joining) return
@@ -628,13 +777,16 @@ function useVoiceChannelEngine() {
 
       await joinRoster(groupId, channelId, myUid)
 
-      heartbeatIntervalRef.current = setInterval(() => {
-        heartbeatRoster(groupId, channelId, myUid)
+      heartbeatIntervalRef.current = setInterval(async () => {
+        const stillListed = await heartbeatRoster(groupId, channelId, myUid)
+        if (!stillListed && activeChannelRef.current) await rejoinMesh(groupId, channelId)
         pruneStaleParticipants(groupId, channelId, myUid)
       }, HEARTBEAT_MS)
 
       unsubSignalsRef.current = listenMyVoiceSignals(groupId, channelId, myUid, handleSignalDocs, (err) =>
         setConnError(`Voice signaling failed: ${err?.message || err}`))
+
+      repairIntervalRef.current = setInterval(() => { repairTick() }, REPAIR_POLL_MS)
 
       // Attached last, deliberately — its first snapshot both discovers
       // existing peers and starts ongoing add/remove reactivity in one path.
@@ -651,7 +803,7 @@ function useVoiceChannelEngine() {
     } finally {
       setJoining(false)
     }
-  }, [myUid, joining, teardown, handleSignalDocs, handleRosterChange, attachAnalyser, buildGainGraph])
+  }, [myUid, joining, teardown, handleSignalDocs, handleRosterChange, repairTick, rejoinMesh, attachAnalyser, buildGainGraph])
 
   const leave = useCallback(() => teardown(), [teardown])
 

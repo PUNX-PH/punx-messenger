@@ -100,8 +100,33 @@ export async function joinRoster(groupId, channelId, uid) {
   })
 }
 
+/**
+ * Returns false when my roster row is GONE, which the caller must treat as
+ * having been evicted from the channel rather than as a failed write.
+ *
+ * A hidden tab's timers are throttled by the browser and stopped outright by a
+ * sleeping machine, so a backgrounded participant can easily miss STALE_MS
+ * worth of heartbeats. Somebody else's sweep then deletes their row — working
+ * exactly as designed, since from the outside that is indistinguishable from a
+ * client that died.
+ *
+ * What was not designed is the return. `updateDoc` on a deleted document
+ * throws not-found, and swallowing that left the heartbeat writing into a void
+ * for the rest of the session: the tab still believed it was connected, while
+ * every other client had already dropped its peer connection on the `removed`
+ * delta and had no reason to ever offer again. One participant, silent to
+ * everyone, with no error on either side.
+ */
 export async function heartbeatRoster(groupId, channelId, uid) {
-  await updateDoc(participantDoc(groupId, channelId, uid), { lastHeartbeat: serverTimestamp() }).catch(() => {})
+  try {
+    await updateDoc(participantDoc(groupId, channelId, uid), { lastHeartbeat: serverTimestamp() })
+    return true
+  } catch (e) {
+    // Only not-found means evicted. A transient network or permission blip
+    // must NOT trigger a rejoin — the next beat covers it, and rebuilding the
+    // whole mesh over a dropped packet is far worse than missing one beat.
+    return e?.code !== 'not-found'
+  }
 }
 
 export async function setRosterState(groupId, channelId, uid, patch) {
