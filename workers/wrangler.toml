@@ -11,8 +11,37 @@ id = "681bf145d9ab4199b60e8a47fa38999b"
 
 # ── Auth / domain allowlist ──
 # KEEP IN SYNC with the matching VITE_* vars in .env.local / firestore.rules.
+# ── DTR reminder cron ──
+# Daily at 01:00 UTC = 09:00 Manila. The schedule is daily on purpose: the job
+# itself checks whether today is the day before the current cutoff closes, which
+# cron syntax cannot express — cutoffs are set by hand and do not land on fixed
+# dates. Cloudflare crons are ALWAYS UTC; "0 9" here would fire at 5pm Manila,
+# a day late to be useful.
+[triggers]
+crons = ["0 1 * * *"]
+
 [vars]
 FIREBASE_PROJECT_ID = "punx-msg"
+
+# ── DTR reminder ──
+# The DTR app is a SEPARATE Firebase project, so reading its cutoffs needs its
+# own service account: `wrangler secret put DTR_SERVICE_ACCOUNT` with that
+# project's JSON. Sharing punx-msg's would not work — the credential is scoped
+# to one project.
+DTR_PROJECT_ID = "punx-dtr"
+# The bot the reminder posts as. Register it in the admin panel with the
+# `dm:write` scope and paste its uid here; without the scope every DM is denied
+# by firestore.rules, which is the intended behaviour, not a bug to work around.
+DTR_BOT_UID = ""
+# The PUBLIC Firebase web api key for punx-msg — the one already in the client
+# bundle, not a secret. Needed to exchange the bot's custom token for the ID
+# token Firestore evaluates rules against. Without it the bot cannot sign in,
+# and writing as the service account instead would bypass rules entirely, which
+# the bot platform deliberately rejected.
+FIREBASE_WEB_API_KEY = ""
+# Shared secret for POST /dtr/remind, the manual trigger:
+# `wrangler secret put DTR_TRIGGER_SECRET`. Unset disables the endpoint.
+# env.DTR_TRIGGER_SECRET
 
 # Cloudflare TURN. The ID is not a secret; the token that goes with it is, and
 # lives as a Worker secret (`wrangler secret put TURN_KEY_API_TOKEN`) exactly
