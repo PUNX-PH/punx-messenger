@@ -127,9 +127,39 @@ function periodRange({ startDate, endDate }) {
  */
 function sendDays(cutoff) {
   return {
-    cutoff: manilaDate(addDays(cutoff.endDate, -1)),
-    deadline: manilaDate(addDays(cutoff.submitBy, -1)),
+    cutoff: previousWorkingDay(manilaDate(addDays(cutoff.endDate, -1))),
+    deadline: previousWorkingDay(manilaDate(addDays(cutoff.submitBy, -1))),
   }
+}
+
+/**
+ * Walk a Manila calendar date back to Friday if it lands on a weekend.
+ *
+ * "The day before the deadline" is only useful if anyone reads it. A deadline
+ * of 10:00 Monday puts its last call on the Sunday, where it is seen on Monday
+ * morning at the earliest — after the thing it was warning about. Landing on
+ * Friday is earlier than asked for and strictly more useful.
+ *
+ * Applied to BOTH reminders rather than only the one that prompted this: a
+ * period ending Sunday would otherwise put its heads-up on a Saturday, and one
+ * reminder that avoids weekends while the other does not is the kind of
+ * inconsistency nobody remembers the reason for.
+ *
+ * Holidays are not handled. There is no calendar of them here, and guessing at
+ * one would be worse than the honest gap — moving the deadline for a holiday is
+ * already why submitBy is a stored field rather than a derived one.
+ */
+function previousWorkingDay(day) {
+  // Noon Manila (04:00 UTC), far from either midnight, so no rounding can move
+  // the date across a day boundary while walking backwards.
+  let d = new Date(`${day}T04:00:00.000Z`)
+  while (isWeekend(d)) d = addDays(d, -1)
+  return manilaDate(d)
+}
+
+function isWeekend(d) {
+  const wd = manilaParts(d, { weekday: 'short' })
+  return wd === 'Sat' || wd === 'Sun'
 }
 
 /**

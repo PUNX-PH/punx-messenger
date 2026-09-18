@@ -59,9 +59,19 @@ two saying much the same thing, and the last call is the more useful.
 `deadlineReminderSentFor`). A single shared marker would let the heads-up
 suppress the last call entirely.
 
-Known sharp edge: `submitBy − 1` can land on a weekend. A Monday 10:00 deadline
-sends its last call on the Sunday. Nothing shifts it to the previous working
-day — say so if that is wanted.
+**A send day landing on a weekend walks back to the Friday.** A 10:00 Monday
+deadline would otherwise put its last call on the Sunday, read on Monday
+morning at the earliest — after the thing it warned about. Friday is earlier
+than "one day before" and strictly more useful.
+
+Applied to both reminders, not just the one that prompted it: a period ending
+Sunday would otherwise put its heads-up on a Saturday, and one reminder
+avoiding weekends while the other does not is an inconsistency nobody would
+remember the reason for.
+
+**Holidays are not handled.** There is no calendar of them here and guessing
+would be worse than the honest gap — a holiday moving the deadline is already
+why `submitBy` is stored rather than derived.
 
 ## Timing
 
