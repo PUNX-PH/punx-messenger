@@ -32,13 +32,13 @@ DTR_PROJECT_ID = "punx-dtr"
 # The bot the reminder posts as. Register it in the admin panel with the
 # `dm:write` scope and paste its uid here; without the scope every DM is denied
 # by firestore.rules, which is the intended behaviour, not a bug to work around.
-DTR_BOT_UID = ""
+DTR_BOT_UID = "7EiTRqGnqS8xXxGTfoMh"
 # The PUBLIC Firebase web api key for punx-msg — the one already in the client
 # bundle, not a secret. Needed to exchange the bot's custom token for the ID
 # token Firestore evaluates rules against. Without it the bot cannot sign in,
 # and writing as the service account instead would bypass rules entirely, which
 # the bot platform deliberately rejected.
-FIREBASE_WEB_API_KEY = ""
+FIREBASE_WEB_API_KEY = "AIzaSyAS38AO06f7V_YlZqBkTymrz6V8el9hrJ0"
 # Shared secret for POST /dtr/remind, the manual trigger:
 # `wrangler secret put DTR_TRIGGER_SECRET`. Unset disables the endpoint.
 # env.DTR_TRIGGER_SECRET
