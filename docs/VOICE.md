@@ -80,6 +80,12 @@ before optimising anything.
 blank tile looks identical whether ICE failed, no bytes arrived, the decoder
 choked, or the renderer was not attached.
 
+0. **Is everyone still in the roster?** Free, and the answer to "I hear some
+   people but not others" more often than anything below. If the silent person
+   is missing from *your* participant list while their own screen still shows
+   them connected, they were pruned for missing heartbeats and every peer
+   connection to them was torn down — see the heartbeat trap below. This is
+   asymmetric by nature, so check both sides.
 1. **Did ICE connect?** `chrome://webrtc-internals` on the web side. A
    connection going `new => failed` with no checking phase means no media can
    flow, whatever else looks healthy. Its `getUserMedia/getDisplayMedia` tab
@@ -119,11 +125,60 @@ and the shape recurs.
   for a peer that no longer exists: ICE reaches `connected` and DTLS sits in
   `connecting` forever, with no error. Answers are matched to the offer that
   was actually published.
+- **A swallowed not-found on the heartbeat** left a client audible to nobody
+  for the rest of its session. Miss more than `STALE_MS` of heartbeats — a
+  hidden tab's timers are throttled and a sleeping machine stops them, and on
+  Android doze or a process kill does the same — and somebody else's sweep
+  deletes your roster row. That part is correct: from outside, a silent client
+  and a dead one are the same thing. But `update` on a deleted document throws
+  not-found, and swallowing it meant the heartbeat wrote into a void while the
+  client went on believing it was connected. Every other client had already
+  dropped its peer connection on the `removed` delta, and nothing offers again,
+  because peer lifecycle runs off roster deltas and from their point of view
+  that person left. The heartbeat now reports eviction and rejoins.
+- **Re-adding the roster row is not enough to come back.** The `added` delta
+  fires for everyone *else*; from the returning client's own side those uids
+  never left `all`, so no delta arrives and `offerTo` refuses any pair still in
+  the peer map. Half the mesh returns and half stays silent. Recovery has to
+  close every peer and re-offer the pairs it owns.
+
+## Self-healing
+
+A pair that stops working is repaired rather than left dead, and **liveness is
+measured in inbound audio bytes, not connection state**. That is not a
+preference: every silent failure mode reports something different, and one
+reports something healthy.
+
+| Failure | What the state says |
+| --- | --- |
+| `disconnected` that never recovers | `disconnected` |
+| Offer sent, answer never arrived | `new` — ICE never starts, so never `failed` |
+| The DTLS trap above | `connected` — indistinguishable from working |
+
+`inbound-rtp.bytesReceived` separates all three from a working pair for one
+`getStats()` per peer per tick. A muted peer still sends RTP silence, so mute
+does not read as death.
+
+Two rules the repair must keep:
+
+- **Only one side re-offers.** The deterministic offerer goes first and the
+  answerer waits twice as long before taking over. That second window is what
+  covers one-way audio, where the offerer's own inbound is healthy and it will
+  never notice anything is wrong.
+- **Attempts are capped, and the count outlives the connection.** A retry whose
+  memory dies with the thing being retried is an infinite loop — the same trap
+  `answeredOffers` exists to avoid. The counter resets when audio flows, so a
+  pair that recovers keeps its full budget for later.
+
+On Flutter the closes are **serialized**, never fired together: closing a peer
+connection mid-negotiation aborts the process, so churn there is fatal rather
+than merely wasteful.
 
 ## Deliberate limits
 
-- **No ICE restart.** A failed pair drops rather than reconnecting; rejoining
-  is the recovery.
+- **No ICE restart.** A pair is never renegotiated in place. Recovery rebuilds
+  it from scratch instead — see "Self-healing" below, which replaced the
+  original "rejoining the channel is the recovery".
 - **Android/iOS receive screen shares but cannot send one.** Sending needs
   MediaProjection (Android) / ReplayKit (iOS).
 - **One voice channel at a time** — joining a second leaves the first.
