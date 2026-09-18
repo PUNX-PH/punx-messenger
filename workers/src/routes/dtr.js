@@ -16,7 +16,7 @@
 // `{userId}_{cutoffId}`, so skipping people who already submitted is one read
 // each. That reintroduces the matching problem, so it is deliberately not v1.
 
-import { AuthError } from '../auth.js'
+import { AuthError, verifyAuth } from '../auth.js'
 import {
   firestoreGet, firestoreMerge, firestoreQuery, loadServiceAccount,
   mintBotIdToken, serviceAccountToken,
@@ -85,6 +85,58 @@ function buildMessage(cutoff) {
     '',
     'Thank you!',
   ].join('\n')
+}
+
+/**
+ * The cron's kill switch, stored in punx-dtr so the DTR admin owns it.
+ *
+ * Defaults to ENABLED when the document does not exist, which is the state
+ * every install starts in — a missing settings doc must not silently mean "no
+ * reminders", because that failure looks exactly like the feature working
+ * until someone notices nobody was told.
+ */
+async function autoSendEnabled(env, dtrSa) {
+  const doc = await firestoreGet(env, dtrSa, 'settings/dtrReminder', env.DTR_PROJECT_ID)
+  return doc?.autoSendEnabled !== false
+}
+
+/** Read the kill switch. Exposed for GET /dtr/auto-send. */
+export async function getAutoSend(env) {
+  return autoSendEnabled(env, loadServiceAccount(env, 'DTR_SERVICE_ACCOUNT'))
+}
+
+/** Flip the kill switch. Exposed for POST /dtr/auto-send. */
+export async function setAutoSend(env, enabled) {
+  const dtrSa = loadServiceAccount(env, 'DTR_SERVICE_ACCOUNT')
+  const token = await serviceAccountToken(env, dtrSa)
+  await firestoreMerge(token, env.DTR_PROJECT_ID, 'settings/dtrReminder', {
+    autoSendEnabled: enabled,
+    updatedAt: new Date(),
+  })
+  return enabled
+}
+
+/**
+ * Let a DTR admin through on their own ID token.
+ *
+ * The token is issued by punx-dtr, not punx-msg, so verifyAuth is told which
+ * project to check iss/aud against — this Worker's own project would reject a
+ * perfectly valid token.
+ *
+ * Being signed in is not enough. This DMs the whole workspace, so the caller's
+ * role is re-read from punx-dtr on every request rather than trusted from a
+ * claim, which means demoting someone takes effect immediately instead of
+ * whenever their token happens to expire.
+ */
+export async function assertDtrAdmin(token, env) {
+  const dtrSa = loadServiceAccount(env, 'DTR_SERVICE_ACCOUNT')
+  const { uid } = await verifyAuth(token, env, env.DTR_PROJECT_ID)
+  const user = await firestoreGet(env, dtrSa, `users/${uid}`, env.DTR_PROJECT_ID)
+  if (!user) throw new AuthError('No DTR profile for this account', 403)
+  if (!['admin', 'super_admin'].includes(user.role)) {
+    throw new AuthError('Only a DTR admin can send the reminder', 403)
+  }
+  return { uid, role: user.role }
 }
 
 /** Newest cutoff in punx-dtr, with its timestamps already parsed. */
@@ -176,11 +228,18 @@ async function sendDm(env, idToken, bot, user, text) {
  * `dryRun` does everything except write, so the message and the recipient
  * count can be seen before anyone is DMed.
  */
-export async function runDtrReminder(env, { force = false, dryRun = false } = {}) {
+export async function runDtrReminder(env, { force = false, dryRun = false, only = null, auto = false } = {}) {
   const msgSa = loadServiceAccount(env)
   const dtrSa = loadServiceAccount(env, 'DTR_SERVICE_ACCOUNT')
   const botUid = env.DTR_BOT_UID
   if (!botUid) throw new AuthError('DTR_BOT_UID is unset', 503)
+
+  // The kill switch applies to the CRON only. Someone clicking "send now" has
+  // decided; the toggle exists to stop the unattended send, not to disable the
+  // button they just pressed.
+  if (auto && !(await autoSendEnabled(env, dtrSa))) {
+    return { sent: 0, reason: 'auto-send is switched off in the DTR admin' }
+  }
 
   const cutoff = await activeCutoff(env, dtrSa)
   if (!cutoff) return { sent: 0, reason: 'no cutoff found in punx-dtr' }
@@ -205,13 +264,26 @@ export async function runDtrReminder(env, { force = false, dryRun = false } = {}
   if (!bot) throw new AuthError(`No users/${botUid} doc — is the bot registered?`, 503)
   const botProfile = { uid: botUid, name: bot.name || 'DTR', photoURL: bot.photoURL || null }
 
-  const people = await recipients(env, msgSa, botUid)
+  let people = await recipients(env, msgSa, botUid)
+  // Single-recipient test. Sending the real thing to yourself is the only way
+  // to see what 22 people would see, and is worth having as a first-class mode
+  // rather than something done by temporarily breaking the recipient query.
+  if (only) {
+    // Accepts an email as well as a uid, because nobody knows their own uid and
+    // the whole point of this mode is that it be easy to reach for.
+    const needle = only.toLowerCase()
+    people = people.filter(u => u.id === only || (u.email || '').toLowerCase() === needle)
+    if (!people.length) {
+      return { sent: 0, reason: `no active user matching "${only}" in punx-msg`, cutoffId: cutoff.id }
+    }
+  }
   const text = buildMessage(cutoff)
 
   if (dryRun) {
     return {
       sent: 0, dryRun: true, cutoffId: cutoff.id,
-      wouldSendTo: people.length, sendOn, submitByWasStored: cutoff.submitByWasStored, text,
+      wouldSendTo: people.length, sendOn, submitByWasStored: cutoff.submitByWasStored,
+      only: only || undefined, text,
     }
   }
 
@@ -236,7 +308,9 @@ export async function runDtrReminder(env, { force = false, dryRun = false } = {}
   // see it too. Marking up front would lose the whole reminder to one early
   // failure; marking after means a crash mid-run can re-DM the people who
   // already got it, which is the better of the two failures.
-  if (sent > 0) {
+  // A single-recipient test must NOT mark the cutoff as reminded, or testing it
+  // would silently cancel the real send to everyone else.
+  if (sent > 0 && !only) {
     const dtrToken = await serviceAccountToken(env, dtrSa)
     await firestoreMerge(dtrToken, env.DTR_PROJECT_ID, `cutoffs/${cutoff.id}`, {
       reminderSentFor: cutoff.id,
@@ -244,5 +318,10 @@ export async function runDtrReminder(env, { force = false, dryRun = false } = {}
     }).catch(() => { /* the DMs landed; a failed marker only risks a repeat */ })
   }
 
-  return { sent, failed, cutoffId: cutoff.id, submitByWasStored: cutoff.submitByWasStored }
+  return {
+    sent, failed, cutoffId: cutoff.id,
+    submitByWasStored: cutoff.submitByWasStored,
+    only: only || undefined,
+    markedSent: sent > 0 && !only,
+  }
 }

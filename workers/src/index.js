@@ -17,7 +17,7 @@
 
 import { AuthError } from './auth.js'
 import * as bots from './routes/bots.js'
-import { runDtrReminder } from './routes/dtr.js'
+import { assertDtrAdmin, getAutoSend, runDtrReminder, setAutoSend } from './routes/dtr.js'
 import * as gifs from './routes/gifs.js'
 import * as turn from './routes/turn.js'
 
@@ -74,17 +74,48 @@ export default {
       //
       // ?dry=1 renders the message and counts recipients without writing, and
       // is the sane way to check a cutoff's dates before the real send.
+      // Two ways in, because there are two callers with nothing in common.
+      //
+      // A shared secret covers curl and anything scripted — it needs no user
+      // and no browser. A DTR admin's own ID token covers the button in the
+      // DTR dashboard, and it has to be a token rather than the secret: a
+      // secret shipped to a React app is a secret published to everyone who
+      // opens it.
       if (url.pathname === '/dtr/remind' && request.method === 'POST') {
-        if (!env.DTR_TRIGGER_SECRET) {
-          throw new AuthError('DTR_TRIGGER_SECRET is unset, so the manual trigger is disabled', 503)
-        }
         const provided = (request.headers.get('Authorization') || '').replace(/^Bearer /, '')
-        if (provided !== env.DTR_TRIGGER_SECRET) throw new AuthError('Forbidden', 403)
+        if (!provided) throw new AuthError('Missing bearer token', 401)
+
+        const secretMatches = Boolean(env.DTR_TRIGGER_SECRET) && provided === env.DTR_TRIGGER_SECRET
+        // Only reached when the secret does not match, so a failed admin check
+        // reports the admin problem rather than a generic 403.
+        if (!secretMatches) await assertDtrAdmin(provided, env)
+
         const result = await runDtrReminder(env, {
           force: url.searchParams.get('force') === '1',
           dryRun: url.searchParams.get('dry') === '1',
+          only: url.searchParams.get('only') || null,
         })
         return withCors(Response.json(result), cors)
+      }
+
+      // Read/write the cron's kill switch, for the toggle in the DTR admin.
+      if (url.pathname === '/dtr/auto-send') {
+        const provided = (request.headers.get('Authorization') || '').replace(/^Bearer /, '')
+        if (!provided) throw new AuthError('Missing bearer token', 401)
+        const secretMatches = Boolean(env.DTR_TRIGGER_SECRET) && provided === env.DTR_TRIGGER_SECRET
+        if (!secretMatches) await assertDtrAdmin(provided, env)
+
+        if (request.method === 'GET') {
+          return withCors(Response.json({ enabled: await getAutoSend(env) }), cors)
+        }
+        if (request.method === 'POST') {
+          const body = await request.json().catch(() => ({}))
+          if (typeof body.enabled !== 'boolean') {
+            throw new AuthError('Body must be {"enabled": true|false}', 400)
+          }
+          await setAutoSend(env, body.enabled)
+          return withCors(Response.json({ enabled: body.enabled }), cors)
+        }
       }
     } catch (err) {
       if (err instanceof AuthError) return withCors(Response.json({ error: err.message }, { status: err.status }), cors)
@@ -105,7 +136,9 @@ export default {
   // out until someone asks why they were never told to submit.
   async scheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
-      const result = await runDtrReminder(env)
+      // auto:true is what makes the kill switch apply. A human pressing the
+      // button has already decided; the toggle only governs the unattended run.
+      const result = await runDtrReminder(env, { auto: true })
       console.log('[dtr] reminder run:', JSON.stringify(result))
     })())
   },

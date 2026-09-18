@@ -52,7 +52,7 @@ ALLOWED_EMAIL_DOMAIN = "punx.ai"
 ALLOWED_EXTRA_EMAILS = "perezjohnrey43@gmail.com"
 
 # ── CORS allowlist — add any new deploy origin (custom domain, etc.) here ──
-ALLOWED_ORIGINS = "http://localhost:5173,https://punx-messenger.vercel.app,https://punx-messenger.rey-433.workers.dev,http://plexus.punxai.online,https://plexus.punxai.online"
+ALLOWED_ORIGINS = "http://localhost:5173,https://punx-messenger.vercel.app,https://punx-messenger.rey-433.workers.dev,http://plexus.punxai.online,https://plexus.punxai.online,https://dtr.punxai.online"
 
 # ── Klipy (GIF picker) — SECRET, not a var. Local dev reads it from
 # workers/.dev.vars (gitignored). On deploy: `wrangler secret put KLIPY_API_KEY`.

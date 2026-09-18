@@ -51,7 +51,17 @@ function isEmailAllowed(email, env) {
 // Accepts either a Request (reads its Authorization header) or a raw token
 // string (the WebSocket upgrade path, where the token travels as a query
 // param since browsers can't set custom headers on a WS handshake).
-export async function verifyAuth(requestOrToken, env) {
+/**
+ * `projectId` defaults to this Worker's own project, which is every existing
+ * caller. The DTR reminder's manual trigger passes punx-dtr's, because the
+ * admin clicking that button is signed into the DTR app and holds a token
+ * issued by THAT project — iss and aud name the issuing project, so verifying
+ * it against punx-msg would reject a perfectly valid token.
+ *
+ * The JWKS itself needs no parameter: Google signs every project's tokens with
+ * the same rotating key set.
+ */
+export async function verifyAuth(requestOrToken, env, projectId = env.FIREBASE_PROJECT_ID) {
   const token = typeof requestOrToken === 'string'
     ? requestOrToken
     : (requestOrToken.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '')
@@ -67,7 +77,6 @@ export async function verifyAuth(requestOrToken, env) {
 
   const payload = base64UrlDecodeJson(payloadB64)
   const now = Math.floor(Date.now() / 1000)
-  const projectId = env.FIREBASE_PROJECT_ID
 
   if (payload.iss !== `https://securetoken.google.com/${projectId}`) throw new AuthError('Bad issuer', 401)
   if (payload.aud !== projectId) throw new AuthError('Bad audience', 401)
