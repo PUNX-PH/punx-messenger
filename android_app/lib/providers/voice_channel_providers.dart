@@ -267,8 +267,12 @@ class VoiceController extends StateNotifier<VoiceUiState> {
 
       await _repo.joinRoster(groupId, channelId, myUid);
 
-      _heartbeatTimer = Timer.periodic(_heartbeat, (_) {
-        _repo.heartbeatRoster(groupId, channelId, myUid);
+      _heartbeatTimer = Timer.periodic(_heartbeat, (_) async {
+        final stillListed =
+            await _repo.heartbeatRoster(groupId, channelId, myUid);
+        if (!stillListed && state.active?.same(groupId, channelId) == true) {
+          await _rejoinMesh(groupId, channelId);
+        }
         _repo.pruneStaleParticipants(groupId, channelId,
             myUid: myUid, joined: true);
       });
@@ -702,6 +706,37 @@ class VoiceController extends StateNotifier<VoiceUiState> {
   /// The roster's add/remove lists drive peer lifecycle directly. This fires
   /// identically whether "added" means a new joiner or, on the first emission
   /// after I join, somebody already here.
+  /// Put myself back in the roster after being pruned, and rebuild the mesh.
+  ///
+  /// Re-adding the row is necessary and nowhere near sufficient. Peers react to
+  /// roster DELTAS, and the delta only helps the other side: they see me as
+  /// `added` and whichever of us owns the pair offers. From MY side nothing
+  /// changed — those uids sat in `all` before and after, so no `added` fires,
+  /// and [_offerTo] refuses any pair still in [_peers]. Half the mesh would
+  /// come back and half would stay silent, which is the same bug with a
+  /// smaller blast radius.
+  ///
+  /// So tear every peer down and rebuild deliberately: offer the pairs I own,
+  /// and let the other side offer the rest — which it will, because from where
+  /// it stands I have just joined.
+  Future<void> _rejoinMesh(String groupId, String channelId) async {
+    final myUid = _myUid;
+    if (myUid == null) return;
+    try {
+      await _repo.joinRoster(groupId, channelId, myUid);
+    } catch (_) {
+      return; // Still evicted; the next heartbeat tries again.
+    }
+    for (final uid in _peers.keys.toList()) {
+      _answeredOffers.remove(uid);
+      await _closePeer(uid, deleteSignal: true, reason: 'rejoin-mesh');
+    }
+    for (final p in state.participants) {
+      if (p.uid == myUid) continue;
+      if (voiceOffererUid(myUid, p.uid) == myUid) _offerTo(p.uid);
+    }
+  }
+
   void _onRoster(RosterUpdate update) {
     final myUid = _myUid;
     state = state.copyWith(participants: update.all);

@@ -99,13 +99,33 @@ class VoiceChannelRepository {
     });
   }
 
-  Future<void> heartbeatRoster(String groupId, String channelId, String uid) async {
+  /// Returns false only when my roster row is GONE, which the caller must read
+  /// as "I have been evicted from this channel", not as a failed write.
+  ///
+  /// Doze, app-standby or an outright process kill can all cost more than
+  /// [staleAfter] worth of heartbeats, at which point somebody else's sweep
+  /// deletes the row — correctly, because from outside a silent client and a
+  /// dead one are the same thing. Every other client then sees `removed` and
+  /// drops its peer connection, and peer lifecycle runs off roster deltas, so
+  /// nobody ever offers again: audible to nobody, for the rest of the session.
+  ///
+  /// `update` on a deleted document throws not-found, and swallowing that left
+  /// the heartbeat writing into a void while this client went on believing it
+  /// was connected. Rejoining the channel by hand was the only cure.
+  ///
+  /// A heartbeat that misses for any OTHER reason still returns true: the next
+  /// one covers it, and rebuilding the mesh over a transient blip is far worse
+  /// than missing a beat.
+  Future<bool> heartbeatRoster(
+      String groupId, String channelId, String uid) async {
     try {
       await _participant(groupId, channelId, uid)
           .update({'lastHeartbeat': FieldValue.serverTimestamp()});
+      return true;
+    } on FirebaseException catch (e) {
+      return e.code != 'not-found';
     } catch (_) {
-      // A heartbeat that misses is caught by the next one; failing loudly here
-      // would turn a transient blip into a torn-down session.
+      return true;
     }
   }
 
