@@ -34,20 +34,40 @@ Targeting is cheap to add later: submissions are keyed `{userId}_{cutoffId}`,
 so "has this person submitted" is one document get. It reintroduces the
 matching problem, which is why it is not the first version.
 
+## Two reminders
+
+| Kind | Sends | Message |
+| --- | --- | --- |
+| `cutoff` (heads-up) | `endDate − 1 day` | What the Gmail version said, near verbatim |
+| `deadline` (last call) | `submitBy − 1 day` | Short: time remaining, and "ignore this if you already submitted" |
+
+They are separate dates because **the deadline is not the end of the period**.
+A period closing Thursday has been due 10:00 Friday, so the two land on the
+Wednesday and the Thursday.
+
+The last call is deliberately shaped differently. Two DMs a fortnight that open
+identically train people to stop reading the second one — which is the one that
+matters — so it leads with the time left and drops the reimbursement
+boilerplate. Being a broadcast it cannot know who has already submitted, so it
+says so plainly instead of pretending.
+
+**`deadline` wins when both land on the same day**, which happens when a
+cutoff's deadline is the day it closes rather than the day after. One DM beats
+two saying much the same thing, and the last call is the more useful.
+
+**Each kind has its own sent-marker** (`reminderSentFor`,
+`deadlineReminderSentFor`). A single shared marker would let the heads-up
+suppress the last call entirely.
+
+Known sharp edge: `submitBy − 1` can land on a weekend. A Monday 10:00 deadline
+sends its last call on the Sunday. Nothing shifts it to the previous working
+day — say so if that is wanted.
+
 ## Timing
 
-Everything keys off the cutoff's `endDate`:
-
-```
-Wed Aug 26  cutoff.startDate
-Wed Sep 9   reminder sent      = endDate − 1 day
-Thu Sep 10  cutoff.endDate
-Fri Sep 11  submitBy, 10:00
-```
-
-The cron is **daily**, and the job decides whether today is the day. Cron
-syntax cannot express "the day before a cutoff ends" — cutoffs are set by hand
-and do not land on fixed dates.
+The cron is **daily**, and the job decides which reminder today is, if any.
+Cron syntax cannot express "the day before a cutoff ends" — cutoffs are set by
+hand and do not land on fixed dates.
 
 **Cloudflare crons are always UTC.** `0 1 * * *` is 09:00 Manila. A schedule
 written as `0 9` fires at 5pm Manila, a day late to be useful. The date
@@ -127,8 +147,14 @@ curl -X POST -H "Authorization: Bearer $DTR_TRIGGER_SECRET" \
 ```
 
 `force=1` skips the date check and the already-sent guard. `dry=1` does
-everything except write, which is the sane way to check a cutoff's dates and
-the exact wording before anyone is DMed.
+everything except write, and returns **both** messages with the day each one
+sends — neither is visible on the day the other fires, so a preview that showed
+only today's would hide half of what goes out.
+
+`kind=cutoff` or `kind=deadline` forces one specific message; omitted, the date
+decides. `only=<email-or-uid>` restricts a REAL send to one person, which is how
+to see the message exactly as everyone else would. A test send does **not** mark
+the cutoff as reminded, or testing would cancel the real send.
 
 The trigger is gated on a shared secret rather than a signed-in user's token on
 purpose: it DMs the entire workspace, and should not be reachable by anyone who

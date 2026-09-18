@@ -65,16 +65,16 @@ function fallbackSubmitBy(endDate) {
   return new Date(`${manilaDate(next)}T02:00:00.000Z`)
 }
 
-function buildMessage(cutoff) {
-  const { startDate, endDate, submitBy } = cutoff
-  const sameYear = manilaParts(startDate, { year: 'numeric' }) === manilaParts(endDate, { year: 'numeric' })
-  const range = `${shortDate(startDate)}${sameYear ? '' : `, ${manilaParts(startDate, { year: 'numeric' })}`}`
-    + ` - ${longDate(endDate)}`
-
+/**
+ * The heads-up, sent the day before the period closes. This is the message the
+ * hand-sent Gmail carried, near enough verbatim.
+ */
+function buildCutoffMessage(cutoff) {
+  const { submitBy } = cutoff
   return [
     'Hi Team!',
     '',
-    `Once you complete your attendance for ${range}, please review your DTR and `
+    `Once you complete your attendance for ${periodRange(cutoff)}, please review your DTR and `
     + `submit it through the DTR Web App no later than ${clockTime(submitBy)} on `
     + `${weekday(submitBy)}, ${longDate(submitBy)}.`,
     '',
@@ -86,6 +86,70 @@ function buildMessage(cutoff) {
     'Thank you!',
   ].join('\n')
 }
+
+/**
+ * The last call, sent the day before the deadline itself.
+ *
+ * Deliberately shorter and different in shape from the heads-up. Two DMs a
+ * fortnight that open identically train people to stop reading the second one,
+ * which is the one that actually matters — so this leads with the time left,
+ * drops the reimbursement boilerplate, and says plainly that anyone who has
+ * already submitted can ignore it. It cannot know who has, being a broadcast.
+ */
+function buildDeadlineMessage(cutoff) {
+  const { submitBy } = cutoff
+  return [
+    `Reminder: DTR submissions close tomorrow, ${clockTime(submitBy)} on `
+    + `${weekday(submitBy)}.`,
+    '',
+    `That covers ${periodRange(cutoff)}. If you have already submitted, nothing `
+    + 'to do — thanks. If not, this is the last reminder before the cutoff.',
+    '',
+    `DTR Web App: ${DTR_APP_URL}`,
+  ].join('\n')
+}
+
+/** "August 26 - September 10, 2026" */
+function periodRange({ startDate, endDate }) {
+  const sameYear = manilaParts(startDate, { year: 'numeric' }) === manilaParts(endDate, { year: 'numeric' })
+  return `${shortDate(startDate)}${sameYear ? '' : `, ${manilaParts(startDate, { year: 'numeric' })}`}`
+    + ` - ${longDate(endDate)}`
+}
+
+/**
+ * The two reminders and the Manila day each falls on.
+ *
+ * `cutoff` is the heads-up, a day before the period closes — what was always
+ * sent. `deadline` is the last call, a day before submissions actually shut.
+ * They are separate dates because the deadline is not the end of the period:
+ * a period closing Thursday has been due 10am Friday, so the two land on the
+ * Wednesday and the Thursday.
+ */
+function sendDays(cutoff) {
+  return {
+    cutoff: manilaDate(addDays(cutoff.endDate, -1)),
+    deadline: manilaDate(addDays(cutoff.submitBy, -1)),
+  }
+}
+
+/**
+ * Which reminder today is, if any.
+ *
+ * `deadline` wins when both land on the same day, which happens when a cutoff's
+ * deadline is the day it closes rather than the day after. Two DMs in one
+ * morning saying much the same thing is worse than one, and the last call is
+ * the more useful of the two — it names the time remaining.
+ */
+function kindForToday(cutoff, today) {
+  const days = sendDays(cutoff)
+  if (today === days.deadline) return 'deadline'
+  if (today === days.cutoff) return 'cutoff'
+  return null
+}
+
+// Each reminder gets its OWN marker, or sending the heads-up would mark the
+// cutoff as done and the last call would never go out.
+const MARKER_FIELD = { cutoff: 'reminderSentFor', deadline: 'deadlineReminderSentFor' }
 
 /**
  * The cron's kill switch, stored in punx-dtr so the DTR admin owns it.
@@ -158,6 +222,7 @@ async function activeCutoff(env, dtrSa) {
     submitBy: c.submitBy ? new Date(c.submitBy) : fallbackSubmitBy(endDate),
     submitByWasStored: Boolean(c.submitBy),
     reminderSentFor: c.reminderSentFor || null,
+    deadlineReminderSentFor: c.deadlineReminderSentFor || null,
   }
 }
 
@@ -228,7 +293,7 @@ async function sendDm(env, idToken, bot, user, text) {
  * `dryRun` does everything except write, so the message and the recipient
  * count can be seen before anyone is DMed.
  */
-export async function runDtrReminder(env, { force = false, dryRun = false, only = null, auto = false } = {}) {
+export async function runDtrReminder(env, { force = false, dryRun = false, only = null, auto = false, kind = null } = {}) {
   const msgSa = loadServiceAccount(env)
   const dtrSa = loadServiceAccount(env, 'DTR_SERVICE_ACCOUNT')
   const botUid = env.DTR_BOT_UID
@@ -244,20 +309,28 @@ export async function runDtrReminder(env, { force = false, dryRun = false, only 
   const cutoff = await activeCutoff(env, dtrSa)
   if (!cutoff) return { sent: 0, reason: 'no cutoff found in punx-dtr' }
 
-  // Send the day before the period closes. That is what the hand-sent email
-  // did: a period ending Thu Sep 10 was reminded on Wed Sep 9, two days ahead
-  // of the Friday deadline. Compared as Manila calendar dates, because the
-  // cron fires in UTC and "the day before" is a question about a wall clock.
-  const sendOn = manilaDate(addDays(cutoff.endDate, -1))
+  // Compared as Manila calendar dates: the cron fires in UTC, and "the day
+  // before" is a question about a wall clock, not an instant.
   const today = manilaDate(new Date())
-  if (!force && today !== sendOn) {
-    return { sent: 0, reason: `not the send day (today ${today}, sends ${sendOn})`, cutoffId: cutoff.id }
+  const days = sendDays(cutoff)
+  // An explicit kind is a test asking for one specific message. Without one,
+  // the date decides — which is what the cron always wants.
+  const todayKind = kindForToday(cutoff, today)
+  const which = kind || todayKind || (force ? 'cutoff' : null)
+
+  if (!force && !todayKind) {
+    return {
+      sent: 0,
+      reason: `not a send day (today ${today}; heads-up ${days.cutoff}, last call ${days.deadline})`,
+      cutoffId: cutoff.id, sendDays: days,
+    }
   }
 
-  // Idempotent by cutoff. The cron runs daily and a Worker can be retried, so
-  // without this a redeploy or a retried invocation DMs everyone twice.
-  if (!force && cutoff.reminderSentFor === cutoff.id) {
-    return { sent: 0, reason: 'already sent for this cutoff', cutoffId: cutoff.id }
+  // Idempotent per cutoff AND per kind. The cron runs daily and a Worker can be
+  // retried, so without this a redeploy DMs everyone twice; with a single
+  // shared marker the heads-up would instead suppress the last call entirely.
+  if (!force && cutoff[MARKER_FIELD[which]] === cutoff.id) {
+    return { sent: 0, reason: `${which} reminder already sent for this cutoff`, cutoffId: cutoff.id }
   }
 
   const bot = await firestoreGet(env, msgSa, `users/${botUid}`)
@@ -277,13 +350,26 @@ export async function runDtrReminder(env, { force = false, dryRun = false, only 
       return { sent: 0, reason: `no active user matching "${only}" in punx-msg`, cutoffId: cutoff.id }
     }
   }
-  const text = buildMessage(cutoff)
+  const text = which === 'deadline' ? buildDeadlineMessage(cutoff) : buildCutoffMessage(cutoff)
 
+  // A preview returns BOTH messages, not just today's. Someone checking the
+  // wording before a fortnight's reminders go out wants to see everything that
+  // will be sent, and neither one is visible on the day the other fires.
   if (dryRun) {
     return {
-      sent: 0, dryRun: true, cutoffId: cutoff.id,
-      wouldSendTo: people.length, sendOn, submitByWasStored: cutoff.submitByWasStored,
-      only: only || undefined, text,
+      sent: 0, dryRun: true, cutoffId: cutoff.id, kind: which,
+      wouldSendTo: people.length, sendDays: days,
+      submitByWasStored: cutoff.submitByWasStored,
+      alreadySent: {
+        cutoff: cutoff.reminderSentFor === cutoff.id,
+        deadline: cutoff.deadlineReminderSentFor === cutoff.id,
+      },
+      only: only || undefined,
+      text,
+      messages: {
+        cutoff: buildCutoffMessage(cutoff),
+        deadline: buildDeadlineMessage(cutoff),
+      },
     }
   }
 
@@ -313,13 +399,13 @@ export async function runDtrReminder(env, { force = false, dryRun = false, only 
   if (sent > 0 && !only) {
     const dtrToken = await serviceAccountToken(env, dtrSa)
     await firestoreMerge(dtrToken, env.DTR_PROJECT_ID, `cutoffs/${cutoff.id}`, {
-      reminderSentFor: cutoff.id,
-      reminderSentAt: new Date(),
+      [MARKER_FIELD[which]]: cutoff.id,
+      [`${MARKER_FIELD[which]}At`]: new Date(),
     }).catch(() => { /* the DMs landed; a failed marker only risks a repeat */ })
   }
 
   return {
-    sent, failed, cutoffId: cutoff.id,
+    sent, failed, cutoffId: cutoff.id, kind: which,
     submitByWasStored: cutoff.submitByWasStored,
     only: only || undefined,
     markedSent: sent > 0 && !only,

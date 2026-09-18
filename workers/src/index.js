@@ -94,6 +94,10 @@ export default {
           force: url.searchParams.get('force') === '1',
           dryRun: url.searchParams.get('dry') === '1',
           only: url.searchParams.get('only') || null,
+          // 'cutoff' (heads-up) or 'deadline' (last call). Omitted, the date
+          // decides — which is what the cron wants and what a preview should
+          // reflect.
+          kind: url.searchParams.get('kind') || null,
         })
         return withCors(Response.json(result), cors)
       }
