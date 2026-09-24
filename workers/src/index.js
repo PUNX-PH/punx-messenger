@@ -17,7 +17,7 @@
 
 import { AuthError } from './auth.js'
 import * as bots from './routes/bots.js'
-import { assertDtrAdmin, getAutoSend, runDtrReminder, setAutoSend } from './routes/dtr.js'
+import { assertDtrAdmin, getAutoSend, runDtrReminder, setAutoSend, setCutoffDeadline } from './routes/dtr.js'
 import * as gifs from './routes/gifs.js'
 import * as turn from './routes/turn.js'
 
@@ -100,6 +100,22 @@ export default {
           kind: url.searchParams.get('kind') || null,
         })
         return withCors(Response.json(result), cors)
+      }
+
+      // Set a cutoff's deadline without the DTR admin form, which failed to
+      // save silently once. Reads the value back and returns it, so "did it
+      // work" is answered rather than assumed.
+      if (url.pathname === '/dtr/deadline' && request.method === 'POST') {
+        const provided = (request.headers.get('Authorization') || '').replace(/^Bearer /, '')
+        if (!provided) throw new AuthError('Missing bearer token', 401)
+        const secretMatches = Boolean(env.DTR_TRIGGER_SECRET) && provided === env.DTR_TRIGGER_SECRET
+        if (!secretMatches) await assertDtrAdmin(provided, env)
+
+        const body = await request.json().catch(() => ({}))
+        if (!body.cutoffId || !body.submitBy) {
+          throw new AuthError('Body must be {"cutoffId": "...", "submitBy": "<ISO instant>"}', 400)
+        }
+        return withCors(Response.json(await setCutoffDeadline(env, body.cutoffId, body.submitBy)), cors)
       }
 
       // Read/write the cron's kill switch, for the toggle in the DTR admin.

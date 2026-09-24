@@ -228,6 +228,39 @@ export async function setAutoSend(env, enabled) {
 }
 
 /**
+ * Set a cutoff's submitBy directly.
+ *
+ * The DTR admin form is the normal way in. This exists because that form
+ * silently failed to save once, and the cost of a deadline that is not set is
+ * a wrong date broadcast to the whole team — so there needs to be a second
+ * path that reports what it did rather than a button that may or may not have.
+ *
+ * Takes a full ISO instant, not a local wall-clock string. 10:00 Manila is
+ * 02:00Z, and a bare "2026-09-28T10:00" would be read as whatever timezone
+ * happened to be parsing it — the exact ambiguity this field exists to remove.
+ */
+export async function setCutoffDeadline(env, cutoffId, submitByIso) {
+  const when = new Date(submitByIso)
+  if (Number.isNaN(when.getTime())) {
+    throw new AuthError(`submitBy is not a valid date: ${submitByIso}`, 400)
+  }
+  const dtrSa = loadServiceAccount(env, 'DTR_SERVICE_ACCOUNT')
+  const existing = await firestoreGet(env, dtrSa, `cutoffs/${cutoffId}`, env.DTR_PROJECT_ID)
+  if (!existing) throw new AuthError(`No cutoff ${cutoffId} in punx-dtr`, 404)
+
+  const token = await serviceAccountToken(env, dtrSa)
+  await firestoreMerge(token, env.DTR_PROJECT_ID, `cutoffs/${cutoffId}`, { submitBy: when })
+
+  // Read it back. The whole point is to know, not to assume.
+  const after = await firestoreGet(env, dtrSa, `cutoffs/${cutoffId}`, env.DTR_PROJECT_ID)
+  return {
+    cutoffId,
+    submitBy: after?.submitBy || null,
+    stored: Boolean(after?.submitBy),
+  }
+}
+
+/**
  * Let a DTR admin through on their own ID token.
  *
  * The token is issued by punx-dtr, not punx-msg, so verifyAuth is told which
