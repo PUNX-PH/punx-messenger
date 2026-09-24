@@ -111,11 +111,23 @@ export default {
         const secretMatches = Boolean(env.DTR_TRIGGER_SECRET) && provided === env.DTR_TRIGGER_SECRET
         if (!secretMatches) await assertDtrAdmin(provided, env)
 
+        // Query params as well as a JSON body. This endpoint is driven from a
+        // terminal, that terminal is PowerShell, and PowerShell mangles the
+        // escaped quotes in an inline -d payload badly enough to split the
+        // request in two. An interface nobody can invoke correctly is not an
+        // interface.
         const body = await request.json().catch(() => ({}))
-        if (!body.cutoffId || !body.submitBy) {
-          throw new AuthError('Body must be {"cutoffId": "...", "submitBy": "<ISO instant>"}', 400)
+        const cutoffId = url.searchParams.get('cutoffId') || body.cutoffId
+        const submitBy = url.searchParams.get('submitBy') || body.submitBy
+        if (!cutoffId || !submitBy) {
+          throw new AuthError(
+            'Needs cutoffId and submitBy — as ?cutoffId=...&submitBy=<ISO instant> '
+            + 'or as a JSON body. submitBy must be a full instant: 10:00 Manila is '
+            + '2026-09-28T02:00:00.000Z',
+            400,
+          )
         }
-        return withCors(Response.json(await setCutoffDeadline(env, body.cutoffId, body.submitBy)), cors)
+        return withCors(Response.json(await setCutoffDeadline(env, cutoffId, submitBy)), cors)
       }
 
       // Read/write the cron's kill switch, for the toggle in the DTR admin.
