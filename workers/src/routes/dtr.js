@@ -96,17 +96,34 @@ function buildCutoffMessage(cutoff) {
  * drops the reimbursement boilerplate, and says plainly that anyone who has
  * already submitted can ignore it. It cannot know who has, being a broadcast.
  */
-function buildDeadlineMessage(cutoff) {
+function buildDeadlineMessage(cutoff, sendDay) {
   const { submitBy } = cutoff
+  // "tomorrow" is a claim about the gap, and the weekend shift can widen it:
+  // a Monday deadline sends on the Friday, three days out. Saying "tomorrow"
+  // there is simply false, and a reminder that misstates its own deadline is
+  // worse than none. So the gap is measured, not assumed.
+  const gap = daysBetween(sendDay, manilaDate(submitBy))
+  const when = gap <= 0
+    ? `close today at ${clockTime(submitBy)}`
+    : gap === 1
+      ? `close tomorrow, ${clockTime(submitBy)} on ${weekday(submitBy)}`
+      : `close ${clockTime(submitBy)} on ${weekday(submitBy)}, ${longDate(submitBy)}`
+
   return [
-    `Reminder: DTR submissions close tomorrow, ${clockTime(submitBy)} on `
-    + `${weekday(submitBy)}.`,
+    `Reminder: DTR submissions ${when}.`,
     '',
     `That covers ${periodRange(cutoff)}. If you have already submitted, nothing `
     + 'to do — thanks. If not, this is the last reminder before the cutoff.',
     '',
     `DTR Web App: ${DTR_APP_URL}`,
   ].join('\n')
+}
+
+/** Whole days between two Manila calendar dates, both `YYYY-MM-DD`. */
+function daysBetween(fromDay, toDay) {
+  const a = new Date(`${fromDay}T04:00:00.000Z`)
+  const b = new Date(`${toDay}T04:00:00.000Z`)
+  return Math.round((b - a) / 86_400_000)
 }
 
 /** "August 26 - September 10, 2026" */
@@ -223,6 +240,21 @@ export async function setAutoSend(env, enabled) {
  * whenever their token happens to expire.
  */
 export async function assertDtrAdmin(token, env) {
+  // Say what actually went wrong before handing a non-JWT to verifyAuth, which
+  // would answer "Malformed token" — true, useless, and pointing at the token
+  // rather than at the mistake. The mistake is nearly always that the secret
+  // was set on the wrong Worker: this repo has TWO wrangler.toml files, and
+  // wrangler picks whichever is in the current directory, so running
+  // `secret put` from the repo root configures `punx-messenger` while the
+  // reminder runs on `punx-messenger-gifs`.
+  if (token.split('.').length !== 3) {
+    throw new AuthError(
+      'Bearer token is neither DTR_TRIGGER_SECRET nor a Firebase ID token. '
+      + 'If you meant the secret, check it was set on the punx-messenger-gifs '
+      + 'Worker — run wrangler from the workers/ directory, not the repo root.',
+      401,
+    )
+  }
   const dtrSa = loadServiceAccount(env, 'DTR_SERVICE_ACCOUNT')
   const { uid } = await verifyAuth(token, env, env.DTR_PROJECT_ID)
   const user = await firestoreGet(env, dtrSa, `users/${uid}`, env.DTR_PROJECT_ID)
@@ -380,7 +412,9 @@ export async function runDtrReminder(env, { force = false, dryRun = false, only 
       return { sent: 0, reason: `no active user matching "${only}" in punx-msg`, cutoffId: cutoff.id }
     }
   }
-  const text = which === 'deadline' ? buildDeadlineMessage(cutoff) : buildCutoffMessage(cutoff)
+  const text = which === 'deadline'
+    ? buildDeadlineMessage(cutoff, days.deadline)
+    : buildCutoffMessage(cutoff)
 
   // A preview returns BOTH messages, not just today's. Someone checking the
   // wording before a fortnight's reminders go out wants to see everything that
@@ -398,7 +432,7 @@ export async function runDtrReminder(env, { force = false, dryRun = false, only 
       text,
       messages: {
         cutoff: buildCutoffMessage(cutoff),
-        deadline: buildDeadlineMessage(cutoff),
+        deadline: buildDeadlineMessage(cutoff, days.deadline),
       },
     }
   }
