@@ -247,6 +247,18 @@ export async function assertDtrAdmin(token, env) {
   // wrangler picks whichever is in the current directory, so running
   // `secret put` from the repo root configures `punx-messenger` while the
   // reminder runs on `punx-messenger-gifs`.
+  // "Bearer" with nothing after it. The shell expanded an unset variable and
+  // curl dropped the trailing space, which looks identical to a wrong secret
+  // unless it is called out — and a PowerShell variable is lost by opening a
+  // new tab, not just a new window.
+  if (!token || token === 'Bearer') {
+    throw new AuthError(
+      'The Authorization header carried no token. If you used a shell variable '
+      + 'like $s, it is probably empty — those do not survive a new terminal tab. '
+      + 'Or just use the Preview button in the DTR admin, which needs no secret.',
+      401,
+    )
+  }
   if (token.split('.').length !== 3) {
     throw new AuthError(
       'Bearer token is neither DTR_TRIGGER_SECRET nor a Firebase ID token. '
