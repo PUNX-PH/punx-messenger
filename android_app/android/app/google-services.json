@@ -58,6 +58,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "781531419503-ep4tho74d3bi49ad9slq4hssohitkgoq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.punx.plexus",
+            "certificate_hash": "bfc872e42d97572b0b88668cec38ad914ebd194d"
+          }
+        },
+        {
           "client_id": "781531419503-jnh3irocs8c968v7t35ai4n1dav11qc9.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
