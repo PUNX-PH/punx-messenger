@@ -51,7 +51,7 @@ const paletteDark = PaletteTokens(
   lineStrong: Color(0xFF3A4150),
   ink: Color(0xFFE5E7EB),
   inkMuted: Color(0xFFB0B6C0),
-  inkDim: Color(0xFF6B7280),
+  inkDim: Color(0xFF949CAA), // 5.4:1 on bgRaised; the old #6B7280 was 3.1:1
   brand: Color(0xFF5865F2), // "punx blurple"
   brandHover: Color(0xFF4752C4),
   brandSoft: Color(0x265865F2), // ~15% alpha
@@ -76,7 +76,7 @@ const paletteLight = PaletteTokens(
   lineStrong: Color(0xFFC4C9D0),
   ink: Color(0xFF14171C),
   inkMuted: Color(0xFF4B5563),
-  inkDim: Color(0xFF6B7280), // legible on both, deliberately shared
+  inkDim: Color(0xFF5A6270), // 5.1:1 on bgHover; not shared with dark, which fails
   brand: Color(0xFF4752C4), // a touch deeper, for contrast on white
   brandHover: Color(0xFF3A44A8),
   brandSoft: Color(0x1F5865F2),
