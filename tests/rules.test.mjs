@@ -18,7 +18,7 @@
 import { readFileSync } from 'node:fs'
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing'
 import {
-  doc, getDoc, setDoc, updateDoc, deleteDoc, deleteField, collection, getDocs, query, where,
+  doc, getDoc, setDoc, updateDoc, deleteDoc, deleteField, collection, getDocs, query, where, writeBatch,
 } from 'firebase/firestore'
 
 const PROJECT = 'punx-rules-test'
@@ -158,8 +158,13 @@ await testEnv.withSecurityRulesDisabled(async (ctx) => {
 })
 
 let pass = 0, fail = 0
+// A section can set `before` to reseed its fixtures. Without it, a test that finds a
+// hole (an assertFails that SUCCEEDS) leaves the database changed, and every later
+// test in the section runs against the aftermath and can pass or fail for the
+// wrong reason.
+let before = async () => {}
 const t = async (name, fn) => {
-  try { await fn(); console.log('  PASS  ' + name); pass++ }
+  try { await before(); await fn(); console.log('  PASS  ' + name); pass++ }
   catch (e) { console.log('  FAIL  ' + name + '\n          ' + String(e.message || e).split('\n')[0]); fail++ }
 }
 const chans = (db, g) => getDocs(collection(db, 'groups', g, 'channels'))
@@ -250,8 +255,14 @@ await t('employee still CANNOT self-promote', () => assertFails(
   updateDoc(doc(as(EMP), 'users', EMP), { role: 'super_admin' })))
 
 console.log('\n-- bots --')
-await t('developer creates a bot', () => assertSucceeds(
-  setDoc(doc(as(DEV), 'bots', 'b2'), { uid: 'b2', name: 'b2', enabled: true, scopes: [], commands: [] })))
+await t('developer creates a bot (registry + credentials + mirror, as createBot() does)', async () => {
+  const db = as(DEV)
+  const b = writeBatch(db)
+  b.set(doc(db, 'bots', 'b2'), { uid: 'b2', name: 'b2', enabled: true, scopes: [], commands: [] })
+  b.set(doc(db, 'bots', 'b2', 'private', 'credentials'), { keyHash: 'h' })
+  b.set(doc(db, 'users', 'b2'), { uid: 'b2', name: 'b2', role: 'employee', type: 'bot', email: null })
+  await assertSucceeds(b.commit())
+})
 await t('developer CANNOT read bot credentials', () => assertFails(
   getDoc(doc(as(DEV), 'bots', B1, 'private', 'credentials'))))
 await t('employee CANNOT create a bot', () => assertFails(
@@ -541,6 +552,201 @@ await t('internal user CANNOT create itself as admin', () => assertFails(
 await t('bootstrap email may create itself as super_admin', () => assertSucceeds(
   setDoc(doc(as('reyfresh', 'rey@punx.ai'), 'users', 'reyfresh'), {
     uid: 'reyfresh', email: 'rey@punx.ai', role: 'super_admin' })))
+
+// ───────────────────────────────────────────────────────────────────────────
+// Regressions from the whole-project security review. Each section starts from
+// an exploit that WORKED against the previous rules, written as an assertFails.
+// ───────────────────────────────────────────────────────────────────────────
+
+// A bot's token carries the `bot` claim and is NOT a Google sign-in, which is
+// why the suite never exercised bots before: `as()` always signs in with Google.
+const asBot = (uid) => testEnv.authenticatedContext(uid, {
+  bot: true,
+  firebase: { sign_in_provider: 'custom', identities: {} },
+}).firestore()
+
+const hour2 = 60 * 60 * 1000
+const seedGroup = (id, over = {}) => testEnv.withSecurityRulesDisabled(async (ctx) => {
+  await setDoc(doc(ctx.firestore(), 'groups', id), {
+    name: id, ownerUid: ADMIN, memberUids: [ADMIN, EMP, GUEST, T2], adminUids: [ADMIN], ...over,
+  })
+})
+
+console.log('\n-- review: leaving a group must not be a route to group admin --')
+// The leave clause used to check only "I am absent from memberUids afterwards"
+// and "only those two fields changed" — so it let adminUids become anything and
+// memberUids shrink arbitrarily. Write 1 here, then `isGroupAdmin` (which does
+// not require membership) made write 2 — rejoining — legal.
+before = () => seedGroup('g-leave')
+await t('a member CANNOT leave while appointing itself admin', () => assertFails(
+  updateDoc(doc(as(EMP), 'groups', 'g-leave'), { memberUids: [ADMIN, GUEST, T2], adminUids: [EMP] })))
+await t('a guest CANNOT leave while appointing itself admin', () => assertFails(
+  updateDoc(doc(as(GUEST), 'groups', 'g-leave'), { memberUids: [ADMIN, EMP, T2], adminUids: [GUEST] })))
+await t('a member CANNOT use leaving to remove the real admins', () => assertFails(
+  updateDoc(doc(as(EMP), 'groups', 'g-leave'), { memberUids: [ADMIN, GUEST, T2], adminUids: [] })))
+await t('a member CANNOT use leaving to remove other members', () => assertFails(
+  updateDoc(doc(as(EMP), 'groups', 'g-leave'), { memberUids: [ADMIN], adminUids: [ADMIN] })))
+await t('a member CANNOT use leaving to add someone else to the member list', () => assertFails(
+  updateDoc(doc(as(EMP), 'groups', 'g-leave'), { memberUids: [ADMIN, GUEST, T2, 'newperson'], adminUids: [ADMIN] })))
+await t('a registered bot with NO scopes CANNOT appoint itself admin by leaving', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'groups', 'g-leave'), {
+      name: 'g-leave', ownerUid: ADMIN, memberUids: [ADMIN, EMP, GUEST, T2, B1], adminUids: [ADMIN] })
+  })
+  await assertFails(updateDoc(doc(asBot(B1), 'groups', 'g-leave'), {
+    memberUids: [ADMIN, EMP, GUEST, T2], adminUids: [B1] }))
+})
+await t('...but an ordinary leave (arrayRemove on both lists) still works', () => assertSucceeds(
+  updateDoc(doc(as(EMP), 'groups', 'g-leave'), { memberUids: [ADMIN, GUEST, T2], adminUids: [ADMIN] })))
+before = () => seedGroup('g-leave2', { adminUids: [ADMIN, EMP] })
+await t('...and a leaving ADMIN is removed from both lists', () => assertSucceeds(
+  updateDoc(doc(as(EMP), 'groups', 'g-leave2'), { memberUids: [ADMIN, GUEST, T2], adminUids: [ADMIN] })))
+before = async () => {}
+
+console.log('\n-- review: the bot registry cannot be used to impersonate a person --')
+// bots/{uid} + a credential hash is all /bot/token needs to mint a token for
+// `uid`, and the rules then read that uid's role from users/{uid}. Registering
+// a bot AT a developer's uid was therefore a way to become the developer.
+const botDoc = (uid) => ({ uid, name: 'x', description: '', enabled: true, scopes: ['messages:write'], commands: [] })
+await t('a plain admin CANNOT register a bot at an existing person\'s uid', () => assertFails(
+  setDoc(doc(as(ADMIN), 'bots', DEV), botDoc(DEV))))
+await t('...nor at a super admin\'s uid', () => assertFails(
+  setDoc(doc(as(ADMIN), 'bots', SUPER), botDoc(SUPER))))
+await t('...nor can a super admin target a developer', () => assertFails(
+  setDoc(doc(as(SUPER), 'bots', DEV), botDoc(DEV))))
+await t('a bot registry doc with no users mirror is refused', () => assertFails(
+  setDoc(doc(as(ADMIN), 'bots', 'orphanbot1'), botDoc('orphanbot1'))))
+await t('registering a real bot (registry + credentials + mirror in one batch) works', async () => {
+  const db = as(ADMIN)
+  const b = writeBatch(db)
+  b.set(doc(db, 'bots', 'realbot01'), botDoc('realbot01'))
+  b.set(doc(db, 'bots', 'realbot01', 'private', 'credentials'), { keyHash: 'abc' })
+  b.set(doc(db, 'users', 'realbot01'), { uid: 'realbot01', name: 'x', role: 'employee', type: 'bot', email: null })
+  await assertSucceeds(b.commit())
+})
+await t('...and an admin can still change an existing bot\'s scopes', () => assertSucceeds(
+  updateDoc(doc(as(ADMIN), 'bots', B1), { scopes: ['messages:write'] })))
+await t('...and rotate its key', () => assertSucceeds(
+  setDoc(doc(as(ADMIN), 'bots', B1, 'private', 'credentials'), { keyHash: 'rotated' })))
+await t('nobody can READ credential hashes', () => assertFails(
+  getDoc(doc(as(ADMIN), 'bots', B1, 'private', 'credentials'))))
+
+console.log('\n-- review: invite tokens are path fragments, and redemption docs are not free-form --')
+// `invitedVia` is interpolated into a document path. A value containing "/"
+// could point at a doc the holder controls — a redemption doc they had written
+// themselves, carrying whatever groupId and channelIds they liked.
+await t('a redemption doc cannot carry extra fields (forged groupId/expiresAt)', () => assertFails(
+  setDoc(doc(outsider('forger9'), 'invites', TOK_LIVE, 'redemptions', 'forger9'), {
+    uid: 'forger9', email: 'forger9@gmail.com', redeemedAt: new Date(),
+    groupId: GD, channelIds: ['dc1'], expiresAt: new Date(Date.now() + 99 * hour2) })))
+await t('a redemption doc must be written for yourself', () => assertFails(
+  setDoc(doc(outsider('forger9'), 'invites', TOK_LIVE, 'redemptions', 'someoneelse'), {
+    uid: 'someoneelse', email: 'x@gmail.com', redeemedAt: new Date() })))
+await t('a legitimate redemption doc still works', () => assertSucceeds(
+  setDoc(doc(outsider('legit9'), 'invites', TOK_LIVE, 'redemptions', 'legit9'), {
+    uid: 'legit9', email: 'legit9@gmail.com', redeemedAt: new Date() })))
+await t('invitedVia CANNOT be a path (contains "/")', () => assertFails(
+  updateDoc(doc(as(PLAIN), 'users', PLAIN), { invitedVia: `${TOK_LIVE}/redemptions/${PLAIN}` })))
+await t('...nor contain other characters outside a plain token', () => assertFails(
+  updateDoc(doc(as(PLAIN), 'users', PLAIN), { invitedVia: `${TOK_LIVE}?x` })))
+await t('...and a real token is still accepted', () => assertSucceeds(
+  updateDoc(doc(as(PLAIN), 'users', PLAIN), { invitedVia: TOK_LIVE })))
+
+console.log('\n-- review: group admins can list their own invites (and only theirs) --')
+// Revoke is the only mutation invites allow, and the list that feeds it was
+// denied outright (`allow list: if false`), so the admin UI could never show a
+// link to revoke.
+const invitesFor = (db, g) => getDocs(query(collection(db, 'invites'), where('groupId', '==', g)))
+await t('a group admin lists that group\'s invites', () => assertSucceeds(invitesFor(as(ADMIN), GM)))
+await t('a plain member CANNOT list them', () => assertFails(invitesFor(as(EMP), GM)))
+await t('a guest CANNOT list them', () => assertFails(invitesFor(as(GUEST), GM)))
+// Not DEV: a developer is a WORKSPACE admin and may list any non-developer group's
+// invites. What matters is someone who administers a DIFFERENT group only.
+await t('an admin of ANOTHER group CANNOT list them', async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore()
+    await setDoc(doc(db, 'users', 'otheradm'), { uid: 'otheradm', role: 'employee', email: 'otheradm@punx.ai', name: 'o' })
+    await setDoc(doc(db, 'groups', 'g-other'), {
+      name: 'other', ownerUid: 'otheradm', memberUids: ['otheradm'], adminUids: ['otheradm'] })
+  })
+  await assertFails(invitesFor(as('otheradm'), GM))
+  // ...while the same person can list the invites of the group they DO administer.
+  await assertSucceeds(invitesFor(as('otheradm'), 'g-other'))
+})
+await t('nobody can list every invite unfiltered', () => assertFails(getDocs(collection(as(ADMIN), 'invites'))))
+await t('a single invite is still readable by anyone signed in (the link itself)', () => assertSucceeds(
+  getDoc(doc(outsider('reader1'), 'invites', TOK_LIVE))))
+
+console.log('\n-- review: DMs --')
+// The conversation id was not tied to its members, so anyone could create
+// `dms/<B>__<C>` listing themselves and B, and read everything B sent to "C".
+// And any member could rewrite any field of any message, the other person's
+// included — db.js said "rules enforce author-only", but only delete did.
+const dmId = (a, b) => [a, b].sort().join('__')
+await testEnv.withSecurityRulesDisabled(async (ctx) => {
+  const db = ctx.firestore()
+  const id = dmId(EMP, ADMIN)
+  await setDoc(doc(db, 'dms', id), {
+    members: [EMP, ADMIN].sort(), memberInfo: {}, lastMessageText: 'hi', lastMessageAt: new Date() })
+  await setDoc(doc(db, 'dms', id, 'messages', 'a1'), {
+    text: 'from admin', author: { uid: ADMIN, name: 'a' }, createdAt: new Date(), pinned: false })
+  await setDoc(doc(db, 'dms', id, 'messages', 'e1'), {
+    text: 'from emp', author: { uid: EMP, name: 'e' }, createdAt: new Date(), pinned: false })
+})
+const DM = dmId(EMP, ADMIN)
+before = () => testEnv.withSecurityRulesDisabled(async (ctx) => {
+  const db = ctx.firestore()
+  await setDoc(doc(db, 'dms', DM), {
+    members: [EMP, ADMIN].sort(), memberInfo: {}, lastMessageText: 'hi', lastMessageAt: new Date() })
+  await setDoc(doc(db, 'dms', DM, 'messages', 'a1'), {
+    text: 'from admin', author: { uid: ADMIN, name: 'a' }, createdAt: new Date(), pinned: false })
+  await setDoc(doc(db, 'dms', DM, 'messages', 'e1'), {
+    text: 'from emp', author: { uid: EMP, name: 'e' }, createdAt: new Date(), pinned: false })
+  await deleteDoc(doc(db, 'dms', dmId(T2, EMP))).catch(() => {})
+})
+await t('CANNOT create a DM under a convo id that names two OTHER people', () => assertFails(
+  setDoc(doc(as(GUEST), 'dms', dmId(EMP, ADMIN) + 'x'), { members: [GUEST, EMP].sort() })))
+await t('CANNOT squat the id of a conversation between two other people', () => assertFails(
+  setDoc(doc(as(T2), 'dms', dmId('empB', 'empC')), { members: [T2, 'empB'].sort() })))
+await t('a DM under the correct id (sorted pair) is created', () => assertSucceeds(
+  setDoc(doc(as(T2), 'dms', dmId(T2, EMP)), { members: [T2, EMP].sort(), memberInfo: {}, lastMessageText: '' })))
+await t('the other person CANNOT rewrite your message text', () => assertFails(
+  updateDoc(doc(as(EMP), 'dms', DM, 'messages', 'a1'), { text: 'tampered' })))
+await t('...nor change its author', () => assertFails(
+  updateDoc(doc(as(EMP), 'dms', DM, 'messages', 'a1'), { author: { uid: EMP, name: 'e' } })))
+await t('...but either person can still pin or react', () => assertSucceeds(
+  updateDoc(doc(as(EMP), 'dms', DM, 'messages', 'a1'), { pinned: true, reactions: { '👍': [EMP] } })))
+await t('the author can edit their own message text', () => assertSucceeds(
+  updateDoc(doc(as(EMP), 'dms', DM, 'messages', 'e1'), { text: 'edited', editedAt: new Date() })))
+await t('...but not forge who wrote it', () => assertFails(
+  updateDoc(doc(as(EMP), 'dms', DM, 'messages', 'e1'), { author: { uid: ADMIN, name: 'a' } })))
+await t('a member CANNOT rewrite the conversation\'s member list', () => assertFails(
+  updateDoc(doc(as(EMP), 'dms', DM), { members: [EMP, T2].sort() })))
+await t('...but can update the preview fields a send updates', () => assertSucceeds(
+  updateDoc(doc(as(EMP), 'dms', DM), { lastMessageText: 'x', lastMessageAt: new Date(), lastMessageAuthorUid: EMP })))
+await t('...and the typing indicator', () => assertSucceeds(
+  updateDoc(doc(as(EMP), 'dms', DM), { [`typing.${EMP}`]: new Date() })))
+await t('a non-member CANNOT read the conversation or its messages', async () => {
+  await assertFails(getDoc(doc(as(T2), 'dms', DM)))
+  await assertFails(getDoc(doc(as(T2), 'dms', DM, 'messages', 'a1')))
+})
+
+before = async () => {}
+
+console.log('\n-- review: a channel message author edits text, nothing else --')
+before = () => testEnv.withSecurityRulesDisabled(async (ctx) => {
+  await setDoc(doc(ctx.firestore(), 'groups', GM, 'channels', 'c1', 'messages', 'authored'), {
+    text: 'mine', author: { uid: EMP, name: 'e' }, createdAt: new Date(), pinned: false })
+})
+const authored = (uid) => doc(as(uid), 'groups', GM, 'channels', 'c1', 'messages', 'authored')
+await t('the author can edit text', () => assertSucceeds(updateDoc(authored(EMP), { text: 'edited', editedAt: new Date() })))
+await t('...but CANNOT pin their own message (pinning is admin-only)', () => assertFails(updateDoc(authored(EMP), { pinned: true })))
+await t('...nor forge the author', () => assertFails(updateDoc(authored(EMP), { author: { uid: ADMIN, name: 'a' } })))
+await t('...nor backdate or future-date it', () => assertFails(updateDoc(authored(EMP), { createdAt: new Date(Date.now() + 99 * hour2) })))
+await t('a group admin can still pin it', () => assertSucceeds(updateDoc(authored(ADMIN), { pinned: true })))
+await t('any member who can see the channel can still react to it', () => assertSucceeds(
+  updateDoc(authored(T1), { reactions: { '👍': [T1] } })))
+before = async () => {}
 
 console.log(`\n${pass} passed, ${fail} failed`)
 await testEnv.cleanup()

@@ -317,7 +317,7 @@ cover exactly that.
 
 ## Testing
 
-The rules have an emulator test suite at `tests/rules.test.mjs` — 143 cases
+The rules have an emulator test suite at `tests/rules.test.mjs` — 189 cases
 covering the hierarchy, the developer boundary, guests, private channels, invite
 links, the auth gate, bots, and regressions for behaviour that had to stay
 unchanged. It needs Java on `PATH` and `@firebase/rules-unit-testing`, which is
@@ -343,7 +343,53 @@ refuses anything else, so an emulator run can never reach live data).
 Steps 1 and 3 are independent and will silently diverge — the client will offer
 something the backend rejects. Add a test.
 
+## Invariants the rules now enforce
+
+Each of these was an exploitable hole found in review, and each has a test that
+fails against the old rules. They are written down because the way they were
+open looks, in the diff, like perfectly reasonable code.
+
+- **Leaving a group is exactly "remove me from both lists".** The leave clause
+  once checked only that the caller was absent from `memberUids` afterwards, so
+  `adminUids` could become anything — and since `isGroupAdmin()` does not
+  require membership, a member could appoint themselves admin and rejoin. Set
+  equalities now pin both lists.
+- **A bot registry entry can only create a bot.** `bots/{uid}` requires that no
+  `users/{uid}` exists yet and that the same batch creates one with
+  `type: 'bot'`. Otherwise registering a bot *at a developer's uid* let any
+  workspace admin mint a token for that uid and be treated as them. The Worker
+  independently refuses to issue a token unless the user record says `bot`.
+- **Invite tokens are ids, never paths.** `inviteIsUsable()` interpolates the
+  token into a document path, so it must match `[A-Za-z0-9_-]+`; redemption
+  documents are limited to the three fields the client writes.
+- **A DM's id is its members.** Without that, anyone could create
+  `dms/<B>__<C>` listing themselves and B, and read what B sent to "C".
+  Message updates are limited to pin/react for either party and text/editedAt
+  for the author; the conversation's `members` cannot be rewritten.
+- **A channel message's author edits text, nothing else** — no pinning, no
+  rewriting who wrote it.
+
+When one of these tests starts failing, the rule that was changed is the thing
+to fix, not the test.
+
 ## Not built
+
+- **`invitedVia` is world-readable.** It is stored on `users/{uid}`, which any
+  signed-in account can read, and it holds the invite *token* — which is the
+  secret. Anyone can copy another person's token onto their own document and use
+  it to join that invite's group and channels. The path-injection half is closed
+  above; the exposure is not, because fixing it means moving the token out of the
+  directory (e.g. `users/{uid}/private/invite`, owner-readable) and changing
+  `redeemInvite` on both clients plus a migration of existing documents.
+- **@mention notifications do not work.** Both clients run a
+  `collectionGroup('messages')` query, and there is no `/{path=**}/messages`
+  rule, so it is denied (silently — both swallow the error). A blanket
+  `signedIn()` rule there would expose every private channel and DM; a safe one
+  has to key on `request.auth.uid in resource.data.mentionedUids`, and
+  `mentionedUids` is client-written. It also needs a collection-group index.
+- **`isGroupAdmin()` does not require membership.** The leave hole is closed, but
+  a `members:manage` bot can still remove an admin from `memberUids` and leave
+  them in `adminUids`, where they keep admin rights without being a member.
 
 - **Invite usage caps.** Links are reusable with an expiry and a revoke button;
   there's no max-uses counter. The `redemptions` subcollection records who used

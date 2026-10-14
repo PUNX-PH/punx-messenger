@@ -376,8 +376,15 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/invites/$(token)).data;
     }
     function inviteIsUsable(token) {
+      // The token is interpolated into a document path below, so it has to BE an
+      // id. Without this, "<liveToken>/redemptions/<me>" named a document the
+      // caller had written themselves — a redemption record carrying whatever
+      // expiresAt, groupId and channelIds they liked — and every check after it
+      // passed against their own forged data. Real tokens are 40 letters/digits.
       return token is string
         && token.size() > 0
+        && token.size() <= 128
+        && token.matches('[A-Za-z0-9_-]+')
         && exists(/databases/$(database)/documents/invites/$(token))
         && !(('revoked' in inviteDataOf(token)) && inviteDataOf(token).revoked == true)
         && ('expiresAt' in inviteDataOf(token))
@@ -541,7 +548,13 @@ service cloud.firestore {
         || (isHuman() && uid == myUid()
             && !request.resource.data.diff(resource.data).affectedKeys()
                  .hasAny(['role', 'email', 'uid', 'createdAt',
-                          'deactivated', 'deactivatedAt', 'deactivatedBy']))
+                          'deactivated', 'deactivatedAt', 'deactivatedBy'])
+            // invitedVia is validated when it is WRITTEN, not only when used, so
+            // a junk or path-shaped value never lands on the document at all.
+            // Untouched, it is left alone: an expired token on an old doc must
+            // not block the person updating their name.
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['invitedVia'])
+                || inviteIsUsable(request.resource.data.invitedVia)))
         // A bot's mirror /users doc has to stay in step with its registry doc —
         // updateBotProfile in src/lib/bots.js writes both — and a developer can
         // reach the registry but not, by default, anyone's /users doc. Narrowed
@@ -604,11 +617,25 @@ service cloud.firestore {
         // Redeeming an invite: add ONLY yourself to memberUids, and only while
         // the invite naming this group is still live.
         || myInviteGrantsGroup(groupId) && addsOnlyMeTo('memberUids')
+        //
+        // Leaving a group is EXACTLY "remove me from both lists" and nothing
+        // else. This clause used to check only that I was absent from memberUids
+        // afterwards and that no other field changed — so memberUids could shrink
+        // to anything and adminUids could become anything at all. A member could
+        // write { memberUids: <everyone but me>, adminUids: [me] }, and because
+        // isGroupAdmin() does not require membership, rejoin themselves with the
+        // admin clause above: group admin in two writes, for an employee, a guest
+        // or a bot with no scopes. Both clients leave with arrayRemove on both
+        // fields, which is precisely what the set equalities below describe.
         || (signedIn()
             && myUid() in resource.data.memberUids
             && resource.data.ownerUid != myUid()
             && !(myUid() in request.resource.data.memberUids)
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids', 'adminUids']));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids', 'adminUids'])
+            && request.resource.data.memberUids.toSet()
+                 == resource.data.memberUids.toSet().difference([myUid()].toSet())
+            && request.resource.data.adminUids.toSet()
+                 == resource.data.adminUids.toSet().difference([myUid()].toSet()));
 
       // Delete: owner or workspace admin
       allow delete: if (signedIn() && resource.data.ownerUid == myUid())
@@ -659,9 +686,14 @@ service cloud.firestore {
           //   - group admins / workspace admins can pin/unpin (and anything)
           //   - any group member can update ONLY the `reactions` field (for emoji reactions)
           allow update: if adminOverGroup(groupId)
+            // An author may edit the TEXT (and stamp editedAt) of their own
+            // message — not pin it (admin-only, and a bot needs reactions:write
+            // for that), and not rewrite who wrote it or when. There was no field
+            // restriction here at all.
             || (isGroupMember(groupId) && canSeeChannel(groupId, channelId)
                 && resource.data.author.uid == myUid()
-                && botCan('messages:write'))
+                && botCan('messages:write')
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'editedAt']))
             || (isGroupMember(groupId) && canSeeChannel(groupId, channelId)
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
                 && botCan('reactions:write'))
@@ -772,7 +804,23 @@ service cloud.firestore {
       // Readable workspace-wide: the UI needs bot names, avatars and (later)
       // their published slash commands. Nothing secret lives on this doc.
       allow read: if signedIn();
-      allow create, update, delete: if canManageBots();
+
+      // Registering a bot may only CREATE a bot's identity, never claim an
+      // existing one. /bot/token mints a Firebase token for whatever uid the key
+      // names, and these rules then read that uid's ROLE from users/{uid} — so a
+      // registry doc at a developer's uid, plus a credential hash the admin made
+      // up, was a way for any workspace admin to sign in AS that developer (and
+      // through them read the groups the developer boundary exists to protect).
+      //
+      // So: no users/{uid} may exist yet, and the same write must create one that
+      // says type:'bot'. createBot() in src/lib/bots.js already does all three
+      // writes in one batch; exists() sees the state before it, existsAfter() and
+      // getAfter() the state after, which is exactly this pair of checks.
+      allow create: if canManageBots()
+        && !exists(/databases/$(database)/documents/users/$(botUid))
+        && existsAfter(/databases/$(database)/documents/users/$(botUid))
+        && getAfter(/databases/$(database)/documents/users/$(botUid)).data.type == 'bot';
+      allow update, delete: if canManageBots();
 
       // Credential material, kept in a subcollection precisely so the parent
       // doc can stay readable. Write-only from the app's side — an admin sets
@@ -799,7 +847,14 @@ service cloud.firestore {
       // could not see what they were accepting. Safe because the id is the
       // secret and `list` is refused, so nobody can enumerate invites.
       allow get: if request.auth != null;
-      allow list: if false;
+      // Listing was denied outright, so the admin UI's invite list could never
+      // load and its Revoke button was unreachable: a leaked link could not be
+      // revoked from the app. Allowed only for a query that PINS groupId — the
+      // rule is evaluated against the query, so resource.data.groupId is
+      // readable only when where('groupId', '==', X) proves it, and an unfiltered
+      // list still errors (and so is still denied). Admins only: the doc ids ARE
+      // the secrets.
+      allow list: if resource != null && adminOverGroup(resource.data.groupId);
 
       allow create: if adminOverGroup(request.resource.data.groupId)
         && request.resource.data.createdBy == myUid()
@@ -819,8 +874,13 @@ service cloud.firestore {
       // joiner, doc id = their uid, so it is naturally idempotent.
       match /redemptions/{uid} {
         allow read: if adminOverGroup(inviteDataOf(token).groupId);
+        // Exactly the three fields redeemInvite() writes, and nothing a joiner
+        // could use to dress the record up as something else. Also written for
+        // yourself: the doc id must be your own uid, and so must the uid inside.
         allow create: if request.auth != null && uid == request.auth.uid
-          && inviteIsUsable(token);
+          && inviteIsUsable(token)
+          && request.resource.data.keys().hasOnly(['uid', 'email', 'redeemedAt'])
+          && request.resource.data.get('uid', uid) == uid;
       }
     }
 
@@ -841,13 +901,25 @@ service cloud.firestore {
       allow read: if signedIn() && (resource == null || myUid() in resource.data.members);
 
       // Create: must be a 2-person convo that includes you
+      //
+      // The id has to be the two members' uids joined with '__' (convoId is
+      // [a, b].sort().join('__') in both clients). It was not checked, so anyone
+      // could create dms/<B>__<C> listing themselves and B: B's client then found
+      // a readable doc and never created its own, so B wrote to "C" in a thread
+      // the squatter could read — and C could never open a DM with B at all.
       allow create: if signedIn()
         && myUid() in request.resource.data.members
         && request.resource.data.members.size() == 2
+        && (convoId == request.resource.data.members[0] + '__' + request.resource.data.members[1]
+            || convoId == request.resource.data.members[1] + '__' + request.resource.data.members[0])
         && botCan('dm:write');
 
-      // Update (lastMessageAt, lastMessageText, memberInfo): either member
-      allow update: if signedIn() && myUid() in resource.data.members;
+      // Update: either member, but only the preview, member display info and the
+      // typing indicator. `members` was writable, so one person could remove the
+      // other from their own conversation (or add a third).
+      allow update: if signedIn() && myUid() in resource.data.members
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['lastMessageAt', 'lastMessageText', 'lastMessageAuthorUid', 'memberInfo', 'typing']);
 
       // Delete: top tier only (admin tool)
       allow delete: if isTopTier();
@@ -859,8 +931,14 @@ service cloud.firestore {
           && request.resource.data.author.uid == myUid()
           && botCan('dm:write');
 
-        // Either party can pin/unpin in their DM
-        allow update: if isDmMember(convoId);
+        // Either party can pin and react; only the AUTHOR edits the text. This was
+        // `allow update: if isDmMember` with no field restriction, so the other
+        // person could rewrite what you said (or who said it) after the fact —
+        // although src/lib/db.js claimed the rules enforced author-only edits.
+        allow update: if isDmMember(convoId) && botCan('dm:write') && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pinned', 'reactions'])
+          || (resource.data.author.uid == myUid()
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'editedAt'])));
 
         // Only the author can delete (no global unsend by counterpart)
         allow delete: if isDmMember(convoId)
