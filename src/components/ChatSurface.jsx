@@ -191,6 +191,8 @@ export default function ChatSurface({
                 : 'text-ink-muted hover:text-ink hover:bg-bg-raised',
             ].join(' ')}
             title="Search this chat"
+            aria-label="Search this chat"
+            aria-expanded={searchOpen}
           >
             <SearchIcon />
           </button>
@@ -215,6 +217,8 @@ export default function ChatSurface({
                 : 'text-ink-muted hover:text-ink hover:bg-bg-raised',
             ].join(' ')}
             title="Pinned messages"
+            aria-label="Pinned messages"
+            aria-expanded={pinnedOpen}
           >
             <PinIcon size={18} />
           </button>

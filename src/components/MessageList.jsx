@@ -48,11 +48,22 @@ export default function MessageList({
   // Follow new messages only when already reading the latest. Someone scrolled
   // up mid-history should stay where they are rather than being yanked down.
   const NEAR_BOTTOM_PX = 120
+  // Far enough up that the newest messages are out of sight. Deliberately well
+  // past NEAR_BOTTOM_PX, so the pill does not flicker on and off at the edge.
+  const FAR_FROM_BOTTOM_PX = 400
+  const [awayFromLatest, setAwayFromLatest] = useState(false)
+  const [unseen, setUnseen] = useState(0)
+  const lastIdRef = useRef(null)
+
   const onScroll = () => {
     const el = containerRef.current
     if (!el) return
-    stickToBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    stickToBottomRef.current = fromBottom < NEAR_BOTTOM_PX
+    // setState with an unchanged value bails out, so this costs nothing per
+    // scroll event once the answer stops changing.
+    setAwayFromLatest(fromBottom > FAR_FROM_BOTTOM_PX)
+    if (fromBottom < NEAR_BOTTOM_PX) setUnseen(0)
 
     if (!hasMore || loadingMore || !onLoadOlder) return
     if (el.scrollTop < 200) {
@@ -83,12 +94,33 @@ export default function MessageList({
     if (stickToBottomRef.current) endRef.current?.scrollIntoView({ block: 'end' })
   }, [messages?.length, messages?.[0]?.id, scrollToId])
 
+  // Count what arrived at the bottom while the reader was up in the history, so
+  // the "jump to latest" control can say there is something to jump to. Keyed on
+  // the NEWEST id: older pages landing at the top change the length too, and
+  // must not read as news.
+  const newestId = messages?.length ? messages[messages.length - 1].id : null
+  useEffect(() => {
+    const prev = lastIdRef.current
+    lastIdRef.current = newestId
+    if (prev === null || newestId === prev) return
+    if (!stickToBottomRef.current) setUnseen(n => n + 1)
+  }, [newestId])
+
   // A different conversation is a fresh start: back to the newest, following.
   useEffect(() => {
     stickToBottomRef.current = true
     firstIdRef.current = null
     anchorRef.current = null
+    lastIdRef.current = null
+    setUnseen(0)
+    setAwayFromLatest(false)
   }, [meUid, emptyTitle])
+
+  const jumpToLatest = () => {
+    stickToBottomRef.current = true
+    setUnseen(0)
+    endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+  }
 
   useEffect(() => {
     if (!scrollToId) return
@@ -107,58 +139,112 @@ export default function MessageList({
     )
   }
 
-  const groups = []
+  // Day dividers and author groups, in one pass. A new day always starts a new
+  // group, so a run of messages never straddles a divider.
+  const blocks = []
+  let lastGroup = null
+  let lastDay = null
   for (const m of messages) {
-    const last = groups[groups.length - 1]
-    const sameAuthor = last && last.author?.uid === m.author?.uid
     const ts = toDate(m.createdAt)
-    const close = last && ts && toDate(last.last) && (ts - toDate(last.last)) < 5 * 60 * 1000
-    if (sameAuthor && close) {
-      last.items.push(m); last.last = m.createdAt
+    // A message still waiting for its server timestamp has no date yet. It
+    // belongs to the day already on screen, not to a new one.
+    const day = ts ? ts.toDateString() : lastDay
+    if (day && day !== lastDay) {
+      blocks.push({ type: 'day', key: `day-${day}`, date: ts })
+      lastDay = day
+      lastGroup = null
+    }
+    const lastTs = lastGroup && toDate(lastGroup.last)
+    const close = lastGroup && (!ts || !lastTs || (ts - lastTs) < 5 * 60 * 1000)
+    if (lastGroup && lastGroup.author?.uid === m.author?.uid && close) {
+      lastGroup.items.push(m); lastGroup.last = m.createdAt
     } else {
-      groups.push({ author: m.author, items: [m], first: m.createdAt, last: m.createdAt })
+      lastGroup = {
+        type: 'group',
+        // The first message's id, not the array index: older pages are
+        // prepended, and an index key would remount — and so reset — every
+        // group on screen each time one loaded.
+        key: m.id,
+        author: m.author,
+        items: [m], first: m.createdAt, last: m.createdAt,
+      }
+      blocks.push(lastGroup)
     }
   }
 
   return (
-    <div ref={containerRef} onScroll={onScroll} className="flex-1 overflow-y-auto scrollbar-thin">
-      <div className="py-4 px-4 space-y-4">
-        {(hasMore || loadingMore) && (
-          <div className="grid place-items-center py-2 text-xs text-ink-muted">
-            {loadingMore ? 'Loading earlier messages…' : (
-              <button onClick={onLoadOlder} className="hover:text-ink transition-colors">
-                Load earlier messages
-              </button>
-            )}
-          </div>
-        )}
-        {groups.map((g, i) => (
-          <Group
-            key={i}
-            group={g}
-            onZoom={setZoomed}
-            canPin={canPin}
-            onTogglePin={onTogglePin}
-            highlightId={highlightId}
-            usersById={usersById}
-            emojiByName={emojiByName}
-            tickNow={now}
-            canDeleteAny={canDeleteAny}
-            readOnly={readOnly}
-            meUid={meUid}
-            editingId={editingId}
-            setEditingId={setEditingId}
-            onEdit={onEdit}
-            onDelete={onDelete}
-            onReact={onReact}
-            onReply={onReply}
-            onJumpToMessage={onJumpToMessage}
-          />
-        ))}
-        <div ref={endRef} />
+    <div className="relative flex-1 min-h-0 flex flex-col">
+      <div ref={containerRef} onScroll={onScroll} className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="py-4 px-4 space-y-4">
+          {(hasMore || loadingMore) && (
+            <div className="grid place-items-center py-2 text-xs text-ink-muted">
+              {loadingMore ? 'Loading earlier messages…' : (
+                <button onClick={onLoadOlder} className="hover:text-ink transition-colors">
+                  Load earlier messages
+                </button>
+              )}
+            </div>
+          )}
+          {blocks.map(b => b.type === 'day' ? (
+            <DayDivider key={b.key} date={b.date} />
+          ) : (
+            <Group
+              key={b.key}
+              group={b}
+              onZoom={setZoomed}
+              canPin={canPin}
+              onTogglePin={onTogglePin}
+              highlightId={highlightId}
+              usersById={usersById}
+              emojiByName={emojiByName}
+              tickNow={now}
+              canDeleteAny={canDeleteAny}
+              readOnly={readOnly}
+              meUid={meUid}
+              editingId={editingId}
+              setEditingId={setEditingId}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onReact={onReact}
+              onReply={onReply}
+              onJumpToMessage={onJumpToMessage}
+            />
+          ))}
+          <div ref={endRef} />
+        </div>
+        <Lightbox src={zoomed} onClose={() => setZoomed(null)} />
       </div>
-      <Lightbox src={zoomed} onClose={() => setZoomed(null)} />
+
+      {awayFromLatest && (
+        <button
+          type="button"
+          onClick={jumpToLatest}
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 pl-3 pr-3.5 py-1.5 rounded-full bg-brand text-white text-xs font-medium shadow-elev2 hover:bg-brand-hover transition-colors"
+        >
+          <ArrowDownIcon />
+          {unseen > 0 ? `${unseen} new ${unseen === 1 ? 'message' : 'messages'}` : 'Jump to latest'}
+        </button>
+      )}
     </div>
+  )
+}
+
+function DayDivider({ date }) {
+  return (
+    <div role="separator" aria-label={dayLabel(date)} className="flex items-center gap-3 select-none">
+      <div className="h-px flex-1 bg-line-subtle" />
+      <span className="text-xs font-medium text-ink-muted">{dayLabel(date)}</span>
+      <div className="h-px flex-1 bg-line-subtle" />
+    </div>
+  )
+}
+
+function ArrowDownIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="12" y1="5" x2="12" y2="19"/>
+      <polyline points="19 12 12 19 5 12"/>
+    </svg>
   )
 }
 
@@ -216,6 +302,15 @@ function Row({
   const emojiSize = onlyEmojis ? 40 : 22
   const mentionsMe = mentionsUid(message.text, meUid)
 
+  // One background decides, rather than several competing bg-* classes whose
+  // winner would depend on Tailwind's emit order. Mentions and pins are marked
+  // by tint alone — a thick coloured edge on a row is a banned pattern, and the
+  // Pinned badge already says what the tint means.
+  const tone = highlighted ? 'bg-brand/10'
+    : mentionsMe ? 'bg-warn/10 hover:bg-warn/15'
+    : message.pinned ? 'bg-warn/5 hover:bg-warn/10'
+    : 'hover:bg-bg-deepest/40'
+
   const canEdit = isAuthor && !readOnly
   const canDelete = (isAuthor || canDeleteAny) && !readOnly
   const reactionEntries = Object.entries(message.reactions || {})
@@ -227,16 +322,22 @@ function Row({
   return (
     <div
       data-msg-id={message.id}
-      className={[
-        'group/msg relative flex gap-3 -mx-4 px-4 py-0.5 rounded transition-colors',
-        'hover:bg-bg-deepest/40',
-        highlighted ? 'bg-brand/10' : '',
-        mentionsMe ? 'bg-warn/10 border-l-2 border-warn pl-3.5' : '',
-        message.pinned && !mentionsMe ? 'border-l-2 border-warn pl-3.5' : '',
-      ].join(' ')}
+      className={`group/msg relative flex gap-3 -mx-4 px-4 py-0.5 rounded transition-colors ${tone}`}
     >
       <div className="w-9 shrink-0">
-        {showHeader && <Avatar name={author?.name} src={author?.photoURL} size={36} status={author?.status} ringColor="border-bg-main" />}
+        {showHeader ? (
+          <Avatar name={author?.name} src={author?.photoURL} size={36} status={author?.status} ringColor="border-bg-main" />
+        ) : (
+          // The time of a follow-on message, in the space its avatar would
+          // take. Always laid out and only faded in, so hovering never moves
+          // the text beside it.
+          <span
+            className="block whitespace-nowrap text-right text-[10px] leading-6 text-ink-dim tabular-nums opacity-0 group-hover/msg:opacity-100 transition-opacity"
+            title={fullTime(message.createdAt)}
+          >
+            {clockTime(message.createdAt)}
+          </span>
+        )}
       </div>
 
       <div className="min-w-0 flex-1">
@@ -262,7 +363,7 @@ function Row({
           <div className="flex items-baseline gap-2 -mt-0.5 flex-wrap">
             <span className="font-semibold text-ink truncate">{author?.name || 'Unknown'}</span>
             <RoleBadge role={author?.role} size="xs" />
-            <span className="text-xs text-ink-dim">{formatTime(firstTime)}</span>
+            <span className="text-xs text-ink-dim" title={fullTime(firstTime)}>{formatTime(firstTime)}</span>
             {message.pinned && <PinnedBadge />}
           </div>
         )}
@@ -315,6 +416,7 @@ function Row({
                     onClick={() => setReactOpen(true)}
                     className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-bg-raised border border-line-subtle text-ink-dim hover:text-ink hover:border-line-strong text-xs"
                     title="Add reaction"
+                    aria-label="Add reaction"
                   >
                     <SmilePlusIcon />
                   </button>
@@ -335,6 +437,7 @@ function Row({
                 onClick={() => setReactOpen(o => !o)}
                 className="p-1.5 text-ink-muted hover:text-ink hover:bg-bg-hover rounded transition-colors"
                 title="Add reaction"
+                aria-label="Add reaction"
               >
                 <SmilePlusIcon />
               </button>
@@ -352,6 +455,7 @@ function Row({
               onClick={() => onReply(message)}
               className="p-1.5 text-ink-muted hover:text-ink hover:bg-bg-hover rounded transition-colors"
               title="Reply"
+              aria-label="Reply"
             >
               <ReplyIcon />
             </button>
@@ -361,6 +465,7 @@ function Row({
               onClick={() => setEditing(true)}
               className="p-1.5 text-ink-muted hover:text-ink hover:bg-bg-hover rounded transition-colors"
               title="Edit message"
+              aria-label="Edit message"
             >
               <PencilIcon />
             </button>
@@ -370,6 +475,7 @@ function Row({
               onClick={() => onTogglePin?.(message)}
               className="p-1.5 text-ink-muted hover:text-ink hover:bg-bg-hover rounded transition-colors"
               title={message.pinned ? 'Unpin message' : 'Pin message'}
+              aria-label={message.pinned ? 'Unpin message' : 'Pin message'}
             >
               <PinIcon filled={message.pinned} />
             </button>
@@ -381,6 +487,7 @@ function Row({
               }}
               className="p-1.5 text-ink-muted hover:text-bad hover:bg-bg-hover rounded transition-colors"
               title="Delete message"
+              aria-label="Delete message"
             >
               <TrashIcon />
             </button>
@@ -542,11 +649,38 @@ function toDate(ts) {
   if (ts instanceof Date) return ts
   return null
 }
-function formatTime(ts) {
+/** "Today", "Yesterday", "Tuesday, March 4" (plus the year when it is not this one). */
+function dayLabel(d) {
+  if (!d) return ''
+  const startOfDay = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate())
+  const days = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86_400_000)
+  if (days === 0) return 'Today'
+  if (days === 1) return 'Yesterday'
+  const sameYear = d.getFullYear() === new Date().getFullYear()
+  return d.toLocaleDateString([], {
+    weekday: 'long', month: 'long', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }),
+  })
+}
+// "9:01", not "9:01 AM": the gutter it sits in is the width of an avatar, and
+// the full time is on the tooltip. Built from parts rather than by cutting a
+// formatted string, so a locale that puts the day period first still works.
+const clockTime = (ts) => {
   const d = toDate(ts)
   if (!d) return ''
-  const today = new Date()
-  const sameDay = d.toDateString() === today.toDateString()
-  if (sameDay) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
+    .formatToParts(d)
+    .filter(p => p.type !== 'dayPeriod')
+    .map(p => p.value)
+    .join('')
+    .trim()
+}
+const fullTime = (ts) => {
+  const d = toDate(ts)
+  return d ? d.toLocaleString([], { dateStyle: 'full', timeStyle: 'short' }) : ''
+}
+// Time only. The day is on the divider above, so repeating "Oct 13," on every
+// header just made each one longer to read; the tooltip still has the full date.
+function formatTime(ts) {
+  const d = toDate(ts)
+  return d ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''
 }

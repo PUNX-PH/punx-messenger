@@ -223,6 +223,7 @@ export default function Composer({
             onClick={onCancelReply}
             className="text-ink-dim hover:text-ink p-0.5"
             title="Cancel reply"
+            aria-label="Cancel reply"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -264,6 +265,7 @@ export default function Composer({
           type="button"
           onClick={() => fileRef.current?.click()}
           title="Attach image"
+          aria-label="Attach image"
           className="text-ink-dim hover:text-ink p-1.5 transition-colors shrink-0"
         >
           <PlusIcon />
@@ -336,6 +338,7 @@ export default function Composer({
             type="button"
             onClick={() => openPicker('gif')}
             title="GIF"
+            aria-label="GIF"
             className={[
               'p-1.5 transition-colors',
               emojiOpen && pickerTab === 'gif' ? 'text-ink' : 'text-ink-dim hover:text-ink',
@@ -347,6 +350,7 @@ export default function Composer({
             type="button"
             onClick={() => openPicker('emoji')}
             title="Emoji"
+            aria-label="Emoji"
             className={[
               'p-1.5 transition-colors',
               emojiOpen && pickerTab === 'emoji' ? 'text-ink' : 'text-ink-dim hover:text-ink',
@@ -369,6 +373,7 @@ export default function Composer({
           disabled={(!text.trim() && !file) || sending || disabled}
           className="text-brand disabled:text-ink-dim hover:text-brand-hover transition-colors p-1.5 disabled:cursor-not-allowed shrink-0"
           title="Send"
+          aria-label="Send"
         >
           {sending ? <SpinnerIcon /> : <SendIcon />}
         </button>

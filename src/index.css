@@ -29,7 +29,10 @@
     --line-strong: 58 65 80;
     --ink:        229 231 235;
     --ink-muted:  176 182 192;
-    --ink-dim:    107 114 128;
+    /* Timestamps, hints and placeholders sit in this colour at 12px, so it has
+       to clear 4.5:1 on every surface it lands on. The old 107 114 128 was
+       3.45:1 on bg-main and 3.10:1 on bg-raised. */
+    --ink-dim:    148 156 170;
     --brand:      88 101 242;
     --brand-hover: 71 82 196;
     --ok:         16 185 129;
@@ -52,7 +55,7 @@
     --line-strong: 196 201 208;
     --ink:        20 23 28;
     --ink-muted:  75 85 99;
-    --ink-dim:    107 114 128;
+    --ink-dim:    90 98 112;
     --brand:      71 82 196;
     --brand-hover: 58 68 168;
     --ok:         15 157 107;

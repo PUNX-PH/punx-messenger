@@ -7,7 +7,13 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-bg-deepest px-6">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-3 mb-10">
-          <div className="w-10 h-10 rounded-md bg-brand grid place-items-center font-bold text-white text-lg">P</div>
+          {/* The wordmark is a square with the lettering across its middle, so at
+              this size it would be a smudge. Scaling the image up inside a clipped
+              tile crops the empty black margin away without touching the file. The
+              ring separates the black square from the near-black page. */}
+          <div className="w-11 h-11 shrink-0 rounded-md overflow-hidden ring-1 ring-line-subtle bg-black">
+            <img src="/logo-punx.png" alt="Punx" className="w-full h-full scale-[1.8]" />
+          </div>
           <div>
             <div className="text-lg font-semibold tracking-tight">Punx Messenger</div>
             <div className="text-xs text-ink-dim">Internal communication</div>
