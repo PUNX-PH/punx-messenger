@@ -120,6 +120,5 @@ See `docs/VOICE.md` for how voice works and how to diagnose it.
 - No `GoogleService-Info.plist` (step 1) — the app cannot launch without it
 - Never compiled for iOS; `flutter_webrtc` is the likeliest source of trouble
 - No push notifications on any platform (see above)
-- Release signing on **Android** is still the scaffold default (debug keys), so
-  Android APKs are sideload-only and not Play-eligible. Unrelated to iOS, but
-  it is the other half of "shippable".
+- **Android** release builds need `android/key.properties` and fail without it
+  (see RELEASE.md). Unrelated to iOS, but it is the other half of "shippable".

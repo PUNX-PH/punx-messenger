@@ -45,6 +45,18 @@ class RosterUpdate {
   final List<String> removed;
 }
 
+/// Outcome of one roster heartbeat.
+enum HeartbeatResult {
+  /// My row is there (or the write failed for a reason that will pass).
+  listed,
+
+  /// My row is GONE: pruned as stale. Rejoin and rebuild the mesh.
+  evicted,
+
+  /// The rules refuse me. Do not rejoin — leave.
+  denied,
+}
+
 class VoiceChannelRepository {
   VoiceChannelRepository({FirebaseFirestore? firestore})
     : _db = firestore ?? FirebaseFirestore.instance;
@@ -99,8 +111,9 @@ class VoiceChannelRepository {
     });
   }
 
-  /// Returns false only when my roster row is GONE, which the caller must read
-  /// as "I have been evicted from this channel", not as a failed write.
+  /// Returns [HeartbeatResult.evicted] only when my roster row is GONE, which the
+  /// caller must read as "I have been evicted from this channel", not as a failed
+  /// write.
   ///
   /// Doze, app-standby or an outright process kill can all cost more than
   /// [staleAfter] worth of heartbeats, at which point somebody else's sweep
@@ -113,19 +126,25 @@ class VoiceChannelRepository {
   /// the heartbeat writing into a void while this client went on believing it
   /// was connected. Rejoining the channel by hand was the only cure.
   ///
-  /// A heartbeat that misses for any OTHER reason still returns true: the next
+  /// A heartbeat that misses for any OTHER reason counts as listed: the next
   /// one covers it, and rebuilding the mesh over a transient blip is far worse
   /// than missing a beat.
-  Future<bool> heartbeatRoster(
+  Future<HeartbeatResult> heartbeatRoster(
       String groupId, String channelId, String uid) async {
     try {
       await _participant(groupId, channelId, uid)
           .update({'lastHeartbeat': FieldValue.serverTimestamp()});
-      return true;
+      return HeartbeatResult.listed;
     } on FirebaseException catch (e) {
-      return e.code != 'not-found';
+      // Evicted (pruned as stale) is recoverable by rejoining. Denied is not:
+      // the rules no longer let this account into the channel — removed from the
+      // group, channel access revoked, or deactivated — and rejoining would just
+      // be refused while the mic and every peer connection stayed live.
+      if (e.code == 'not-found') return HeartbeatResult.evicted;
+      if (e.code == 'permission-denied') return HeartbeatResult.denied;
+      return HeartbeatResult.listed; // transient; the next beat tries again
     } catch (_) {
-      return true;
+      return HeartbeatResult.listed;
     }
   }
 

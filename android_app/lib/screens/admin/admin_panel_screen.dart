@@ -120,7 +120,7 @@ class _AdminPanelScreenState extends ConsumerState<AdminPanelScreen> {
                   child: _Stat(
                     label: 'Admins',
                     value: counts[Role.admin]!,
-                    color: Palette.brand,
+                    color: Palette.brandText,
                   ),
                 ),
                 const SizedBox(width: 8),

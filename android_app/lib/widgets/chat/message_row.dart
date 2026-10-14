@@ -348,7 +348,7 @@ class _ReplyStrip extends StatelessWidget {
             Text(
               '@${reply.authorName}',
               style: AppTextStyles.xs(
-                color: Palette.brand,
+                color: Palette.brandText,
                 weight: FontWeight.w600,
               ),
             ),

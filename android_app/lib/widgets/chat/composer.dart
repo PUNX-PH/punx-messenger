@@ -369,7 +369,7 @@ class _ReplyPreviewBar extends StatelessWidget {
                   TextSpan(
                     text: '@${replyingTo.author.name}',
                     style: AppTextStyles.xs(
-                      color: Palette.brand,
+                      color: Palette.brandText,
                       weight: FontWeight.w600,
                     ),
                   ),

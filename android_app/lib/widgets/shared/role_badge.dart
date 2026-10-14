@@ -33,7 +33,8 @@ class RoleBadge extends StatelessWidget {
       child: Text(
         role.label,
         style: TextStyle(
-          color: color,
+          // brandText, not the fill colour: the fill fails 4.5:1 as text on dark.
+          color: role == Role.superAdmin ? Palette.warn : Palette.brandText,
           fontSize: fontSize,
           fontWeight: FontWeight.w600,
         ),

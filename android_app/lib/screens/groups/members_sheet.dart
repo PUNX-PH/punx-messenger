@@ -151,7 +151,7 @@ class _MemberRow extends ConsumerWidget {
         trailing: group.isOwner(user.id)
             ? Text('Owner', style: AppTextStyles.xs(color: Palette.warn))
             : group.isAdmin(user.id)
-            ? Text('Admin', style: AppTextStyles.xs(color: Palette.brand))
+            ? Text('Admin', style: AppTextStyles.xs(color: Palette.brandText))
             : null,
         onTap: user.id == meId
             ? null

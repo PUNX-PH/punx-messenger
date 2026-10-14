@@ -49,6 +49,11 @@ jobs:
           if [ -n "$PLIST_B64" ]; then
             echo "$PLIST_B64" | base64 --decode > ios/Runner/GoogleService-Info.plist
             echo "plist written"
+          elif [ "${{ inputs.signed }}" = "true" ]; then
+            # A signed .ipa is something people install. One without the plist
+            # launches and then cannot reach Firebase, so refuse to produce it.
+            echo "::error::No IOS_GOOGLE_SERVICE_INFO_PLIST_B64 secret; refusing to build a signed .ipa that cannot start."
+            exit 1
           else
             echo "::warning::No IOS_GOOGLE_SERVICE_INFO_PLIST_B64 secret."
             echo "::warning::The build will compile but Firebase will not initialise at launch."

@@ -118,7 +118,7 @@ class _ReactionChip extends StatelessWidget {
             Text(
               '${uids.length}',
               style: AppTextStyles.xs(
-                color: mine ? Palette.brand : Palette.inkMuted,
+                color: mine ? Palette.brandText : Palette.inkMuted,
               ),
             ),
           ],
