@@ -177,6 +177,16 @@ const chansNaming = (db, g, uid) =>
 const chansPrivate = (db, g) =>
   getDocs(query(collection(db, 'groups', g, 'channels'), where('private', '==', true)))
 const ids = (snap) => snap.docs.map(d => d.id)
+// What redeemInvite() does for a newcomer: the guest record and the private
+// token in ONE batch. The rules require them together (getAfter), so neither
+// is legal alone.
+const redeem = (db, uid, userDoc, token) => {
+  const b = writeBatch(db)
+  b.set(doc(db, 'users', uid), userDoc)
+  b.set(doc(db, 'users', uid, 'private', 'invite'), { token })
+  return b.commit()
+}
+const inviteDocOf = (db, uid) => doc(db, 'users', uid, 'private', 'invite')
 
 console.log('\n-- baseline: existing behaviour unchanged --')
 await t('member reads own group channels', () => assertSucceeds(chansPublic(as(EMP), GM)))
@@ -402,7 +412,7 @@ await t('...but not somebody else\'s', () => assertFails(
 await t('removed guest gets nothing either', () => assertFails(
   getDoc(doc(as(GONEG, `${GONEG}@gmail.com`), 'groups', GM))))
 await t('removed guest CANNOT redeem an invite to get back in', () => assertFails(
-  updateDoc(doc(as(GONEG, `${GONEG}@gmail.com`), 'users', GONEG), { invitedVia: TOK_LIVE })))
+  setDoc(inviteDocOf(as(GONEG, `${GONEG}@gmail.com`), GONEG), { token: TOK_LIVE })))
 
 console.log('\n-- who may remove whom --')
 await t('super admin removes an employee', () => assertSucceeds(
@@ -433,8 +443,8 @@ await t('password-provider account CANNOT create itself as employee', () => asse
   setDoc(doc(forged('forger2'), 'users', 'forger2'), {
     uid: 'forger2', email: 'forger2@punx.ai', role: 'employee' })))
 await t('password-provider account CANNOT redeem an invite either', () => assertFails(
-  setDoc(doc(forged('forger3'), 'users', 'forger3'), {
-    uid: 'forger3', email: 'forger3@punx.ai', role: 'guest', invitedVia: TOK_LIVE })))
+  redeem(forged('forger3'), 'forger3', {
+    uid: 'forger3', email: 'forger3@punx.ai', role: 'guest' }, TOK_LIVE)))
 await t('outsider with no invite CANNOT create a users doc', () => assertFails(
   setDoc(doc(outsider(OUT1), 'users', OUT1), { uid: OUT1, email: 'x@gmail.com', role: 'employee' })))
 await t('outsider CANNOT create itself as guest without a token', () => assertFails(
@@ -465,11 +475,11 @@ await t('outsider CANNOT revoke an invite', () => assertFails(
 
 console.log('\n-- redeeming a live invite --')
 await t('outsider creates its guest doc with a live token', () => assertSucceeds(
-  setDoc(doc(outsider(OUT1), 'users', OUT1), {
-    uid: OUT1, email: `${OUT1}@gmail.com`, name: 'Out One', role: 'guest', invitedVia: TOK_LIVE })))
+  redeem(outsider(OUT1), OUT1, {
+    uid: OUT1, email: `${OUT1}@gmail.com`, name: 'Out One', role: 'guest' }, TOK_LIVE)))
 await t('...and CANNOT claim a higher role with the same token', () => assertFails(
-  setDoc(doc(outsider(OUT2), 'users', OUT2), {
-    uid: OUT2, email: `${OUT2}@gmail.com`, role: 'employee', invitedVia: TOK_LIVE })))
+  redeem(outsider(OUT2), OUT2, {
+    uid: OUT2, email: `${OUT2}@gmail.com`, role: 'employee' }, TOK_LIVE)))
 await t('...and CANNOT self-promote afterwards', () => assertFails(
   updateDoc(doc(outsider(OUT1), 'users', OUT1), { role: 'admin' })))
 await t('redemption marker is writable by the joiner', () => assertSucceeds(
@@ -527,18 +537,18 @@ await t('a no-op write still cannot smuggle someone else in', () => assertFails(
 
 console.log('\n-- expired and revoked invites are inert --')
 await t('expired token CANNOT create a guest doc', () => assertFails(
-  setDoc(doc(outsider(OUT3), 'users', OUT3), {
-    uid: OUT3, email: `${OUT3}@gmail.com`, role: 'guest', invitedVia: TOK_EXPIRED })))
+  redeem(outsider(OUT3), OUT3, {
+    uid: OUT3, email: `${OUT3}@gmail.com`, role: 'guest' }, TOK_EXPIRED)))
 await t('revoked token CANNOT create a guest doc', () => assertFails(
-  setDoc(doc(outsider(OUT4), 'users', OUT4), {
-    uid: OUT4, email: `${OUT4}@gmail.com`, role: 'guest', invitedVia: TOK_REVOKED })))
+  redeem(outsider(OUT4), OUT4, {
+    uid: OUT4, email: `${OUT4}@gmail.com`, role: 'guest' }, TOK_REVOKED)))
 await t('unknown token CANNOT create a guest doc', () => assertFails(
-  setDoc(doc(outsider(OUT4), 'users', OUT4), {
-    uid: OUT4, email: `${OUT4}@gmail.com`, role: 'guest', invitedVia: 'no-such-token' })))
+  redeem(outsider(OUT4), OUT4, {
+    uid: OUT4, email: `${OUT4}@gmail.com`, role: 'guest' }, 'no-such-token')))
 
 console.log('\n-- existing members keep their role when using a link --')
-await t('an employee can stamp invitedVia on its own doc', () => assertSucceeds(
-  updateDoc(doc(as(PLAIN), 'users', PLAIN), { invitedVia: TOK_LIVE })))
+await t('an employee can record an invite token for itself', () => assertSucceeds(
+  setDoc(inviteDocOf(as(PLAIN), PLAIN), { token: TOK_LIVE })))
 await t('...and still cannot change its own role', () => assertFails(
   updateDoc(doc(as(PLAIN), 'users', PLAIN), { role: 'admin' })))
 
@@ -632,8 +642,8 @@ await t('nobody can READ credential hashes', () => assertFails(
   getDoc(doc(as(ADMIN), 'bots', B1, 'private', 'credentials'))))
 
 console.log('\n-- review: invite tokens are path fragments, and redemption docs are not free-form --')
-// `invitedVia` is interpolated into a document path. A value containing "/"
-// could point at a doc the holder controls — a redemption doc they had written
+// The token is interpolated into a document path. A value containing "/" could
+// point at a doc the holder controls — a redemption doc they had written
 // themselves, carrying whatever groupId and channelIds they liked.
 await t('a redemption doc cannot carry extra fields (forged groupId/expiresAt)', () => assertFails(
   setDoc(doc(outsider('forger9'), 'invites', TOK_LIVE, 'redemptions', 'forger9'), {
@@ -645,12 +655,65 @@ await t('a redemption doc must be written for yourself', () => assertFails(
 await t('a legitimate redemption doc still works', () => assertSucceeds(
   setDoc(doc(outsider('legit9'), 'invites', TOK_LIVE, 'redemptions', 'legit9'), {
     uid: 'legit9', email: 'legit9@gmail.com', redeemedAt: new Date() })))
-await t('invitedVia CANNOT be a path (contains "/")', () => assertFails(
-  updateDoc(doc(as(PLAIN), 'users', PLAIN), { invitedVia: `${TOK_LIVE}/redemptions/${PLAIN}` })))
+await t('the invite token CANNOT be a path (contains "/")', () => assertFails(
+  setDoc(inviteDocOf(as(PLAIN), PLAIN), { token: `${TOK_LIVE}/redemptions/${PLAIN}` })))
 await t('...nor contain other characters outside a plain token', () => assertFails(
-  updateDoc(doc(as(PLAIN), 'users', PLAIN), { invitedVia: `${TOK_LIVE}?x` })))
+  setDoc(inviteDocOf(as(PLAIN), PLAIN), { token: `${TOK_LIVE}?x` })))
 await t('...and a real token is still accepted', () => assertSucceeds(
+  setDoc(inviteDocOf(as(PLAIN), PLAIN), { token: TOK_LIVE })))
+await t('the private doc holds a token and nothing else', () => assertFails(
+  setDoc(inviteDocOf(as(PLAIN), PLAIN), { token: TOK_LIVE, extra: 1 })))
+
+console.log('\n-- review: the invite token is NOT in the directory --')
+// The token is the secret, and it used to sit in an `invitedVia` field on
+// users/{uid} — readable by every signed-in account. Copying someone else's
+// onto your own record was all it took to join their group. It now lives in
+// users/{uid}/private/invite, which nothing can read; the rules read it from
+// inside get(), which is not subject to read rules.
+await t('nobody can read a private invite — not even its OWNER', () => assertFails(getDoc(inviteDocOf(as(PLAIN), PLAIN))))
+await t('...not another employee', () => assertFails(getDoc(inviteDocOf(as(EMP), PLAIN))))
+await t('...not an admin', () => assertFails(getDoc(inviteDocOf(as(ADMIN), PLAIN))))
+await t('...not a super admin or a developer', async () => {
+  await assertFails(getDoc(inviteDocOf(as(SUPER), PLAIN)))
+  await assertFails(getDoc(inviteDocOf(as(DEV), PLAIN)))
+})
+await t('...and the private collection cannot be listed', () => assertFails(
+  getDocs(collection(as(EMP), 'users', PLAIN, 'private'))))
+await t('a redeemed guest\'s directory entry carries NO token', async () => {
+  const snap = await assertSucceeds(getDoc(doc(as(EMP), 'users', OUT1)))
+  if ('invitedVia' in snap.data()) throw new Error('invitedVia is still on the user document')
+})
+await t('the token CANNOT be put back on the user document', () => assertFails(
   updateDoc(doc(as(PLAIN), 'users', PLAIN), { invitedVia: TOK_LIVE })))
+await t('...nor created there alongside a guest record', () => assertFails(
+  redeem(outsider('priv1'), 'priv1', {
+    uid: 'priv1', email: 'priv1@gmail.com', role: 'guest', invitedVia: TOK_LIVE }, TOK_LIVE)))
+await t('...nor can a guest record be created WITHOUT its private token', () => assertFails(
+  setDoc(doc(outsider('priv2'), 'users', 'priv2'), {
+    uid: 'priv2', email: 'priv2@gmail.com', role: 'guest' })))
+await t('someone else CANNOT write another person\'s private invite', () => assertFails(
+  setDoc(inviteDocOf(as(EMP), PLAIN), { token: TOK_LIVE })))
+// Legacy documents. Until the migration script has run, some users docs still
+// carry the old field. They must not be bricked by it.
+await testEnv.withSecurityRulesDisabled(async (ctx) => {
+  await setDoc(doc(ctx.firestore(), 'users', 'legacyu'), {
+    uid: 'legacyu', role: 'employee', email: 'legacyu@punx.ai', name: 'old', invitedVia: TOK_LIVE })
+})
+await t('a user with a LEGACY invitedVia can still update other fields', () => assertSucceeds(
+  updateDoc(doc(as('legacyu'), 'users', 'legacyu'), { name: 'renamed' })))
+await t('...and can remove the legacy field themselves', () => assertSucceeds(
+  updateDoc(doc(as('legacyu'), 'users', 'legacyu'), { invitedVia: deleteField() })))
+await testEnv.withSecurityRulesDisabled(async (ctx) => {
+  await setDoc(doc(ctx.firestore(), 'users', 'legacyu'), {
+    uid: 'legacyu', role: 'employee', email: 'legacyu@punx.ai', name: 'old', invitedVia: TOK_LIVE })
+})
+await t('...but CANNOT change it to a different token', () => assertFails(
+  updateDoc(doc(as('legacyu'), 'users', 'legacyu'), { invitedVia: TOK_EXPIRED })))
+await t('a redeemed guest can still join via the private token (end to end)', async () => {
+  await redeem(outsider('e2e1'), 'e2e1', { uid: 'e2e1', email: 'e2e1@gmail.com', role: 'guest' }, TOK_LIVE)
+  await assertSucceeds(updateDoc(doc(outsider('e2e1'), 'groups', GM), {
+    memberUids: [EMP, ADMIN, GUEST, GUEST2, T1, GONE, OUT1, 'e2e1'] }))
+})
 
 console.log('\n-- review: group admins can list their own invites (and only theirs) --')
 // Revoke is the only mutation invites allow, and the list that feeds it was

@@ -12,15 +12,17 @@
 //     be able to describe what they're joining from this one document.
 //
 //  2. Redemption is done BY the joiner, in a fixed order, because each step
-//     unlocks the next in firestore.rules. Writing their users doc is what
-//     records the token as `invitedVia`, and every later self-add is validated
-//     against it. Do not reorder redeemInvite's writes.
+//     unlocks the next in firestore.rules. The first write records the token in
+//     users/{uid}/private/invite (a document nothing can read back), and every
+//     later self-add is validated against it. Do not reorder redeemInvite's
+//     writes — and never put the token on users/{uid} itself, which every
+//     signed-in account can read.
 //
 // See docs/ROLES.md and the "Invite links" block in firestore.rules.
 
 import {
   arrayUnion, collection, doc, getDoc, getDocs, onSnapshot, query,
-  serverTimestamp, setDoc, updateDoc, where,
+  serverTimestamp, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { newId } from './storage'
@@ -115,13 +117,20 @@ export async function countRedemptions(token) {
  * Redeem an invite as the signed-in user.
  *
  * Order matters and is enforced by the rules:
- *   1. users/{uid} — creates the doc for a newcomer (role 'guest'), or just
- *      stamps `invitedVia` on an existing one. Either way this is what the
- *      later steps are validated against. An existing member keeps their role:
- *      an invite link must never be able to demote an admin.
+ *   1. record the token in users/{uid}/private/invite — and, for a newcomer,
+ *      create users/{uid} (role 'guest') in the SAME batch, which is what the
+ *      rules require. Either way this is what the later steps are validated
+ *      against. An existing member keeps their role: an invite link must never
+ *      be able to demote an admin.
  *   2. the redemption marker, for the audit trail.
  *   3. join the group, adding only yourself.
  *   4. grant yourself each invited channel.
+ *
+ * The token goes in a PRIVATE document, never on users/{uid}: that document is
+ * readable by every signed-in account, and the token is the secret, so storing
+ * it there let anyone copy someone else's token onto their own record and join
+ * their group. Nothing can read the private one back — not even you — and
+ * nothing here needs to.
  *
  * Idempotent: re-running it re-writes the same values, and every step is a
  * merge or a self-add, so a half-finished redemption is fixed by retrying.
@@ -129,22 +138,28 @@ export async function countRedemptions(token) {
 export async function redeemInvite({ token, invite, user, existingProfile }) {
   const uid = user.uid
   const userRef = doc(db, 'users', uid)
+  const inviteRef = doc(db, 'users', uid, 'private', 'invite')
 
   if (existingProfile) {
     // Already one of us — record the token so the self-adds below validate,
     // and touch nothing else.
-    await updateDoc(userRef, { invitedVia: token })
+    await setDoc(inviteRef, { token })
   } else {
-    await setDoc(userRef, {
+    // One batch, not two writes: the rule that lets a newcomer create their
+    // guest record checks that the token arrives alongside it (getAfter), so
+    // neither write is legal on its own.
+    const batch = writeBatch(db)
+    batch.set(userRef, {
       uid,
       email: (user.email || '').toLowerCase(),
       name: user.displayName || (user.email || 'Guest').split('@')[0],
       photoURL: user.photoURL || null,
       role: 'guest',
-      invitedVia: token,
       createdAt: serverTimestamp(),
       lastSeen: serverTimestamp(),
     })
+    batch.set(inviteRef, { token })
+    await batch.commit()
   }
 
   // Audit trail. Never fatal — a missing marker costs the admin UI a number,

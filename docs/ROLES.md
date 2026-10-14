@@ -298,16 +298,33 @@ is a channel called `#payroll`.
 
 Done **by the joiner**, in this order, because each step unlocks the next:
 
-1. `users/{uid}` — created as `guest` for a newcomer, or just stamped with
-   `invitedVia` if they already have an account. **An existing member keeps
-   their role**; a link must never be able to demote an admin.
+1. the token is recorded in `users/{uid}/private/invite` — and, for a newcomer,
+   `users/{uid}` is created as `guest` **in the same batch**, which is what the
+   rules require. **An existing member keeps their role**; a link must never be
+   able to demote an admin.
 2. the redemption marker.
 3. add themselves to the group's `memberUids`.
 4. add themselves to each invited channel's `allowUids`.
 
-Rules can't take arguments from the client, so the token is recorded on the
-joiner's own `users` doc as `invitedVia` and every later self-add is validated
-against it.
+Rules can't take arguments from the client, so the token is recorded in a
+document of the joiner's own and every later self-add is validated against it.
+
+**That document is `users/{uid}/private/invite`, and it is unreadable by
+everyone** — the owner included. The client only writes it; the rules read it
+from inside `get()`, which is not subject to read rules. It used to be an
+`invitedVia` field on `users/{uid}`, which every signed-in account can read,
+and the token *is* the secret: anyone could read another person's, copy it onto
+their own record, and join that invite's group and channels. (An emulator test
+reproduces the attack against the old rules — a plain employee ends up in a
+group they were never invited to — and shows it refused now.) `invitedVia`
+can no longer be written to a user document; a legacy value may be left alone
+or removed.
+
+Existing documents are cleaned by `scripts/migrate-invite-tokens.mjs`. Deleting
+the field does **not** un-leak a token someone already copied, so the script also
+lists every exposed invite that is still live and, with `--revoke-exposed`,
+revokes them — which kills the link for anyone you still meant to send it to, so
+create a fresh one afterwards.
 
 `addsOnlyMeTo(field)` enforces steps 3 and 4. It requires that the caller is
 **not already in the list**, that the list grew by exactly one, and that they're
@@ -317,7 +334,7 @@ cover exactly that.
 
 ## Testing
 
-The rules have an emulator test suite at `tests/rules.test.mjs` — 189 cases
+The rules have an emulator test suite at `tests/rules.test.mjs` — 204 cases
 covering the hierarchy, the developer boundary, guests, private channels, invite
 links, the auth gate, bots, and regressions for behaviour that had to stay
 unchanged. It needs Java on `PATH` and `@firebase/rules-unit-testing`, which is
@@ -368,19 +385,16 @@ open looks, in the diff, like perfectly reasonable code.
   for the author; the conversation's `members` cannot be rewritten.
 - **A channel message's author edits text, nothing else** — no pinning, no
   rewriting who wrote it.
+- **Secrets do not live on world-readable documents.** `users/{uid}` is the
+  directory: every signed-in account reads all of it. Anything that works as a
+  credential — the invite token above — belongs in an unreadable subcollection
+  (`users/{uid}/private`), not a field.
 
 When one of these tests starts failing, the rule that was changed is the thing
 to fix, not the test.
 
 ## Not built
 
-- **`invitedVia` is world-readable.** It is stored on `users/{uid}`, which any
-  signed-in account can read, and it holds the invite *token* — which is the
-  secret. Anyone can copy another person's token onto their own document and use
-  it to join that invite's group and channels. The path-injection half is closed
-  above; the exposure is not, because fixing it means moving the token out of the
-  directory (e.g. `users/{uid}/private/invite`, owner-readable) and changing
-  `redeemInvite` on both clients plus a migration of existing documents.
 - **@mention notifications do not work.** Both clients run a
   `collectionGroup('messages')` query, and there is no `/{path=**}/messages`
   rule, so it is denied (silently — both swallow the error). A blanket

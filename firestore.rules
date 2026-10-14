@@ -391,22 +391,29 @@ service cloud.firestore {
         && inviteDataOf(token).expiresAt > request.time;
     }
 
-    // The invite THIS account joined with, recorded on its own users doc as
-    // `invitedVia`. Carrying it there rather than passing it per-write is what
-    // lets the group/channel rules below verify a self-add: rules can't take
-    // arguments from the client, but they can read a document the client wrote
-    // under a rule that already validated the token.
-    function myUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    // The invite THIS account joined with, recorded in users/{me}/private/invite.
+    // Carrying it in a document is what lets the group/channel rules below verify
+    // a self-add: rules can't take arguments from the client, but they can read a
+    // document the client wrote under a rule that already validated the token.
+    //
+    // It is a PRIVATE document on purpose — nobody can read it, including its
+    // owner (the client never needs to; only these rules do). It used to be an
+    // `invitedVia` field on users/{uid}, which every signed-in account can read,
+    // and the token IS the secret: anyone could copy another person's token onto
+    // their own record and join that invite's group and channels. Where it lives
+    // is the whole fix. A read inside a rule is not subject to read rules, so
+    // locking the document costs these helpers nothing.
+    function myInviteToken() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)/private/invite).data.token;
     }
     function iHaveLiveInvite() {
       return request.auth != null
         && iHaveUserDoc()
-        && ('invitedVia' in myUserData())
-        && inviteIsUsable(myUserData().invitedVia);
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/invite)
+        && inviteIsUsable(myInviteToken());
     }
     function myInvite() {
-      return inviteDataOf(myUserData().invitedVia);
+      return inviteDataOf(myInviteToken());
     }
     function myInviteGrantsGroup(groupId) {
       return iHaveLiveInvite() && myInvite().groupId == groupId;
@@ -514,12 +521,15 @@ service cloud.firestore {
         // An invited outsider redeeming a link. `guest` and nothing else: an
         // arbitrary Google address must never be able to mint itself anything
         // higher, and a guest sees only the channels it is explicitly listed
-        // on. The token is validated here, and recorded so the group/channel
-        // self-adds below can check it.
+        // on. The token is validated here — it has to arrive in the SAME batch,
+        // as users/{me}/private/invite (getAfter sees the batch's result) — and
+        // is recorded there, not on this document, so the group/channel
+        // self-adds below can check it without the token being world-readable.
         || (isGoogleAccount() && uid == myUid()
             && request.resource.data.role == 'guest'
-            && request.resource.data.invitedVia is string
-            && inviteIsUsable(request.resource.data.invitedVia))
+            && !('invitedVia' in request.resource.data)
+            && existsAfter(/databases/$(database)/documents/users/$(uid)/private/invite)
+            && inviteIsUsable(getAfter(/databases/$(database)/documents/users/$(uid)/private/invite).data.token))
         // A bot can't create its own /users doc — it has no Firebase Auth
         // account until the first time it redeems its API key, and by then it
         // needs to already be visible as a user. So the admin registering the
@@ -543,18 +553,19 @@ service cloud.firestore {
         // alone let ANY authenticated account rewrite its own document, so a
         // removed one could still stamp itself with a fresh `invitedVia` and
         // walk back into a group's memberUids. Everything it can legitimately
-        // write — display name, presence, invitedVia while redeeming — happens
+        // write — display name, presence — happens
         // while admitted; the document's own creation is a separate rule.
         || (isHuman() && uid == myUid()
             && !request.resource.data.diff(resource.data).affectedKeys()
                  .hasAny(['role', 'email', 'uid', 'createdAt',
                           'deactivated', 'deactivatedAt', 'deactivatedBy'])
-            // invitedVia is validated when it is WRITTEN, not only when used, so
-            // a junk or path-shaped value never lands on the document at all.
-            // Untouched, it is left alone: an expired token on an old doc must
-            // not block the person updating their name.
-            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['invitedVia'])
-                || inviteIsUsable(request.resource.data.invitedVia)))
+            // `invitedVia` no longer belongs on this document at all (see the
+            // note on myInviteToken above). It cannot be set or changed here, but
+            // a LEGACY value may be left alone — so updating your name does not
+            // fail on an old document — or removed.
+            && (!('invitedVia' in request.resource.data)
+                || ('invitedVia' in resource.data
+                    && request.resource.data.invitedVia == resource.data.invitedVia)))
         // A bot's mirror /users doc has to stay in step with its registry doc —
         // updateBotProfile in src/lib/bots.js writes both — and a developer can
         // reach the registry but not, by default, anyone's /users doc. Narrowed
@@ -576,6 +587,26 @@ service cloud.firestore {
       // Private notes: only the owner
       match /notes/{noteId} {
         allow read, write: if signedIn() && uid == myUid();
+      }
+
+      // Things about an account that must never appear in the directory above.
+      // Today that is one document, `invite`: the token this account redeemed.
+      //
+      // Unreadable by EVERYONE, the owner included — the client only ever writes
+      // it, and the rules read it from inside `get()`, which is not subject to
+      // read rules. Written by the owner alone, and only with a token that is live
+      // right now and is a plain id (the token goes into a document path). Not
+      // isHuman(): the first write is a new guest's, made in the same batch that
+      // creates their users doc, so no doc exists yet to be admitted by — which
+      // is also why a removed account is refused by its flag instead.
+      match /private/{docId} {
+        allow read: if false;
+        allow create, update: if docId == 'invite'
+          && isGoogleAccount() && uid == myUid()
+          && !iAmDeactivated()
+          && request.resource.data.keys().hasOnly(['token'])
+          && inviteIsUsable(request.resource.data.token);
+        allow delete: if isGoogleAccount() && uid == myUid();
       }
     }
 
