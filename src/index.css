@@ -35,6 +35,10 @@
     --ink-dim:    148 156 170;
     --brand:      88 101 242;
     --brand-hover: 71 82 196;
+    /* Brand-coloured TEXT (links, "Pinned", chips). The brand fill is tuned for
+       white text ON it; as text on the dark surfaces it was 3.6:1, so text gets
+       its own lighter value — 4.8:1 or better on every surface. */
+    --brand-text: 140 150 255;
     --ok:         16 185 129;
     --warn:       245 158 11;
     --bad:        239 68 68;
@@ -58,6 +62,7 @@
     --ink-dim:    90 98 112;
     --brand:      71 82 196;
     --brand-hover: 58 68 168;
+    --brand-text: 71 82 196;
     --ok:         15 157 107;
     --warn:       180 83 9;
     --bad:        220 38 38;

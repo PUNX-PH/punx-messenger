@@ -181,7 +181,7 @@ export default function GroupInvites({ group, canEdit, meUid }) {
                     <>
                       <button
                         onClick={() => copy(url)}
-                        className="text-xs text-brand hover:underline shrink-0"
+                        className="text-xs text-brand-text hover:underline shrink-0"
                       >
                         {copied === url ? 'Copied' : 'Copy'}
                       </button>

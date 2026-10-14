@@ -310,7 +310,7 @@ function MembersTab({
               <span className={[
                 'text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border',
                 isOwner ? 'text-warn border-warn/40 bg-warn/10'
-                  : isGroupAdmin ? 'text-brand border-brand/40 bg-brand/10'
+                  : isGroupAdmin ? 'text-brand-text border-brand/40 bg-brand/10'
                   : 'text-ink-dim border-line-subtle',
               ].join(' ')}>
                 {groupRoleLabel}

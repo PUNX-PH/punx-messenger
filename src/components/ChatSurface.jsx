@@ -6,6 +6,7 @@ import {
 } from '../lib/db'
 import { useAuth } from '../lib/auth'
 import { useUsers } from '../lib/users'
+import ErrorBoundary from './ErrorBoundary'
 import MessageList, { PinIcon } from './MessageList'
 import Composer from './Composer'
 import TypingIndicator from './TypingIndicator'
@@ -106,6 +107,13 @@ export default function ChatSurface({
 
   // Mark this container read whenever we have messages and the user is here.
   // Skips the personal /users/{uid}/notes path — nothing to track unread for.
+  //
+  // Keyed on the NEWEST message's id, not the number of messages. The listener
+  // is a fixed-size window over the latest messages, so once a channel has more
+  // than a page the count stays put while new messages slide the window along:
+  // watching a busy channel live never re-marked it read, and it showed unread
+  // the moment you left.
+  const newestId = messages.length ? messages[messages.length - 1].id : null
   useEffect(() => {
     if (!profile?.uid || !path || readOnly) return
     if (path.startsWith('users/')) return
@@ -114,7 +122,7 @@ export default function ChatSurface({
       markRead(profile.uid, containerPath).catch(() => {})
     }, 400)
     return () => clearTimeout(t)
-  }, [profile?.uid, path, messages.length])
+  }, [profile?.uid, path, newestId, readOnly])
 
   // close pinned dropdown on outside click
   useEffect(() => {
@@ -235,26 +243,31 @@ export default function ChatSurface({
         {headerExtras}
       </header>
 
-      <MessageList
-        messages={messages}
-        hasMore={hasMore}
-        loadingMore={loadingMore}
-        onLoadOlder={loadOlder}
-        emptyTitle={empty?.title || 'This is the start of the conversation'}
-        emptyDesc={empty?.desc || 'Say hi 👋'}
-        canPin={canPin && !readOnly}
-        canDeleteAny={canDeleteAny && !readOnly}
-        readOnly={readOnly}
-        onTogglePin={onTogglePin}
-        onEdit={onEdit}
-        onDelete={onDelete}
-        onReact={readOnly ? null : onReact}
-        onReply={readOnly ? null : setReplyingTo}
-        onJumpToMessage={jumpTo}
-        meUid={profile?.uid}
-        scrollToId={jumpId}
-        highlightId={jumpId}
-      />
+      {/* A message that cannot be rendered must not take the header, sidebar and
+          composer with it — least of all for an admin who needs to open the
+          channel to delete it. */}
+      <ErrorBoundary resetKey={path} title="This conversation can't be shown">
+        <MessageList
+          messages={messages}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadOlder={loadOlder}
+          emptyTitle={empty?.title || 'This is the start of the conversation'}
+          emptyDesc={empty?.desc || 'Say hi 👋'}
+          canPin={canPin && !readOnly}
+          canDeleteAny={canDeleteAny && !readOnly}
+          readOnly={readOnly}
+          onTogglePin={onTogglePin}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onReact={readOnly ? null : onReact}
+          onReply={readOnly ? null : setReplyingTo}
+          onJumpToMessage={jumpTo}
+          meUid={profile?.uid}
+          scrollToId={jumpId}
+          highlightId={jumpId}
+        />
+      </ErrorBoundary>
 
       <TypingIndicator names={typingNames} />
 
@@ -319,7 +332,7 @@ function PinnedDropdown({ pinned, onJump, canPin, onUnpin }) {
                 <span className="font-semibold text-sm text-ink truncate">{m.author?.name || 'Unknown'}</span>
                 <button
                   onClick={() => onJump(m.id)}
-                  className="text-xs text-brand hover:underline shrink-0"
+                  className="text-xs text-brand-text hover:underline shrink-0"
                 >
                   Jump
                 </button>

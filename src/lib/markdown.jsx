@@ -33,7 +33,10 @@ const CODE_BLOCK_RE = /```([\s\S]*?)```/g
  * Returns an array of React nodes.
  */
 export function renderMessage(text, { emojiByName = {}, usersById = {}, emojiSize = 22 } = {}) {
-  if (!text) return null
+  // Not just falsy: a document can carry a number or an object here (any member
+  // can write one straight to Firestore), and `.slice` on it would throw while
+  // rendering and take the channel down for everyone who opens it.
+  if (typeof text !== 'string' || !text) return null
 
   const out = []
   let lastIdx = 0
@@ -88,7 +91,7 @@ function renderInline(text, { emojiByName, usersById, emojiSize, kStart = 0 }) {
       out.push(<em key={key}>{italic2.slice(1, -1)}</em>)
     } else if (url) {
       out.push(
-        <a key={key} href={url} target="_blank" rel="noreferrer" className="text-brand hover:underline break-all">
+        <a key={key} href={url} target="_blank" rel="noreferrer" className="text-brand-text hover:underline break-all">
           {url}
         </a>
       )
@@ -113,7 +116,7 @@ function renderInline(text, { emojiByName, usersById, emojiSize, kStart = 0 }) {
       out.push(
         <span
           key={key}
-          className="inline-flex items-center px-1 rounded bg-brand/15 text-brand font-medium cursor-default"
+          className="inline-flex items-center px-1 rounded bg-brand/15 text-brand-text font-medium cursor-default"
           title={u?.email || ''}
         >
           @{u?.name || 'Unknown'}
@@ -132,7 +135,9 @@ function renderInline(text, { emojiByName, usersById, emojiSize, kStart = 0 }) {
 
 /** True if the message text is only emoji tokens (and whitespace). */
 export const isOnlyEmojis = (text) => {
-  const t = (text || '').trim()
+  // typeof, because `(5 || '').trim` is "not a function" and this runs for every
+  // message on every render.
+  const t = typeof text === 'string' ? text.trim() : ''
   return !!t && /^(\s*:[a-z0-9_]{2,32}:\s*)+$/i.test(t)
 }
 

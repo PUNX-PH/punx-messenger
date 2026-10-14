@@ -183,6 +183,9 @@ export default function Composer({
       const resolved = resolveMentions(text.trim(), users, mentionHintsRef.current)
       await onSend({ text: resolved, imageFile: file })
       setText(''); setFile(null)
+      // The box grows with what is typed and only ever shrinks on input, so
+      // after a long message it stayed tall around an empty field.
+      if (taRef.current) taRef.current.style.height = 'auto'
       mentionHintsRef.current.clear()
       taRef.current?.focus()
     } catch (err) {
@@ -214,7 +217,7 @@ export default function Composer({
       {replyingTo && (
         <div className="mb-1.5 flex items-center gap-2 bg-bg-raised/70 border border-line-subtle rounded-md px-3 py-1.5 text-xs">
           <span className="text-ink-dim">Replying to</span>
-          <span className="text-brand font-medium">@{replyingTo.author?.name || 'someone'}</span>
+          <span className="text-brand-text font-medium">@{replyingTo.author?.name || 'someone'}</span>
           <span className="text-ink-dim truncate flex-1 min-w-0">
             {replyingTo.text || (replyingTo.imageURL ? '[image]' : '')}
           </span>
@@ -325,11 +328,16 @@ export default function Composer({
                   return
                 }
               }
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
+              // isComposing: Enter confirms a candidate in an IME and must not also send.
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit() }
             }}
             rows={1}
             placeholder={sending ? 'Uploading…' : placeholder}
-            disabled={disabled || sending}
+            disabled={disabled}
+            // readOnly, not disabled, while sending: a disabled field cannot take
+            // focus, so the refocus after a send did nothing and the next message
+            // needed a click first. submit() already refuses a second send.
+            readOnly={sending}
             className="w-full bg-transparent text-ink placeholder:text-ink-dim resize-none outline-none max-h-40 leading-6 py-1.5 disabled:opacity-50 align-middle"
           />
         </div>
@@ -371,7 +379,7 @@ export default function Composer({
         <button
           type="submit"
           disabled={(!text.trim() && !file) || sending || disabled}
-          className="text-brand disabled:text-ink-dim hover:text-brand-hover transition-colors p-1.5 disabled:cursor-not-allowed shrink-0"
+          className="text-brand-text disabled:text-ink-dim hover:text-ink transition-colors p-1.5 disabled:cursor-not-allowed shrink-0"
           title="Send"
           aria-label="Send"
         >

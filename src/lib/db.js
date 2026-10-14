@@ -55,10 +55,24 @@ export async function ensureDmConvo(me, other) {
 // reachable rather than unreachable.
 export const MESSAGE_PAGE = 50
 
+// Firestore will store anything a member's client writes, and firestore.rules
+// only checks a message's author — so `text` can arrive as a number or an
+// object. React throws on an object child, and string methods throw on a
+// number, so one such message used to crash the channel for everyone who opened
+// it. Coerced once, here, so no consumer (list, pinned, search, reply quote)
+// has to defend itself.
+function cleanMessage(data) {
+  return {
+    ...data,
+    text: typeof data.text === 'string' ? data.text : '',
+    imageURL: typeof data.imageURL === 'string' ? data.imageURL : null,
+  }
+}
+
 export function listenMessages(path, cb, lim = MESSAGE_PAGE) {
   const q = query(collection(db, ...path.split('/')), orderBy('createdAt', 'desc'), fbLimit(lim))
   return onSnapshot(q, (snap) => {
-    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const docs = snap.docs.map(d => ({ id: d.id, ...cleanMessage(d.data()) }))
     docs.reverse() // oldest first, the order the list renders in
     // `hasMore` is inferred from a full page: if the window is saturated there
     // is probably more behind it. It can be wrong once, on a channel whose

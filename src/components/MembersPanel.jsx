@@ -94,7 +94,7 @@ function MemberRow({ m, meUid, dim }) {
         <span className="text-[9px] uppercase tracking-wider text-warn font-semibold shrink-0">Owner</span>
       )}
       {m.roleTier === 1 && (
-        <span className="text-[9px] uppercase tracking-wider text-brand font-semibold shrink-0">Admin</span>
+        <span className="text-[9px] uppercase tracking-wider text-brand-text font-semibold shrink-0">Admin</span>
       )}
     </>
   )

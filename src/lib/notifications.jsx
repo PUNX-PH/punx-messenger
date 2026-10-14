@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { collectionGroup, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore'
+import { useNavigate } from 'react-router-dom'
 import { db } from './firebase'
 import { useAuth } from './auth'
 import { useUsers } from './users'
@@ -59,6 +60,9 @@ export function NotificationDaemon() {
   const { profile } = useAuth()
   const { byId } = useUsers()
   const { permission } = useNotifications()
+  const navigate = useNavigate()
+  const byIdRef = useRef(byId)
+  byIdRef.current = byId
 
   // Timestamp at mount: only messages newer than this trigger notifications.
   const baselineRef = useRef(Date.now())
@@ -72,10 +76,15 @@ export function NotificationDaemon() {
     supported && permission === 'granted'
     && (document.hidden || !document.hasFocus())
 
-  const fire = ({ key, title, body, icon, path }) => {
+  // `stamp` identifies the MESSAGE (its timestamp or id), so the same message is
+  // never announced twice and two identical ones ("ok", "ok") both are. It used
+  // to be the body text, which dropped the second "ok"; and it was recorded only
+  // after the focus check below, so everything that arrived while the tab was in
+  // front was still "new" the moment you left, and replayed as a burst.
+  const fire = ({ key, stamp, title, body, icon, path }) => {
+    if (lastByKey.current.get(key) === stamp) return
+    lastByKey.current.set(key, stamp)
     if (!shouldNotify()) return
-    if (lastByKey.current.get(key) === (body + '|' + path)) return
-    lastByKey.current.set(key, body + '|' + path)
     try {
       const n = new Notification(title, {
         body: stripTokens(body),
@@ -85,7 +94,9 @@ export function NotificationDaemon() {
       })
       n.onclick = () => {
         window.focus()
-        if (path) window.location.assign(path)
+        // A router navigation, not location.assign: a full reload tears down
+        // whatever call or voice session is in progress.
+        if (path) navigate(path)
         n.close()
       }
     } catch { /* noop */ }
@@ -100,9 +111,10 @@ export function NotificationDaemon() {
         if (ts <= baselineRef.current) return
         if (!dm.lastMessageAuthorUid) return
         if (dm.lastMessageAuthorUid === profile.uid) return
-        const author = byId[dm.lastMessageAuthorUid]
+        const author = byIdRef.current[dm.lastMessageAuthorUid]
         fire({
           key: `dm:${dm.id}`,
+          stamp: String(ts),
           title: author?.name || 'New message',
           body: dm.lastMessageText || '',
           icon: author?.photoURL || undefined,
@@ -110,7 +122,10 @@ export function NotificationDaemon() {
         })
       })
     })
-  }, [profile?.id, byId, permission])
+    // Not `byId`: the directory changes with every presence heartbeat anyone
+    // sends, and each change tore this subscription down and rebuilt it — which
+    // replays every conversation. It is read through a ref instead.
+  }, [profile?.id, permission])
 
   // ── Channel @mentions → notify when someone mentions me ──
   useEffect(() => {
@@ -137,6 +152,7 @@ export function NotificationDaemon() {
 
         fire({
           key: `mention:${change.doc.id}`,
+          stamp: change.doc.id,
           title: `${m.author?.name || 'Someone'} mentioned you`,
           body: m.text || (m.imageURL ? '[image]' : ''),
           icon: m.author?.photoURL || undefined,

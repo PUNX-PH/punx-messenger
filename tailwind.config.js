@@ -37,6 +37,8 @@ export default {
         brand: {
           DEFAULT: 'rgb(var(--brand) / <alpha-value>)',
           hover:   'rgb(var(--brand-hover) / <alpha-value>)',
+          // For brand-coloured text; the fill colour is too dark to read as text on dark.
+          text:    'rgb(var(--brand-text) / <alpha-value>)',
           // Was #5865F226, i.e. brand at ~15%. Expressed against the same
           // variable so it tracks the brand colour in both themes instead of
           // being a third value to remember.
