@@ -251,12 +251,21 @@ describe('POST /bot/token', () => {
   beforeEach(() => {
     seed(MSG, `bots/${uid}`, { name: 'Disabled Bot', enabled: false })
     seed(MSG, `bots/${uid}/private/credentials`, { keyHash: hash })
+    seed(MSG, `users/${uid}`, { name: 'Disabled Bot', type: 'bot' })
   })
 
   test('a wrong key is a 401 whether or not the bot is disabled', async () => {
     assert.equal((await post(wrongKey)).status, 401)
     // And indistinguishable from a bot that does not exist at all.
     assert.equal((await post(`punxbot_nosuchbot-1234_${'ab'.repeat(16)}`)).status, 401)
+  })
+
+  test("a registry entry at a PERSON's uid mints nothing, even with the right key", async () => {
+    // The attack: an admin writes bots/<developerUid> plus a hash of a key they
+    // chose. The rules now refuse to create it, but the issuer does not lean on that.
+    seed(MSG, `users/${uid}`, { name: 'A Developer', role: 'developer', email: 'dev@punx.ai' })
+    seed(MSG, `bots/${uid}`, { name: 'x', enabled: true })
+    assert.equal((await post(apiKey)).status, 401)
   })
 
   test('only the right key learns the bot is disabled', async () => {
