@@ -140,7 +140,7 @@ class _ParagraphViewState extends State<_ParagraphView> {
         return TextSpan(
           text: token.url,
           style: widget.baseStyle.copyWith(
-            color: Palette.brand,
+            color: Palette.brandText,
             decoration: TextDecoration.underline,
           ),
           recognizer: recognizer,
@@ -177,7 +177,7 @@ class _ParagraphViewState extends State<_ParagraphView> {
             child: Text(
               '@${user?.name ?? 'Unknown'}',
               style: widget.baseStyle.copyWith(
-                color: Palette.brand,
+                color: Palette.brandText,
                 fontWeight: FontWeight.w600,
               ),
             ),

@@ -15,6 +15,7 @@ class PaletteTokens {
     required this.inkMuted,
     required this.inkDim,
     required this.brand,
+    required this.brandText,
     required this.brandHover,
     required this.brandSoft,
     required this.ok,
@@ -33,6 +34,13 @@ class PaletteTokens {
   final Color inkMuted;
   final Color inkDim;
   final Color brand;
+
+  /// [brand] as TEXT. The fill colour is too dark to read on the dark surfaces
+  /// (about 3.3:1 on the raised one, under the 4.5:1 floor), so words and links
+  /// use this lighter step.
+  /// Mirrors `--brand-text` in src/index.css; backgrounds, borders and icons
+  /// keep [brand].
+  final Color brandText;
   final Color brandHover;
   final Color brandSoft;
   final Color ok;
@@ -53,6 +61,7 @@ const paletteDark = PaletteTokens(
   inkMuted: Color(0xFFB0B6C0),
   inkDim: Color(0xFF949CAA), // 5.4:1 on bgRaised; the old #6B7280 was 3.1:1
   brand: Color(0xFF5865F2), // "punx blurple"
+  brandText: Color(0xFF8C96FF), // 5.7:1 on bgRaised; brand itself is 3.3:1
   brandHover: Color(0xFF4752C4),
   brandSoft: Color(0x265865F2), // ~15% alpha
   ok: Color(0xFF10B981), // online / success
@@ -78,6 +87,7 @@ const paletteLight = PaletteTokens(
   inkMuted: Color(0xFF4B5563),
   inkDim: Color(0xFF5A6270), // 5.1:1 on bgHover; not shared with dark, which fails
   brand: Color(0xFF4752C4), // a touch deeper, for contrast on white
+  brandText: Color(0xFF4752C4), // already dark enough for text on white
   brandHover: Color(0xFF3A44A8),
   brandSoft: Color(0x1F5865F2),
   ok: Color(0xFF0F9D6B),
@@ -122,6 +132,7 @@ abstract final class Palette {
   static Color get inkDim => _t.inkDim;
 
   static Color get brand => _t.brand;
+  static Color get brandText => _t.brandText;
   static Color get brandHover => _t.brandHover;
   static Color get brandSoft => _t.brandSoft;
 

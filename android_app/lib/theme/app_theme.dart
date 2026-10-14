@@ -173,7 +173,7 @@ ThemeData buildAppTheme({bool light = false}) {
     ),
     bottomNavigationBarTheme: BottomNavigationBarThemeData(
       backgroundColor: Palette.bgDark,
-      selectedItemColor: Palette.brand,
+      selectedItemColor: Palette.brandText,
       unselectedItemColor: Palette.inkDim,
       type: BottomNavigationBarType.fixed,
     ),

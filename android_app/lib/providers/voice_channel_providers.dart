@@ -1,14 +1,17 @@
 import 'dart:async';
 
 import 'package:collection/collection.dart';
+import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../models/voice_participant.dart';
 import '../services/turn_service.dart';
 import '../services/voice_channel_repository.dart';
 import '../services/voice_foreground_service.dart';
+import '../services/voice_pair_health.dart';
 import '../services/webrtc_service.dart';
 import 'auth_providers.dart';
 import 'calls_providers.dart' show webrtcServiceProvider;
@@ -24,6 +27,10 @@ import 'calls_providers.dart' show webrtcServiceProvider;
 /// except [WebrtcService], the raw plumbing both need.
 
 const _heartbeat = Duration(seconds: 15);
+
+/// How often to ask each peer connection whether audio is still arriving. See
+/// [PairHealthTracker] for what counts as stalled.
+const _repairPoll = Duration(seconds: 4);
 
 /// Speaking detection polls `getStats()` rather than analysing audio, because
 /// there is no Web Audio on mobile. Slower than the web's 150ms AnalyserNode
@@ -228,7 +235,13 @@ class VoiceController extends StateNotifier<VoiceUiState> {
   StreamSubscription<List<VoiceSignal>>? _signalsSub;
   Timer? _heartbeatTimer;
   Timer? _speakingTimer;
+  Timer? _repairTimer;
+  bool _repairing = false;
   final Map<String, DateTime> _lastLoudAt = {};
+
+  /// Self-healing for silent pairs, the same rules as the web client. Outside
+  /// [_Peer] so the attempt count survives the rebuild it triggers.
+  final PairHealthTracker _health = PairHealthTracker();
 
   // ---------- join / leave ----------
 
@@ -242,6 +255,18 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     try {
       // Audio session first: without it Android can route voice to the wrong
       // device or leave the stream at media (not communication) volume.
+      // Android 12+ only routes to a Bluetooth headset if BLUETOOTH_CONNECT is
+      // granted at runtime; declaring it in the manifest is not enough. Asked
+      // here, in context, and never required — a refusal just means the phone's
+      // own speaker or earpiece is used.
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        await _nativeAudio(
+          'bluetooth permission',
+          () async {
+            await Permission.bluetoothConnect.request();
+          },
+        );
+      }
       await _nativeAudio('audio session', Helper.ensureAudioSession);
       // Throws if the user refuses the microphone, which is a refusal to
       // answer rather than a fault — say so plainly instead of surfacing a
@@ -268,15 +293,27 @@ class VoiceController extends StateNotifier<VoiceUiState> {
       await _repo.joinRoster(groupId, channelId, myUid);
 
       _heartbeatTimer = Timer.periodic(_heartbeat, (_) async {
-        final stillListed =
-            await _repo.heartbeatRoster(groupId, channelId, myUid);
-        if (!stillListed && state.active?.same(groupId, channelId) == true) {
-          await _rejoinMesh(groupId, channelId);
+        final beat = await _repo.heartbeatRoster(groupId, channelId, myUid);
+        if (state.active?.same(groupId, channelId) != true) return;
+        switch (beat) {
+          case HeartbeatResult.denied:
+            // Removed from the group, channel access revoked, or deactivated.
+            // Without this the mic and every peer connection stayed live for a
+            // person the rules had already shut out.
+            await _teardown(
+              keepError: 'You no longer have access to this voice channel.',
+            );
+            return;
+          case HeartbeatResult.evicted:
+            await _rejoinMesh(groupId, channelId);
+          case HeartbeatResult.listed:
+            break;
         }
         _repo.pruneStaleParticipants(groupId, channelId,
             myUid: myUid, joined: true);
       });
       _speakingTimer = Timer.periodic(_speakingPoll, (_) => _pollSpeaking());
+      _repairTimer = Timer.periodic(_repairPoll, (_) => _repairTick());
 
       _signalsSub = _repo
           .listenMySignals(groupId, channelId, myUid)
@@ -310,6 +347,10 @@ class VoiceController extends StateNotifier<VoiceUiState> {
 
   Future<void> leave() => _teardown();
 
+  /// For the provider's sign-out/removal listeners, which sit outside the class
+  /// and so cannot read the protected `state`.
+  bool get hasSession => state.active != null;
+
   /// [keepError] survives the reset. Everything else about the session does not.
   Future<void> _teardown({String? keepError}) async {
     final ref = state.active;
@@ -321,15 +362,25 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     _signalsSub = null;
     _heartbeatTimer?.cancel();
     _speakingTimer?.cancel();
+    _repairTimer?.cancel();
     _heartbeatTimer = null;
     _speakingTimer = null;
+    _repairTimer = null;
 
     for (final uid in _peers.keys.toList()) {
-      await _closePeer(uid, deleteSignal: true, reason: 'teardown');
+      // Never let one refused signalling delete stop the rest: this runs when
+      // the rules have just shut us out, and an exception here would skip the
+      // lines below that release the microphone.
+      try {
+        await _closePeer(uid, deleteSignal: true, reason: 'teardown');
+      } catch (e) {
+        debugPrint('[voice] closing $uid during teardown failed: $e');
+      }
     }
     _peers.clear();
     _answeredOffers.clear();
     _lastLoudAt.clear();
+    _health.clear();
 
     if (ref != null && myUid != null) {
       await _repo.leaveRoster(ref.groupId, ref.channelId, myUid);
@@ -724,16 +775,71 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     if (myUid == null) return;
     try {
       await _repo.joinRoster(groupId, channelId, myUid);
-    } catch (_) {
-      return; // Still evicted; the next heartbeat tries again.
+    } catch (e) {
+      if (e is FirebaseException && e.code == 'permission-denied') {
+        // Not evicted — refused. Retrying forever would leave the call running.
+        await _teardown(
+          keepError: 'You no longer have access to this voice channel.',
+        );
+      }
+      return; // Otherwise still evicted; the next heartbeat tries again.
     }
     for (final uid in _peers.keys.toList()) {
       _answeredOffers.remove(uid);
+      _health.forget(uid);
       await _closePeer(uid, deleteSignal: true, reason: 'rejoin-mesh');
     }
     for (final p in state.participants) {
       if (p.uid == myUid) continue;
       if (voiceOffererUid(myUid, p.uid) == myUid) _offerTo(p.uid);
+    }
+  }
+
+  /// Rebuilds any pair that has stopped delivering audio. Port of repairTick in
+  /// src/lib/useVoiceChannel.jsx — see [PairHealthTracker] for the rules.
+  ///
+  /// A muted peer still sends RTP silence, so mute does not read as a stall.
+  Future<void> _repairTick() async {
+    if (_repairing) return; // a slow getStats() must not stack ticks
+    final myUid = _myUid;
+    if (myUid == null || state.active == null) return;
+    _repairing = true;
+    try {
+      for (final entry in _peers.entries.toList()) {
+        final peerUid = entry.key;
+        var bytes = 0;
+        try {
+          final reports = await entry.value.pc.getStats();
+          for (final r in reports) {
+            if (r.type == 'inbound-rtp' && r.values['kind'] == 'audio') {
+              final v = r.values['bytesReceived'];
+              if (v is num) bytes += v.toInt();
+            }
+          }
+        } catch (_) {
+          continue; // a connection being torn down under us is not a stall
+        }
+        if (!_peers.containsKey(peerUid)) continue; // closed while awaiting
+
+        final verdict = _health.observe(
+          peerUid,
+          bytes: bytes,
+          iAmOfferer: voiceOffererUid(myUid, peerUid) == myUid,
+          now: DateTime.now(),
+        );
+        if (verdict != PairVerdict.repair) continue;
+
+        debugPrint('[voice] pair $peerUid stalled; re-offering');
+        _answeredOffers.remove(peerUid);
+        // No _health.forget here: the attempt count must outlive the rebuild.
+        // Close AND re-offer finish before the next pair is touched: closing a
+        // peer connection mid-negotiation aborts the process on Android (see
+        // docs/VOICE.md), so repairs are strictly one at a time.
+        await _closePeer(peerUid, reason: 'stalled');
+        await _offerTo(peerUid);
+      }
+    } finally {
+      _repairing = false;
     }
   }
 
@@ -755,6 +861,7 @@ class VoiceController extends StateNotifier<VoiceUiState> {
       if (uid == myUid) continue;
       // They left: forget the answered offer so a rejoin negotiates cleanly.
       _answeredOffers.remove(uid);
+      _health.forget(uid);
       _closePeer(uid, reason: 'roster-removed');
     }
   }
@@ -866,6 +973,8 @@ class VoiceController extends StateNotifier<VoiceUiState> {
       _cameraStream = null;
       state = state.copyWith(cameraOn: false, clearLocalVideo: true);
       _pushRosterState();
+      final name = state.active?.channelName;
+      if (name != null) await VoiceForegroundService.setCamera(false, name);
       return;
     }
     try {
@@ -882,6 +991,11 @@ class VoiceController extends StateNotifier<VoiceUiState> {
       }
       state = state.copyWith(cameraOn: true, localVideoStream: stream);
       _pushRosterState();
+      // The camera permission is granted by this point (getLocalStream asked),
+      // so the service can now legally claim the camera type — and must, or
+      // Android 14+ stops the capture when the app is backgrounded.
+      final name = state.active?.channelName;
+      if (name != null) await VoiceForegroundService.setCamera(true, name);
     } catch (e) {
       state = state.copyWith(connError: 'Could not start the camera: $e');
     }
@@ -991,9 +1105,27 @@ final voiceRosterProvider = StreamProvider.family<List<VoiceParticipant>,
 });
 
 final voiceControllerProvider =
-    StateNotifierProvider<VoiceController, VoiceUiState>(
-  (ref) => VoiceController(ref),
-);
+    StateNotifierProvider<VoiceController, VoiceUiState>((ref) {
+  final controller = VoiceController(ref);
+
+  // A call must not outlive the account that joined it. The controller is not
+  // auto-disposed, so without these a sign-out or a removal left the mic open,
+  // the peer connections running and the foreground notification up — and the
+  // heartbeat's permission errors were swallowed, so nothing ever noticed.
+  void endIf(bool gone) {
+    if (gone && controller.hasSession) unawaited(controller.leave());
+  }
+
+  ref.listen<String?>(
+    authStateProvider.select((a) => a.valueOrNull?.uid),
+    (was, now) => endIf(was != null && now != was),
+  );
+  ref.listen<bool>(
+    profileProvider.select((p) => p.valueOrNull?.deactivated ?? false),
+    (_, deactivated) => endIf(deactivated),
+  );
+  return controller;
+});
 
 /// True while the voice room is asking for the entire screen — set when it is
 /// on-screen in landscape, which is where the nav chrome costs more than it is

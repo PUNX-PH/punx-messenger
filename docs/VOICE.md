@@ -180,14 +180,23 @@ Two rules the repair must keep:
   a sentinel below 0 read as progress and reset the count every time — the cap
   never bound and a dead pair was rebuilt every ~12s for the whole call.
 
-**This is the web client only.** The Flutter client has none of the above: it
-polls inbound stats to light the speaking ring, but nothing acts on a stalled
-pair, and it only handles ICE `failed` (by closing the pair and not offering
-again). A pair that dies on Android stays dead until the user leaves and rejoins.
+**Flutter now does the same.** `VoiceController._repairTick` polls every 4s and
+the decisions live in `lib/services/voice_pair_health.dart`, a WebRTC-free port of
+the rules above with its own tests (`test/services/voice_pair_health_test.dart`,
+including the retry-cap regression). It has **not been exercised on a device**:
+the decision logic is tested, the close-and-re-offer it triggers is not. Before
+trusting it, kill one phone's network mid-call and watch for a re-offer in
+`adb logcat` (`[voice] pair ... stalled; re-offering`) and for a native abort.
 
 On Flutter the closes are **serialized**, never fired together: closing a peer
 connection mid-negotiation aborts the process, so churn there is fatal rather
-than merely wasteful.
+than merely wasteful. `_repairTick` therefore awaits each pair's close and
+re-offer before touching the next, and skips a tick if the last is still running.
+
+A Flutter client whose account is shut out of the channel (removed from the
+group, access revoked, deactivated) now leaves: the 15s heartbeat tells "my row
+was pruned" (rejoin) from "the rules refuse me" (leave), and signing out or being
+deactivated ends the session at once.
 
 ## Deliberate limits
 

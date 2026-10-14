@@ -9,8 +9,9 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 /// that, and its price is the persistent notification the platform requires: it
 /// exists so the user can always see that something is holding their mic.
 ///
-/// Declared with the `microphone` and `camera` service types, which Android 14
-/// requires to match the permissions actually being used. Notably NOT
+/// Declared with the `microphone` type, plus `camera` only while a camera is
+/// open — Android 14 requires the type to match what is actually in use, and
+/// refuses to start a camera-typed service without the camera permission. Notably NOT
 /// `mediaProjection` — Android watches screen shares but never sends one, so
 /// claiming that type would be asking for a permission this app has no use for.
 ///
@@ -44,27 +45,49 @@ abstract final class VoiceForegroundService {
     _initialised = true;
   }
 
+  /// What the running service currently claims. Android 14 refuses to start a
+  /// service whose declared type needs a permission the app does not hold yet,
+  /// so the camera type is only claimed while a camera is actually open — and
+  /// the type cannot be changed on a running service, only by restarting it.
+  static bool _withCamera = false;
+
   /// Starts (or re-labels) the notification for [channelName].
-  static Future<void> start(String channelName) async {
+  ///
+  /// Microphone only unless [camera] is true. It used to claim `camera` every
+  /// time, which on Android 14+ throws a SecurityException for anyone who has not
+  /// granted the camera permission — i.e. most voice users — so the service
+  /// never started and backgrounding silently killed their audio.
+  static Future<void> start(String channelName, {bool camera = false}) async {
     if (!_isAndroid) return;
     try {
       _ensureInit();
       final running = await FlutterForegroundTask.isRunningService;
-      if (running) {
-        await FlutterForegroundTask.updateService(
-          notificationTitle: 'In voice channel',
-          notificationText: channelName,
+      if (running && camera == _withCamera) {
+        _report(
+          'update',
+          await FlutterForegroundTask.updateService(
+            notificationTitle: 'In voice channel',
+            notificationText: channelName,
+          ),
         );
         return;
       }
-      await FlutterForegroundTask.startService(
+      if (running) {
+        // The type has to change, which only a restart can do.
+        _report('stop', await FlutterForegroundTask.stopService());
+      }
+      // startService does not throw: it RETURNS a failure. Ignoring the result
+      // is how a service that never started looked exactly like one that had.
+      final result = await FlutterForegroundTask.startService(
         serviceTypes: [
           ForegroundServiceTypes.microphone,
-          ForegroundServiceTypes.camera,
+          if (camera) ForegroundServiceTypes.camera,
         ],
         notificationTitle: 'In voice channel',
         notificationText: channelName,
       );
+      _report('start', result);
+      _withCamera = result is ServiceRequestSuccess && camera;
     } catch (e) {
       // Voice still works while the app is in front; only backgrounding is
       // affected. Not worth failing a join over.
@@ -72,14 +95,29 @@ abstract final class VoiceForegroundService {
     }
   }
 
+  /// Re-types the running service when the camera goes on or off. A no-op when
+  /// nothing is running or the type already matches.
+  static Future<void> setCamera(bool on, String channelName) async {
+    if (!_isAndroid || on == _withCamera) return;
+    if (!await FlutterForegroundTask.isRunningService) return;
+    await start(channelName, camera: on);
+  }
+
   static Future<void> stop() async {
     if (!_isAndroid) return;
     try {
       if (await FlutterForegroundTask.isRunningService) {
-        await FlutterForegroundTask.stopService();
+        _report('stop', await FlutterForegroundTask.stopService());
       }
     } catch (e) {
       debugPrint('[voice] foreground service did not stop: $e');
+    }
+    _withCamera = false;
+  }
+
+  static void _report(String what, ServiceRequestResult result) {
+    if (result is ServiceRequestFailure) {
+      debugPrint('[voice] foreground service $what failed: ${result.error}');
     }
   }
 

@@ -13,10 +13,22 @@ keyAlias=upload
 keyPassword=...
 ```
 
-**Without that file the release build falls back to the debug key.** That is
-deliberate: a fresh clone, CI, or another machine can still produce a working
-sideloadable APK instead of failing the build. But Play rejects a debug-signed
-upload outright, so a real release needs the file present.
+**Without that file a release build fails.** It used to fall back to the debug
+key, which installs fine and so hides the mistake: Play rejects a debug-signed
+upload, and a debug-signed APK sideloaded to phones can never be updated by the
+properly signed one (Android refuses a different signature, so people would have
+to uninstall and lose their data). Debug builds (`flutter run`) never need the
+file.
+
+For a throwaway local release build, opt in explicitly:
+
+```bash
+ALLOW_DEBUG_SIGNED_RELEASE=1 flutter build apk --release
+```
+
+Not exercised against a real Gradle run when it was written (no Android SDK on
+that machine) — if `flutter build apk --release` behaves unexpectedly, look at
+`gradle.taskGraph.whenReady` in `android/app/build.gradle.kts` first.
 
 Check which key an artefact actually carries rather than assuming:
 
