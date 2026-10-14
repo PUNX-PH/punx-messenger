@@ -6,12 +6,19 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg-deepest px-6">
       <div className="w-full max-w-sm">
-        <div className="flex items-center gap-3 mb-10">
-          <div className="w-10 h-10 rounded-md bg-brand grid place-items-center font-bold text-white text-lg">P</div>
-          <div>
-            <div className="text-lg font-semibold tracking-tight">Punx Messenger</div>
-            <div className="text-xs text-ink-dim">Internal communication</div>
-          </div>
+        {/* The wordmark is a square with the lettering across its middle, so it
+            needs real size to be read — in the old 40px tile it would be a smudge.
+            The ring is what separates the black square from the near-black page. */}
+        <div className="mb-10">
+          <img
+            src="/logo-punx.png"
+            alt="Punx"
+            width="112"
+            height="112"
+            className="rounded-xl ring-1 ring-line-subtle"
+          />
+          <div className="mt-4 text-lg font-semibold tracking-tight">Punx Messenger</div>
+          <div className="text-xs text-ink-dim">Internal communication</div>
         </div>
 
         <h1 className="text-2xl font-bold mb-2 tracking-tight">Sign in</h1>
