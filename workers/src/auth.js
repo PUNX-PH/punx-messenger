@@ -13,6 +13,27 @@ export class AuthError extends Error {
   }
 }
 
+/**
+ * Compare two secrets without leaking where they differ, or how long they are.
+ *
+ * Both sides are hashed first, so what is compared is always two 32-byte
+ * digests: a plain `===` returns at the first differing character, and a
+ * length check on the raw values would leak the secret's length.
+ */
+export async function secretsMatch(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || !a || !b) return false
+  const enc = new TextEncoder()
+  const [ha, hb] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(a)),
+    crypto.subtle.digest('SHA-256', enc.encode(b)),
+  ])
+  const x = new Uint8Array(ha)
+  const y = new Uint8Array(hb)
+  let diff = 0
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i]
+  return diff === 0
+}
+
 function base64UrlToBytes(b64url) {
   const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/')
   const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4))
@@ -72,10 +93,18 @@ export async function verifyAuth(requestOrToken, env, projectId = env.FIREBASE_P
   if (parts.length !== 3) throw new AuthError('Malformed token', 401)
   const [headerB64, payloadB64, sigB64] = parts
 
-  const header = base64UrlDecodeJson(headerB64)
+  // Three dot-separated pieces is not the same as a token. Bad base64 or JSON
+  // throws a plain Error from atob/JSON.parse, which would surface as a 500 and
+  // a logged stack trace for anybody who sends junk — a client error, not ours.
+  let header
+  let payload
+  try {
+    header = base64UrlDecodeJson(headerB64)
+    payload = base64UrlDecodeJson(payloadB64)
+  } catch {
+    throw new AuthError('Malformed token', 401)
+  }
   if (header.alg !== 'RS256') throw new AuthError('Unsupported token algorithm', 401)
-
-  const payload = base64UrlDecodeJson(payloadB64)
   const now = Math.floor(Date.now() / 1000)
 
   if (payload.iss !== `https://securetoken.google.com/${projectId}`) throw new AuthError('Bad issuer', 401)

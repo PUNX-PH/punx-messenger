@@ -240,6 +240,25 @@ export async function setAutoSend(env, enabled) {
  * happened to be parsing it — the exact ambiguity this field exists to remove.
  */
 export async function setCutoffDeadline(env, cutoffId, submitByIso) {
+  // The id goes straight into a Firestore REST path, and this route is called
+  // with the service account, which ignores security rules. `../users/<uid>`
+  // would resolve to a different document altogether, and a trailing `#` or `?`
+  // would swallow the updateMask — turning a one-field merge into a PATCH that
+  // REPLACES the whole cutoff and wipes its dates. So: ids only look like ids.
+  if (typeof cutoffId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(cutoffId)) {
+    throw new AuthError('cutoffId must be 1-128 letters, digits, "-" or "_"', 400)
+  }
+  // An explicit zone is required, as the docstring above says. `new Date('5')`
+  // and a bare `2026-09-28T10:00` both parse — the first as a date in 2001, the
+  // second as whatever zone the Worker runs in — and the result is broadcast to
+  // the whole team as the deadline.
+  if (typeof submitByIso !== 'string' || !/(Z|[+-]\d{2}:?\d{2})$/i.test(submitByIso.trim())) {
+    throw new AuthError(
+      'submitBy must be a full ISO instant with a zone, e.g. 2026-09-28T02:00:00.000Z '
+      + '(10:00 Manila)',
+      400,
+    )
+  }
   const when = new Date(submitByIso)
   if (Number.isNaN(when.getTime())) {
     throw new AuthError(`submitBy is not a valid date: ${submitByIso}`, 400)
@@ -505,18 +524,28 @@ export async function runDtrReminder(env, { force = false, dryRun = false, only 
   // already got it, which is the better of the two failures.
   // A single-recipient test must NOT mark the cutoff as reminded, or testing it
   // would silently cancel the real send to everyone else.
-  if (sent > 0 && !only) {
+  //
+  // And only when EVERYONE got it. Marked on a partial send, three failed DMs
+  // out of twenty-two were final: the next day is not a send day, so nobody
+  // ever tried again and the only trace was a log line. Left unmarked, the run
+  // reads as incomplete, the cron reports it as failed (see scheduled() in
+  // index.js), and a person re-running it sees `failed` with who to chase.
+  let markedSent = false
+  if (sent > 0 && failed.length === 0 && !only) {
     const dtrToken = await serviceAccountToken(env, dtrSa)
     await firestoreMerge(dtrToken, env.DTR_PROJECT_ID, `cutoffs/${cutoff.id}`, {
       [MARKER_FIELD[which]]: cutoff.id,
       [`${MARKER_FIELD[which]}At`]: new Date(),
-    }).catch(() => { /* the DMs landed; a failed marker only risks a repeat */ })
+    }).then(() => { markedSent = true })
+      .catch((e) => console.warn('[dtr] DMs sent but the sent-marker was not written:', e.message))
   }
 
   return {
     sent, failed, cutoffId: cutoff.id, kind: which,
     submitByWasStored: cutoff.submitByWasStored,
     only: only || undefined,
-    markedSent: sent > 0 && !only,
+    // What actually happened, not what was intended: a marker write that was
+    // refused used to be reported as written.
+    markedSent,
   }
 }

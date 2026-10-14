@@ -65,13 +65,17 @@ export async function issueBotToken(request, env) {
 
   const bot = await firestoreGet(env, sa, `bots/${parsed.botUid}`)
   if (!bot) throw rejected
-  // Disabled is worth distinguishing: the key is right, and a bot author
-  // staring at a 401 would otherwise go looking in entirely the wrong place.
-  if (bot.enabled !== true) throw new AuthError('This bot is disabled', 403)
 
   const credentials = await firestoreGet(env, sa, `bots/${parsed.botUid}/private/credentials`)
   if (!credentials?.keyHash) throw rejected
   if (!timingSafeEqual(await sha256Hex(apiKey), credentials.keyHash)) throw rejected
+
+  // Disabled is worth distinguishing: the key is right, and a bot author
+  // staring at a 401 would otherwise go looking in entirely the wrong place.
+  // But only AFTER the key checked out. Answering 403 first made "this bot
+  // exists and is disabled" readable by anyone who could guess an id-shaped
+  // string, which is the very enumeration the single 401 above is there to stop.
+  if (bot.enabled !== true) throw new AuthError('This bot is disabled', 403)
 
   const token = await mintCustomToken(sa, parsed.botUid, {
     // What firestore.rules' isBot() keys off. Nothing else in the token is

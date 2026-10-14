@@ -169,6 +169,24 @@ export function encodeFields(obj) {
 const docsUrl = (projectId) =>
   `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`
 
+// Every segment of a document path is encoded before it joins a URL. Ids reach
+// here from requests and from Firestore documents, and a raw `?` or `#` in one
+// would re-route the request (or drop the updateMask that makes a write a
+// merge) rather than name a document. Ordinary ids pass through unchanged.
+//
+// `.` and `..` cannot be fixed by encoding: URL parsers treat `%2E%2E` as a
+// dot segment too and collapse it, so they are refused. So is an empty segment,
+// which would be a `//` that also rewrites the path.
+const encodePath = (docPath) => docPath
+  .split('/')
+  .map((seg) => {
+    if (seg === '' || seg === '.' || seg === '..') {
+      throw new AuthError(`Invalid Firestore path segment in "${docPath}"`, 400)
+    }
+    return encodeURIComponent(seg)
+  })
+  .join('/')
+
 /**
  * Read one document by path (e.g. `bots/abc123`). Returns null if missing.
  *
@@ -177,7 +195,7 @@ const docsUrl = (projectId) =>
  */
 export async function firestoreGet(env, sa, docPath, projectId = env.FIREBASE_PROJECT_ID) {
   const token = await getAccessToken(env, sa)
-  const res = await fetch(`${docsUrl(projectId)}/${docPath}`, {
+  const res = await fetch(`${docsUrl(projectId)}/${encodePath(docPath)}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (res.status === 404) return null
@@ -222,7 +240,7 @@ export async function firestoreQuery(env, sa, structuredQuery, projectId = env.F
  */
 export async function firestoreMerge(bearer, projectId, docPath, fields) {
   const mask = Object.keys(fields).map(k => `updateMask.fieldPaths=${encodeURIComponent(k)}`).join('&')
-  const res = await fetch(`${docsUrl(projectId)}/${docPath}?${mask}`, {
+  const res = await fetch(`${docsUrl(projectId)}/${encodePath(docPath)}?${mask}`, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ fields: encodeFields(fields) }),
