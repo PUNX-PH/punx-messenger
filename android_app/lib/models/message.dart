@@ -10,6 +10,7 @@ import 'reply_snapshot.dart';
 class ChatMessage {
   final String id;
   final String text;
+
   /// Either an inline base64 data URL (uploads — this app has no Firebase
   /// Storage) or a remote https URL (a GIF from the picker, hosted by Klipy).
   /// Anything rendering it must handle BOTH; see ImageService.isRemoteUrl.
@@ -37,25 +38,51 @@ class ChatMessage {
     this.reactions = const {},
   });
 
-  factory ChatMessage.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? {};
-    final rawReactions = data['reactions'] as Map<String, dynamic>? ?? {};
+  factory ChatMessage.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) =>
+      ChatMessage.fromMap(doc.id, doc.data() ?? {});
+
+  /// Tolerant of a malformed document. One message with a non-string `text`
+  /// used to throw here, and since this runs inside the snapshot stream's map,
+  /// that took the whole chat down with it — the web client had exactly this
+  /// crash. A bad field now degrades to empty/absent instead.
+  factory ChatMessage.fromMap(String id, Map<String, dynamic> data) {
+    final rawReactions = data['reactions'];
+    final reactions = <String, List<String>>{};
+    if (rawReactions is Map) {
+      rawReactions.forEach((k, v) {
+        if (k is String && v is List) {
+          reactions[k] = v.whereType<String>().toList();
+        }
+      });
+    }
+    final rawImageMeta = data['imageMeta'];
+    final rawAuthor = data['author'];
+    final rawReply = data['replyTo'];
+    final rawMentions = data['mentionedUids'];
     return ChatMessage(
-      id: doc.id,
-      text: (data['text'] as String?) ?? '',
-      imageURL: data['imageURL'] as String?,
-      imageMeta: ImageMeta.fromMap(data['imageMeta'] as Map<String, dynamic>?),
-      author: MessageAuthor.fromMap(data['author'] as Map<String, dynamic>?),
-      mentionedUids: List<String>.from(
-        data['mentionedUids'] as List? ?? const [],
+      id: id,
+      text: data['text'] is String ? data['text'] as String : '',
+      imageURL: data['imageURL'] is String ? data['imageURL'] as String : null,
+      imageMeta: ImageMeta.fromMap(
+        rawImageMeta is Map<String, dynamic> ? rawImageMeta : null,
       ),
-      replyTo: ReplySnapshot.fromMap(data['replyTo'] as Map<String, dynamic>?),
-      createdAt: data['createdAt'] as Timestamp?,
-      pinned: (data['pinned'] as bool?) ?? false,
-      editedAt: data['editedAt'] as Timestamp?,
-      reactions: rawReactions.map(
-        (k, v) => MapEntry(k, List<String>.from(v as List)),
+      author: MessageAuthor.fromMap(
+        rawAuthor is Map<String, dynamic> ? rawAuthor : null,
       ),
+      mentionedUids: rawMentions is List
+          ? rawMentions.whereType<String>().toList()
+          : const [],
+      replyTo: ReplySnapshot.fromMap(
+        rawReply is Map<String, dynamic> ? rawReply : null,
+      ),
+      createdAt: data['createdAt'] is Timestamp
+          ? data['createdAt'] as Timestamp
+          : null,
+      pinned: data['pinned'] == true,
+      editedAt: data['editedAt'] is Timestamp
+          ? data['editedAt'] as Timestamp
+          : null,
+      reactions: reactions,
     );
   }
 

@@ -75,138 +75,174 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final message = _error ?? ref.watch(sessionEndedReasonProvider);
     return Scaffold(
       backgroundColor: Palette.bgDeepest,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 384),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
+      // Scrolls when it has to: a short landscape phone or a large text size
+      // makes this column taller than the screen, and a fixed Center would
+      // clip the sign-in button off the bottom. Centred whenever it fits.
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 384),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Palette.brand,
-                        borderRadius: BorderRadius.circular(AppRadii.md),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        'P',
-                        style: AppTextStyles.lg(
-                          color: Colors.white,
-                          weight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    Row(
                       children: [
-                        Text(
-                          'Punx Messenger',
-                          style: AppTextStyles.base(weight: FontWeight.w600),
+                        // The PUNX wordmark, small and beside the name. The image
+                        // is a square with the lettering across its middle, so it
+                        // is zoomed inside a clipped tile — otherwise at this size
+                        // the letters shrink to a few unreadable pixels.
+                        Semantics(
+                          label: 'Punx',
+                          image: true,
+                          child: ExcludeSemantics(
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              clipBehavior: Clip.antiAlias,
+                              decoration: BoxDecoration(
+                                color: Colors.black,
+                                borderRadius: BorderRadius.circular(
+                                  AppRadii.md,
+                                ),
+                                border: Border.all(color: Palette.lineSubtle),
+                              ),
+                              child: Transform.scale(
+                                scale: 1.8,
+                                child: Image.asset(
+                                  'assets/login_mark.png',
+                                  fit: BoxFit.cover,
+                                  filterQuality: FilterQuality.medium,
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
-                        Text(
-                          'Internal communication',
-                          style: AppTextStyles.xs(color: Palette.inkDim),
+                        const SizedBox(width: 12),
+                        // Expanded, so the name wraps instead of running off
+                        // the edge: this Row overflowed on a 320dp phone at
+                        // normal text size, and at any width once the text
+                        // scale went up.
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Punx Messenger',
+                                style: AppTextStyles.base(
+                                  weight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                'Internal communication',
+                                style: AppTextStyles.xs(color: Palette.inkDim),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
+                    const SizedBox(height: 32),
+                    Text(
+                      'Sign in',
+                      style: AppTextStyles.lg(
+                        weight: FontWeight.w700,
+                      ).copyWith(fontSize: 22),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Restricted to @${AppConfig.allowedEmailDomain} accounts.',
+                      style: AppTextStyles.sm(color: Palette.inkMuted),
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: _busy ? null : _onSignIn,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Palette.bgDeepest,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: _busy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: const [
+                                _GoogleG(),
+                                SizedBox(width: 10),
+                                // Flexible so a large text size wraps the label
+                                // instead of overflowing the button.
+                                Flexible(
+                                  child: Text(
+                                    'Continue with Google',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                    if (message != null) ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Palette.bad.withValues(alpha: 0.1),
+                          border: Border.all(
+                            color: Palette.bad.withValues(alpha: 0.2),
+                          ),
+                          borderRadius: BorderRadius.circular(AppRadii.md),
+                        ),
+                        child: Text(
+                          message,
+                          style: AppTextStyles.sm(color: Palette.bad),
+                        ),
+                      ),
+                    ],
+                    // Emulator runs only — compiled out of a normal build,
+                    // because Emulators.enabled is a --dart-define.
+                    if (Emulators.enabled) ...[
+                      const SizedBox(height: 20),
+                      Text(
+                        'Emulator sign-in',
+                        style: AppTextStyles.xs(color: Palette.inkDim),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: _emulatorEmail,
+                        enabled: !_busy,
+                        autocorrect: false,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          hintText: 'someone@punx.ai',
+                          isDense: true,
+                        ),
+                        onSubmitted: (_) => _onEmulatorSignIn(),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton(
+                        onPressed: _busy ? null : _onEmulatorSignIn,
+                        child: const Text('Sign in without Google'),
+                      ),
+                    ],
+                    const SizedBox(height: 24),
+                    Text(
+                      'By signing in you agree to our internal acceptable-use policy.',
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.xs(color: Palette.inkDim),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 32),
-                Text(
-                  'Sign in',
-                  style: AppTextStyles.lg(
-                    weight: FontWeight.w700,
-                  ).copyWith(fontSize: 22),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Restricted to @${AppConfig.allowedEmailDomain} accounts.',
-                  style: AppTextStyles.sm(color: Palette.inkMuted),
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: _busy ? null : _onSignIn,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Palette.bgDeepest,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: _busy
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Row(
-                          mainAxisSize: MainAxisSize.min,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
-                            _GoogleG(),
-                            SizedBox(width: 10),
-                            Text(
-                              'Continue with Google',
-                              style: TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                          ],
-                        ),
-                ),
-                if (message != null) ...[
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Palette.bad.withValues(alpha: 0.1),
-                      border: Border.all(
-                        color: Palette.bad.withValues(alpha: 0.2),
-                      ),
-                      borderRadius: BorderRadius.circular(AppRadii.md),
-                    ),
-                    child: Text(
-                      message,
-                      style: AppTextStyles.sm(color: Palette.bad),
-                    ),
-                  ),
-                ],
-                // Emulator runs only — compiled out of a normal build,
-                // because Emulators.enabled is a --dart-define.
-                if (Emulators.enabled) ...[
-                  const SizedBox(height: 20),
-                  Text(
-                    'Emulator sign-in',
-                    style: AppTextStyles.xs(color: Palette.inkDim),
-                  ),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: _emulatorEmail,
-                    enabled: !_busy,
-                    autocorrect: false,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(
-                      hintText: 'someone@punx.ai',
-                      isDense: true,
-                    ),
-                    onSubmitted: (_) => _onEmulatorSignIn(),
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton(
-                    onPressed: _busy ? null : _onEmulatorSignIn,
-                    child: const Text('Sign in without Google'),
-                  ),
-                ],
-                const SizedBox(height: 24),
-                Text(
-                  'By signing in you agree to our internal acceptable-use policy.',
-                  textAlign: TextAlign.center,
-                  style: AppTextStyles.xs(color: Palette.inkDim),
-                ),
-              ],
+              ),
             ),
           ),
         ),

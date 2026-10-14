@@ -84,6 +84,11 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # The login screen's wordmark tile. The other files in assets/ are build-time
+  # inputs for flutter_launcher_icons and are deliberately not bundled.
+  assets:
+    - assets/login_mark.png
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

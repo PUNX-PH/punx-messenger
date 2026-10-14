@@ -64,20 +64,56 @@ class AppShell extends ConsumerWidget {
       items.length - 1,
     );
 
+    // A side rail once there is the width for it — a tablet, or a phone held
+    // sideways. Bottom navigation is right for a thumb on a portrait phone, but
+    // on a wide screen it strands the tabs along the very bottom edge and burns
+    // vertical space the conversation needs.
+    final wide = MediaQuery.sizeOf(context).width >= _railBreakpoint;
+
+    void select(int index) => navigationShell.goBranch(
+      index,
+      initialLocation: index == navigationShell.currentIndex,
+    );
+
+    final content = Stack(
+      children: [
+        navigationShell,
+        // Non-visual daemons — presence heartbeat + foreground notifications
+        // + the call signaling engine.
+        const PresenceHeartbeat(),
+        const NotificationDaemon(),
+        const CallDaemon(),
+        // Visible on top of the current tab whenever a call is ringing/live.
+        const CallOverlay(),
+      ],
+    );
+
     return Scaffold(
       backgroundColor: Palette.bgMain,
-      body: Stack(
-        children: [
-          navigationShell,
-          // Non-visual daemons — presence heartbeat + foreground notifications
-          // + the call signaling engine.
-          const PresenceHeartbeat(),
-          const NotificationDaemon(),
-          const CallDaemon(),
-          // Visible on top of the current tab whenever a call is ringing/live.
-          const CallOverlay(),
-        ],
-      ),
+      body: wide && !immersive
+          ? SafeArea(
+              child: Row(
+                children: [
+                  NavigationRail(
+                    backgroundColor: Palette.bgDark,
+                    selectedIndex: currentIndex,
+                    onDestinationSelected: select,
+                    labelType: NavigationRailLabelType.all,
+                    destinations: [
+                      for (final item in items)
+                        NavigationRailDestination(
+                          icon: item.icon,
+                          selectedIcon: item.activeIcon,
+                          label: Text(item.label ?? ''),
+                        ),
+                    ],
+                  ),
+                  VerticalDivider(width: 1, color: Palette.lineSubtle),
+                  Expanded(child: content),
+                ],
+              ),
+            )
+          : content,
       // Voice sits directly above the nav bar so it is present on every tab —
       // the connection outlives the screen you joined it from.
       //
@@ -92,16 +128,18 @@ class AppShell extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (!roomIsThisCall) const VoiceStatusBar(),
-                BottomNavigationBar(
-                  items: items,
-                  currentIndex: currentIndex,
-                  onTap: (index) => navigationShell.goBranch(
-                    index,
-                    initialLocation: index == navigationShell.currentIndex,
+                if (!wide)
+                  BottomNavigationBar(
+                    items: items,
+                    currentIndex: currentIndex,
+                    onTap: select,
                   ),
-                ),
               ],
             ),
     );
   }
 }
+
+/// Width from which the navigation moves to a side rail. 720dp is the usual
+/// small-tablet line, and it also catches a large phone in landscape.
+const _railBreakpoint = 720.0;

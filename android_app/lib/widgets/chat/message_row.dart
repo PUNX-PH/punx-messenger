@@ -71,19 +71,16 @@ class MessageRow extends ConsumerWidget {
     final authorPhoto = liveAuthor?.photoURL ?? message.author.photoURL;
     final authorStatus = ref.watch(statusOfProvider(message.author.uid));
 
+    // Marked by tint, not a coloured left border. A thick stripe down one edge
+    // is the generic "alert" look, and the row already says what it is — the
+    // pin icon and "Pinned" label, or the highlighted @mention.
     Color? bg;
-    Border? leftBorder;
     if (highlighted) {
       bg = Palette.brand.withValues(alpha: 0.12);
     } else if (_mentionsMe) {
       bg = Palette.warn.withValues(alpha: 0.1);
-      leftBorder = Border(
-        left: BorderSide(color: Palette.warn, width: 2),
-      );
     } else if (message.pinned) {
-      leftBorder = Border(
-        left: BorderSide(color: Palette.warn, width: 2),
-      );
+      bg = Palette.warn.withValues(alpha: 0.06);
     }
 
     return GestureDetector(
@@ -91,14 +88,11 @@ class MessageRow extends ConsumerWidget {
       child: Container(
         color: bg,
         padding: EdgeInsets.only(
-          left: leftBorder != null ? 10 : 12,
+          left: 12,
           right: 12,
           top: showHeader ? 8 : 2,
           bottom: 2,
         ),
-        decoration: leftBorder == null
-            ? null
-            : BoxDecoration(border: leftBorder),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -137,7 +131,13 @@ class MessageRow extends ConsumerWidget {
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            formatMessageTime(message.createdAt),
+                            // Time only: the day is on the divider above.
+                            formatClock(
+                              message.createdAt,
+                              use24h: MediaQuery.alwaysUse24HourFormatOf(
+                                context,
+                              ),
+                            ),
                             style: AppTextStyles.xs(color: Palette.inkDim),
                           ),
                           if (message.pinned) ...[

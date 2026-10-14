@@ -296,8 +296,7 @@ class _ComposerState extends State<Composer> {
                   ),
                   IconButton(
                     tooltip: 'GIF',
-                    icon: Icon(Icons.gif_box_outlined,
-                        color: Palette.inkMuted),
+                    icon: Icon(Icons.gif_box_outlined, color: Palette.inkMuted),
                     onPressed: _sending ? null : _pickGif,
                   ),
                   Expanded(
@@ -319,6 +318,7 @@ class _ComposerState extends State<Composer> {
                   ),
                   const SizedBox(width: 4),
                   IconButton(
+                    tooltip: _sending ? 'Sending' : 'Send message',
                     onPressed: canSend ? _submit : null,
                     icon: _sending
                         ? const SizedBox(
@@ -433,6 +433,7 @@ class _ImagePreview extends StatelessWidget {
             ),
           ),
           IconButton(
+            tooltip: 'Remove attachment',
             icon: Icon(Icons.close, size: 16, color: Palette.inkDim),
             onPressed: onRemove,
           ),

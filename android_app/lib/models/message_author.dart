@@ -12,9 +12,9 @@ class MessageAuthor {
   static MessageAuthor fromMap(Map<String, dynamic>? data) {
     final d = data ?? {};
     return MessageAuthor(
-      uid: (d['uid'] as String?) ?? '',
-      name: (d['name'] as String?) ?? 'Unknown',
-      photoURL: d['photoURL'] as String?,
+      uid: d['uid'] is String ? d['uid'] as String : '',
+      name: d['name'] is String ? d['name'] as String : 'Unknown',
+      photoURL: d['photoURL'] is String ? d['photoURL'] as String : null,
     );
   }
 

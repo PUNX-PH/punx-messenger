@@ -59,8 +59,14 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
     super.dispose();
   }
 
+  /// At most one pending write, and it is NOT pushed back by later messages.
+  ///
+  /// This used to cancel and restart the timer on every emission — a debounce —
+  /// which in a busy channel (a message every few hundred ms) never reached its
+  /// deadline, so the channel stayed unread for as long as people kept talking.
+  /// Starting it once and letting it fire coalesces the burst just the same.
   void _scheduleMarkRead() {
-    _markReadDebounce?.cancel();
+    if (_markReadDebounce?.isActive ?? false) return;
     _markReadDebounce = Timer(const Duration(milliseconds: 400), () {
       ref.read(chatControllerProvider(widget.path).notifier).markRead();
     });
@@ -133,18 +139,18 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
             position: PopupMenuPosition.under,
             onSelected: (action) => switch (action) {
               _ChatMenuAction.search => showSearchSheet(
-                  context,
-                  messages: messages,
-                  usersById: usersById,
-                  onJump: _jumpTo,
-                ),
+                context,
+                messages: messages,
+                usersById: usersById,
+                onJump: _jumpTo,
+              ),
               _ChatMenuAction.pinned => showPinnedMessagesSheet(
-                  context,
-                  messages: messages,
-                  canPin: widget.canPin,
-                  onJump: _jumpTo,
-                  onUnpin: (m) => controller.togglePin(m),
-                ),
+                context,
+                messages: messages,
+                canPin: widget.canPin,
+                onJump: _jumpTo,
+                onUnpin: (m) => controller.togglePin(m),
+              ),
             },
             itemBuilder: (context) => const [
               PopupMenuItem(
@@ -169,63 +175,75 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: MessageListView(
-              messages: messages,
-              hasMore: hasMore,
-              onLoadOlder: () => ref
-                  .read(messageLimitProvider(widget.path).notifier)
-                  .update((n) => n + AppTiming.messagePageSize),
-              meUid: meUid,
-              usersById: usersById,
-              emojiByName: emojiByName,
-              canDeleteAny: widget.canDeleteAny,
-              canPin: widget.canPin,
-              emptyTitle: widget.emptyTitle,
-              emptyDesc: widget.emptyDesc,
-              scrollToId: _jumpToId,
-              onReply: controller.setReplyingTo,
-              onEdit: (m, text) => controller.edit(m, text),
-              onDelete: (m) => controller.delete(m),
-              onTogglePin: (m) => controller.togglePin(m),
-              onReact: (m, key) => controller.react(m, key),
-              onJumpToMessage: _jumpTo,
-            ),
+      // A readable measure on wide screens. On a tablet or a phone held
+      // sideways the messages would otherwise stretch edge to edge, and a line
+      // that long is hard to follow back to its author. Phones are narrower than
+      // the cap, so nothing changes there.
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: _chatMaxWidth),
+          child: Column(
+            children: [
+              Expanded(
+                child: MessageListView(
+                  messages: messages,
+                  hasMore: hasMore,
+                  onLoadOlder: () => ref
+                      .read(messageLimitProvider(widget.path).notifier)
+                      .update((n) => n + AppTiming.messagePageSize),
+                  meUid: meUid,
+                  usersById: usersById,
+                  emojiByName: emojiByName,
+                  canDeleteAny: widget.canDeleteAny,
+                  canPin: widget.canPin,
+                  emptyTitle: widget.emptyTitle,
+                  emptyDesc: widget.emptyDesc,
+                  scrollToId: _jumpToId,
+                  onReply: controller.setReplyingTo,
+                  onEdit: (m, text) => controller.edit(m, text),
+                  onDelete: (m) => controller.delete(m),
+                  onTogglePin: (m) => controller.togglePin(m),
+                  onReact: (m, key) => controller.react(m, key),
+                  onJumpToMessage: _jumpTo,
+                ),
+              ),
+              TypingIndicator(label: typingLabel),
+              Composer(
+                placeholder:
+                    widget.composerPlaceholder ??
+                    'Message ${widget.icon}${widget.title}',
+                users: users,
+                meUid: meUid,
+                replyingTo: controllerState.replyingTo,
+                onCancelReply: () => controller.setReplyingTo(null),
+                onTyping: containerPath == null ? null : controller.setTyping,
+                onSend:
+                    ({
+                      required String text,
+                      Uint8List? imageBytes,
+                      String? imageName,
+                      String? remoteImageUrl,
+                      Map<String, dynamic>? remoteImageMeta,
+                    }) {
+                      return controller.send(
+                        text: text,
+                        imageBytes: imageBytes,
+                        imageName: imageName,
+                        remoteImageUrl: remoteImageUrl,
+                        remoteImageMeta: remoteImageMeta,
+                      );
+                    },
+              ),
+            ],
           ),
-          TypingIndicator(label: typingLabel),
-          Composer(
-            placeholder:
-                widget.composerPlaceholder ??
-                'Message ${widget.icon}${widget.title}',
-            users: users,
-            meUid: meUid,
-            replyingTo: controllerState.replyingTo,
-            onCancelReply: () => controller.setReplyingTo(null),
-            onTyping: containerPath == null ? null : controller.setTyping,
-            onSend:
-                ({
-                  required String text,
-                  Uint8List? imageBytes,
-                  String? imageName,
-                  String? remoteImageUrl,
-                  Map<String, dynamic>? remoteImageMeta,
-                }) {
-                  return controller.send(
-                    text: text,
-                    imageBytes: imageBytes,
-                    imageName: imageName,
-                    remoteImageUrl: remoteImageUrl,
-                    remoteImageMeta: remoteImageMeta,
-                  );
-                },
-          ),
-        ],
+        ),
       ),
     );
   }
 }
+
+/// Widest the conversation column gets; see the comment on the body.
+const _chatMaxWidth = 840.0;
 
 /// The two secondary chat actions, which live in the app bar's overflow so the
 /// conversation's name keeps the room it needs. See the `actions:` note above.

@@ -71,6 +71,7 @@ class ChannelListScreen extends ConsumerWidget {
                 const Spacer(),
                 if (elevated)
                   IconButton(
+                    tooltip: 'Create channel',
                     icon: Icon(
                       Icons.add,
                       size: 18,

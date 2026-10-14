@@ -310,6 +310,7 @@ class _VoiceChannelScreenState extends ConsumerState<VoiceChannelScreen> {
                           left: 4,
                           child: _ScrimIconButton(
                             icon: Icons.arrow_back,
+                            tooltip: 'Back',
                             onTap: () => Navigator.of(context).maybePop(),
                           ),
                         ),
@@ -318,6 +319,7 @@ class _VoiceChannelScreenState extends ConsumerState<VoiceChannelScreen> {
                           right: 4,
                           child: _ScrimIconButton(
                             icon: Icons.fullscreen_exit,
+                            tooltip: 'Exit full screen',
                             onTap: () => _setFullscreen(false),
                           ),
                         ),
@@ -1168,22 +1170,38 @@ class _CtlButton extends StatelessWidget {
 /// An icon button that stays legible on top of video, whatever the video
 /// happens to be showing behind it.
 class _ScrimIconButton extends StatelessWidget {
-  const _ScrimIconButton({required this.icon, required this.onTap});
+  const _ScrimIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
 
   final IconData icon;
+  final String tooltip;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.black38,
-      shape: const CircleBorder(),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Icon(icon, size: 20, color: Colors.white),
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        label: tooltip,
+        excludeSemantics: true,
+        child: Material(
+          color: Colors.black38,
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            // 40dp visible, padded out to the 48dp touch minimum.
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              child: Center(
+                child: Icon(icon, size: 20, color: Colors.white),
+              ),
+            ),
+          ),
         ),
       ),
     );

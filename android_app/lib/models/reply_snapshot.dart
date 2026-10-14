@@ -17,10 +17,16 @@ class ReplySnapshot {
   static ReplySnapshot? fromMap(Map<String, dynamic>? data) {
     if (data == null) return null;
     return ReplySnapshot(
-      messageId: (data['messageId'] as String?) ?? '',
-      authorUid: data['authorUid'] as String?,
-      authorName: (data['authorName'] as String?) ?? 'Unknown',
-      snippet: (data['snippet'] as String?) ?? '',
+      // `is String`, not `as String?`: a wrong-typed field must not throw, since
+      // that would take the whole message stream down (see ChatMessage.fromMap).
+      messageId: data['messageId'] is String ? data['messageId'] as String : '',
+      authorUid: data['authorUid'] is String
+          ? data['authorUid'] as String
+          : null,
+      authorName: data['authorName'] is String
+          ? data['authorName'] as String
+          : 'Unknown',
+      snippet: data['snippet'] is String ? data['snippet'] as String : '',
     );
   }
 
