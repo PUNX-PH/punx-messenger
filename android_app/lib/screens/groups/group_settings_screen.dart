@@ -271,6 +271,7 @@ class _MembersSection extends ConsumerWidget {
                         ),
                       if (canManage && u.id != me.id)
                         IconButton(
+                          tooltip: 'Remove ${u.name}',
                           icon: Icon(
                             Icons.person_remove_outlined,
                             color: Palette.bad,

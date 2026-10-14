@@ -12,8 +12,10 @@ class LightboxViewer extends StatelessWidget {
   /// Exactly one of [bytes] and [url] is non-null: an inlined upload, or a
   /// remote GIF. See ImageService.isRemoteUrl.
   const LightboxViewer({super.key, this.bytes, this.url})
-      : assert((bytes == null) != (url == null),
-            'pass exactly one of bytes or url');
+    : assert(
+        (bytes == null) != (url == null),
+        'pass exactly one of bytes or url',
+      );
 
   final Uint8List? bytes;
   final String? url;
@@ -54,6 +56,7 @@ class LightboxViewer extends StatelessWidget {
               right: 8,
               child: SafeArea(
                 child: IconButton(
+                  tooltip: 'Close',
                   icon: Icon(Icons.close, color: Palette.ink),
                   onPressed: () => Navigator.of(context).pop(),
                 ),

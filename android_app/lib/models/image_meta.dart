@@ -16,10 +16,14 @@ class ImageMeta {
   static ImageMeta? fromMap(Map<String, dynamic>? data) {
     if (data == null) return null;
     return ImageMeta(
-      width: (data['width'] as num?)?.toInt() ?? 0,
-      height: (data['height'] as num?)?.toInt() ?? 0,
-      approxBytes: (data['approxBytes'] as num?)?.toInt() ?? 0,
-      originalName: (data['originalName'] as String?) ?? '',
+      width: data['width'] is num ? (data['width'] as num).toInt() : 0,
+      height: data['height'] is num ? (data['height'] as num).toInt() : 0,
+      approxBytes: data['approxBytes'] is num
+          ? (data['approxBytes'] as num).toInt()
+          : 0,
+      originalName: data['originalName'] is String
+          ? data['originalName'] as String
+          : '',
     );
   }
 
