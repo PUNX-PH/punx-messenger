@@ -719,9 +719,22 @@ function useVoiceChannelEngine() {
         continue
       }
 
+      // Only the deterministic offerer repairs a pair. The answerer used to take
+      // over after twice the stall window, but it cannot: the offer it would
+      // publish names the OTHER side as offerer (see createVoiceOffer), and the
+      // voiceSignals create rule requires `offererUid == me`, so the write was
+      // always refused — after closePeer() had already deleted the live
+      // negotiation doc out from under the real offerer. All the takeover ever
+      // did was break a connection that was still trying. The offerer's own
+      // retry, below, is the repair.
       const iAmOfferer = voiceOffererUid(myUid, peerUid) === myUid
+      if (!iAmOfferer) {
+        repairRef.current.set(peerUid, st)
+        continue
+      }
+
       const stalledFor = now - st.lastProgressAt
-      if (stalledFor < (iAmOfferer ? STALL_MS : STALL_MS * 2)) {
+      if (stalledFor < STALL_MS) {
         repairRef.current.set(peerUid, st)
         continue
       }
@@ -731,12 +744,14 @@ function useVoiceChannelEngine() {
         continue
       }
 
-      // Whichever side gets here does the offering, deterministic role or not.
-      // The role exists to stop both sides offering at once on join; by now
-      // the other side has had its turn and did not fix this.
       st.attempts += 1
       st.lastProgressAt = now
-      st.lastBytes = -1
+      // 0, not -1. The rebuilt connection starts at 0 bytes, and with -1 that
+      // read as "more than last time" — progress — on the very next tick, which
+      // reset `attempts` to 0 every time. MAX_REPAIRS therefore never bound, and
+      // a pair that could not connect was rebuilt every ~12s for the rest of the
+      // call, at a cost of dozens of Firestore writes each time.
+      st.lastBytes = 0
       repairRef.current.set(peerUid, st)
       answeredOffersRef.current.delete(peerUid)
       closePeer(peerUid)

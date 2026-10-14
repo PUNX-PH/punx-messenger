@@ -94,27 +94,53 @@ export default function MessageList({
     if (stickToBottomRef.current) endRef.current?.scrollIntoView({ block: 'end' })
   }, [messages?.length, messages?.[0]?.id, scrollToId])
 
-  // Count what arrived at the bottom while the reader was up in the history, so
-  // the "jump to latest" control can say there is something to jump to. Keyed on
-  // the NEWEST id: older pages landing at the top change the length too, and
-  // must not read as news.
-  const newestId = messages?.length ? messages[messages.length - 1].id : null
-  useEffect(() => {
-    const prev = lastIdRef.current
-    lastIdRef.current = newestId
-    if (prev === null || newestId === prev) return
-    if (!stickToBottomRef.current) setUnseen(n => n + 1)
-  }, [newestId])
+  const lastMsRef = useRef(0) // createdAt of the newest message already accounted for
 
   // A different conversation is a fresh start: back to the newest, following.
+  //
+  // Declared BEFORE the new-message counter below, and the order matters: effects
+  // run in declaration order, and on mount this one clears the counter's
+  // bookkeeping. Declared after it, it wiped what the counter had just recorded,
+  // so the first message to arrive after a channel opened was never counted.
   useEffect(() => {
     stickToBottomRef.current = true
     firstIdRef.current = null
     anchorRef.current = null
     lastIdRef.current = null
+    lastMsRef.current = 0
     setUnseen(0)
     setAwayFromLatest(false)
   }, [meUid, emptyTitle])
+
+  // Count what arrived at the bottom while the reader was up in the history, so
+  // the "jump to latest" control can say there is something to jump to. Keyed on
+  // the NEWEST id: older pages landing at the top change the length too, and
+  // must not read as news.
+  const newest = messages?.length ? messages[messages.length - 1] : null
+  const newestId = newest?.id ?? null
+  const newestMs = toDate(newest?.createdAt)?.getTime() ?? null
+  const newestMine = !!newest && !!meUid && newest.author?.uid === meUid
+  useEffect(() => {
+    const prevId = lastIdRef.current
+    const prevMs = lastMsRef.current
+    lastIdRef.current = newestId
+    lastMsRef.current = newestMs ?? prevMs
+    if (prevId === null || newestId === prevId) return
+
+    if (newestMine) {
+      // You just sent it, so you want to see it — wherever you had scrolled to.
+      // Counting it as "1 new message" and leaving it off screen was the old
+      // behaviour.
+      stickToBottomRef.current = true
+      setUnseen(0)
+      endRef.current?.scrollIntoView({ block: 'end' })
+      return
+    }
+    // Deleting the newest message makes an OLDER one the newest. That is a
+    // message going away, not one arriving.
+    if (newestMs !== null && prevMs && newestMs < prevMs) return
+    if (!stickToBottomRef.current) setUnseen(n => n + 1)
+  }, [newestId])
 
   const jumpToLatest = () => {
     stickToBottomRef.current = true
@@ -215,7 +241,10 @@ export default function MessageList({
         <Lightbox src={zoomed} onClose={() => setZoomed(null)} />
       </div>
 
-      {awayFromLatest && (
+      {/* `unseen` alone is enough to show it. New messages are counted from
+          NEAR_BOTTOM_PX up, but the distance alone only turns the pill on past
+          FAR_FROM_BOTTOM_PX — so in between, messages arrived with no sign. */}
+      {(awayFromLatest || unseen > 0) && (
         <button
           type="button"
           onClick={jumpToLatest}
@@ -352,7 +381,7 @@ function Row({
               <polyline points="9 14 4 9 9 4"/>
               <path d="M20 20v-7a4 4 0 0 0-4-4H4"/>
             </svg>
-            <span className="text-brand font-medium shrink-0">
+            <span className="text-brand-text font-medium shrink-0">
               @{usersById?.[message.replyTo.authorUid]?.name || message.replyTo.authorName}
             </span>
             <span className="truncate opacity-75">{message.replyTo.snippet}</span>
@@ -518,7 +547,7 @@ function ReactionChip({ emojiKey, uids, meUid, emojiByName, usersById, onToggle 
       className={[
         'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-xs transition-colors',
         mine
-          ? 'bg-brand/15 border-brand/40 text-brand'
+          ? 'bg-brand/15 border-brand/40 text-brand-text'
           : 'bg-bg-raised border-line-subtle text-ink-muted',
         onToggle && !mine ? 'hover:bg-bg-hover hover:border-line-strong' : '',
         onToggle ? '' : 'cursor-default',
@@ -570,11 +599,18 @@ function EditField({ initial, onSave, onCancel }) {
     ta.style.height = Math.min(ta.scrollHeight, 240) + 'px'
   }, [])
 
+  const [error, setError] = useState(null)
+
   const submit = async (e) => {
     e?.preventDefault?.()
-    if (busy) return
+    // The Save button is disabled for a blank value, but Enter calls this
+    // directly. Saving "" left an empty row its author could no longer edit
+    // (there is no text to hang the edit button on).
+    if (busy || !value.trim()) return
     setBusy(true)
+    setError(null)
     try { await onSave(value) }
+    catch (err) { setError(err?.message || "Couldn't save your edit.") }
     finally { setBusy(false) }
   }
 
@@ -590,15 +626,20 @@ function EditField({ initial, onSave, onCancel }) {
         }}
         onKeyDown={(e) => {
           if (e.key === 'Escape') { e.preventDefault(); onCancel() }
-          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
+          // isComposing: Enter confirms a candidate in an IME (Japanese,
+          // Chinese, Korean...) and must not also save the half-typed edit.
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit() }
         }}
         rows={1}
         className="w-full bg-bg-raised border border-line-subtle rounded-md px-3 py-2 text-sm outline-none focus:border-brand resize-none"
       />
+      {error && (
+        <div role="alert" className="mt-1 text-xs text-bad">{error}</div>
+      )}
       <div className="text-[11px] text-ink-dim mt-1">
         <button type="button" onClick={onCancel} className="text-ink-muted hover:underline">cancel</button>
         {' · '}
-        <button type="submit" className="text-brand hover:underline" disabled={busy || !value.trim()}>
+        <button type="submit" className="text-brand-text hover:underline" disabled={busy || !value.trim()}>
           save
         </button>
         <span className="ml-2">Esc to cancel · Enter to save</span>

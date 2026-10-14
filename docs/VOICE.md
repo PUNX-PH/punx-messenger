@@ -161,14 +161,29 @@ does not read as death.
 
 Two rules the repair must keep:
 
-- **Only one side re-offers.** The deterministic offerer goes first and the
-  answerer waits twice as long before taking over. That second window is what
-  covers one-way audio, where the offerer's own inbound is healthy and it will
-  never notice anything is wrong.
+- **Only the deterministic offerer repairs.** The answerer cannot: an offer it
+  published would name the *other* side as offerer, and the `voiceSignals` create
+  rule requires `offererUid == me`, so the write is refused. An earlier version
+  had the answerer "take over" after twice the stall window, on the theory that
+  it would catch one-way audio where the offerer's own inbound looks healthy. It
+  never worked — and each attempt deleted the live signalling doc first, so it
+  could only ever break a connection that was still trying. **One-way audio where
+  the offerer is the one receiving is therefore not repaired** (the receiver has
+  the stats that show it, but is the side without the right to re-offer). Fixing
+  that properly means letting either side offer, which is a rules change and a
+  protocol change together.
 - **Attempts are capped, and the count outlives the connection.** A retry whose
   memory dies with the thing being retried is an infinite loop — the same trap
   `answeredOffers` exists to avoid. The counter resets when audio flows, so a
-  pair that recovers keeps its full budget for later.
+  pair that recovers keeps its full budget for later. The reset must key on bytes
+  actually *arriving*: a rebuilt connection starts at 0, so comparing it against
+  a sentinel below 0 read as progress and reset the count every time — the cap
+  never bound and a dead pair was rebuilt every ~12s for the whole call.
+
+**This is the web client only.** The Flutter client has none of the above: it
+polls inbound stats to light the speaking ring, but nothing acts on a stalled
+pair, and it only handles ICE `failed` (by closing the pair and not offering
+again). A pair that dies on Android stays dead until the user leaves and rejoins.
 
 On Flutter the closes are **serialized**, never fired together: closing a peer
 connection mid-negotiation aborts the process, so churn there is fatal rather

@@ -15,7 +15,7 @@
 //      that (see routes/dtr.js).
 // Firebase/Firestore remains the real backend for everything else.
 
-import { AuthError } from './auth.js'
+import { AuthError, secretsMatch } from './auth.js'
 import * as bots from './routes/bots.js'
 import { assertDtrAdmin, getAutoSend, runDtrReminder, setAutoSend, setCutoffDeadline } from './routes/dtr.js'
 import * as gifs from './routes/gifs.js'
@@ -36,6 +36,21 @@ function corsHeaders(request, env) {
 function withCors(response, cors) {
   for (const [k, v] of Object.entries(cors)) response.headers.set(k, v)
   return response
+}
+
+/**
+ * The three DTR routes accept either the shared trigger secret (curl, scripts)
+ * or a DTR admin's own ID token (the dashboard button). One copy of that rule
+ * rather than three, because the secret comparison has to be constant-time and
+ * the next route added should not have to remember it.
+ */
+async function assertTriggerAuth(request, env) {
+  const provided = (request.headers.get('Authorization') || '').replace(/^Bearer /i, '')
+  if (!provided) throw new AuthError('Missing bearer token', 401)
+  if (await secretsMatch(provided, env.DTR_TRIGGER_SECRET)) return
+  // Only reached when the secret does not match, so a failed admin check
+  // reports the admin problem rather than a generic 403.
+  await assertDtrAdmin(provided, env)
 }
 
 export default {
@@ -82,22 +97,23 @@ export default {
       // secret shipped to a React app is a secret published to everyone who
       // opens it.
       if (url.pathname === '/dtr/remind' && request.method === 'POST') {
-        const provided = (request.headers.get('Authorization') || '').replace(/^Bearer /, '')
-        if (!provided) throw new AuthError('Missing bearer token', 401)
+        await assertTriggerAuth(request, env)
 
-        const secretMatches = Boolean(env.DTR_TRIGGER_SECRET) && provided === env.DTR_TRIGGER_SECRET
-        // Only reached when the secret does not match, so a failed admin check
-        // reports the admin problem rather than a generic 403.
-        if (!secretMatches) await assertDtrAdmin(provided, env)
+        // 'cutoff' (heads-up) or 'deadline' (last call). Omitted, the date
+        // decides — which is what the cron wants and what a preview should
+        // reflect. Anything else is refused: an unknown kind has no sent-marker,
+        // so it would skip the already-sent guard and then write fields named
+        // `undefined` onto the cutoff.
+        const kind = url.searchParams.get('kind') || null
+        if (kind && !['cutoff', 'deadline'].includes(kind)) {
+          throw new AuthError('kind must be "cutoff" or "deadline"', 400)
+        }
 
         const result = await runDtrReminder(env, {
           force: url.searchParams.get('force') === '1',
           dryRun: url.searchParams.get('dry') === '1',
           only: url.searchParams.get('only') || null,
-          // 'cutoff' (heads-up) or 'deadline' (last call). Omitted, the date
-          // decides — which is what the cron wants and what a preview should
-          // reflect.
-          kind: url.searchParams.get('kind') || null,
+          kind,
         })
         return withCors(Response.json(result), cors)
       }
@@ -106,10 +122,7 @@ export default {
       // save silently once. Reads the value back and returns it, so "did it
       // work" is answered rather than assumed.
       if (url.pathname === '/dtr/deadline' && request.method === 'POST') {
-        const provided = (request.headers.get('Authorization') || '').replace(/^Bearer /, '')
-        if (!provided) throw new AuthError('Missing bearer token', 401)
-        const secretMatches = Boolean(env.DTR_TRIGGER_SECRET) && provided === env.DTR_TRIGGER_SECRET
-        if (!secretMatches) await assertDtrAdmin(provided, env)
+        await assertTriggerAuth(request, env)
 
         // Query params as well as a JSON body. This endpoint is driven from a
         // terminal, that terminal is PowerShell, and PowerShell mangles the
@@ -132,10 +145,7 @@ export default {
 
       // Read/write the cron's kill switch, for the toggle in the DTR admin.
       if (url.pathname === '/dtr/auto-send') {
-        const provided = (request.headers.get('Authorization') || '').replace(/^Bearer /, '')
-        if (!provided) throw new AuthError('Missing bearer token', 401)
-        const secretMatches = Boolean(env.DTR_TRIGGER_SECRET) && provided === env.DTR_TRIGGER_SECRET
-        if (!secretMatches) await assertDtrAdmin(provided, env)
+        await assertTriggerAuth(request, env)
 
         if (request.method === 'GET') {
           return withCors(Response.json({ enabled: await getAutoSend(env) }), cors)
@@ -166,12 +176,19 @@ export default {
   // Throwing here is deliberate. A scheduled invocation that swallows its
   // error reports success, and nobody finds out the reminder stopped going
   // out until someone asks why they were never told to submit.
-  async scheduled(event, env, ctx) {
-    ctx.waitUntil((async () => {
-      // auto:true is what makes the kill switch apply. A human pressing the
-      // button has already decided; the toggle only governs the unattended run.
-      const result = await runDtrReminder(env, { auto: true })
-      console.log('[dtr] reminder run:', JSON.stringify(result))
-    })())
+  //
+  // The work is awaited here rather than handed to ctx.waitUntil: a promise
+  // given to waitUntil keeps the invocation alive but does not decide how it is
+  // reported, so a throw inside it would not make the run read as failed.
+  async scheduled(event, env) {
+    // auto:true is what makes the kill switch apply. A human pressing the
+    // button has already decided; the toggle only governs the unattended run.
+    const result = await runDtrReminder(env, { auto: true })
+    console.log('[dtr] reminder run:', JSON.stringify(result))
+    // Someone not being told to submit is exactly the failure this job exists
+    // to prevent, and a logged line nobody reads is not a report.
+    if (result.failed?.length) {
+      throw new Error(`DTR reminder: ${result.failed.length} DM(s) failed — ${JSON.stringify(result.failed)}`)
+    }
   },
 }

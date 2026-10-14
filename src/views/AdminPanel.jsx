@@ -132,7 +132,7 @@ export default function AdminPanel() {
           <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mb-6">
             <Stat label="Developers"   value={counts.developer}   accent="text-ok" />
             <Stat label="Super admins" value={counts.super_admin} accent="text-warn" />
-            <Stat label="Admins"       value={counts.admin}       accent="text-brand" />
+            <Stat label="Admins"       value={counts.admin}       accent="text-brand-text" />
             <Stat label="Employees"    value={counts.employee}    accent="text-ink" />
             <Stat label="Guests"       value={counts.guest}       accent="text-ink-dim" />
             <Stat label="Removed"      value={counts.removed}     accent="text-ink-dim" />
