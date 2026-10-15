@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../providers/auth_providers.dart';
+import '../../providers/sfx_providers.dart';
 import '../../providers/theme_providers.dart';
 import '../../providers/voice_channel_providers.dart';
 import '../../theme/palette.dart';
@@ -128,6 +129,22 @@ class ProfileSheet extends ConsumerWidget {
             title: Text('Light mode', style: AppTextStyles.sm()),
             subtitle: Text(
               'Remembered on this device.',
+              style: AppTextStyles.xs(color: Palette.inkMuted),
+            ),
+          ),
+          SwitchListTile(
+            value: ref.watch(sfxEnabledProvider),
+            onChanged: (v) =>
+                ref.read(sfxEnabledProvider.notifier).setEnabled(v),
+            secondary: Icon(
+              ref.watch(sfxEnabledProvider)
+                  ? Icons.volume_up_outlined
+                  : Icons.volume_off_outlined,
+              color: Palette.inkDim,
+            ),
+            title: Text('Sound effects', style: AppTextStyles.sm()),
+            subtitle: Text(
+              'Calls, new messages and voice channels. Remembered on this device.',
               style: AppTextStyles.xs(color: Palette.inkMuted),
             ),
           ),

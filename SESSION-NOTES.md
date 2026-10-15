@@ -109,3 +109,26 @@ Layout across devices: the login screen overflowed on a 320dp phone at normal te
 Checked: `flutter analyze` clean, 132 tests pass. New widget tests render the message list at 7 sizes (320x568 up to 1280x800, including landscape) and the login at 6, each at 1x/1.5x/2x text, and fail on any overflow. The varied-row-height scroll test failed against the old scroll-to-end (10.8 px short) and passes now.
 
 NOT checked: no test renders `AppShell`, so the new side rail has only been analyzed, not seen. Nothing has been run on a phone or tablet; tests catch overflow and logic, not how it looks. The launcher icon is unchanged: the app already has its own yellow PUNX icon, which differs from the black wordmark used on the web login. iOS is untouched and still cannot start (no Firebase config for it).
+
+## 9. Sound effects (branch `claude/sound-effects`)
+
+Calls (ring, ringback, connected, ended), new DMs (ping) and voice channels (your own join/leave, plus a quiet tick when others come and go), on the web and on Android, with an on/off switch per device. Full description, file map and how to change a sound: `docs/SOUNDS.md`.
+
+The sounds are generated, not recorded (`scripts/generate-sfx.mjs` writes `public/sfx` and `android_app/assets/sfx`), so there is nothing to license. They are plain tones; swap in your own files if you want a particular character.
+
+**Checked here:** 65 web tests (the audio itself: no clicks, loops end in silence, right pitches, join rises / leave falls; the player; the rules for when each plays) and 36 Android tests (service, rules, preference, bundled files identical to the web's). `flutter analyze` clean; the web app builds. In a real browser pane the files load with the exact durations, the ring loops, stop rewinds it, one-shots finish. The tests were themselves checked by breaking the code on purpose (a wrongly-pitched sound, four player rules, and five Android rules) and confirming a test caught each. One survived at first (a disabled ring being remembered, which only matters once the ring has played before); the test was strengthened and it is now caught.
+
+**NOT checked, and the Android build was deliberately NOT run on this machine (it is built on the other PC):**
+- The Android app has not been compiled with the new `audioplayers` plugin, so build it first and watch for Gradle errors.
+- Nobody has heard any of it. The tests measure the audio; whether it sounds good is for ears.
+- The browser-autoplay "blocked then retried on click" path was only tested with a fake `Audio`; the pane used here allows autoplay.
+
+**On the phone, in this order:**
+1. Build and install; open the app. Profile sheet -> "Sound effects" should be on. Toggle it off and on: turning it on plays a ping.
+2. DM: have someone message you while you are on another screen -> ping. Open that conversation and have them message again -> no ping. Background the app -> the normal system notification, no in-app ping.
+3. Call someone, and be called: ring on the callee, softer ringback on the caller; both stop when answered, followed by the connected chime. Hang up -> ended chime. Decline an incoming call -> silence.
+4. Voice: join a channel -> join chime; have someone else join/leave -> a quiet tick; leave -> leave chime. Deafen yourself -> no ticks.
+5. **The one that matters most:** while in a voice channel on **speakerphone**, make a sound happen (someone joins, a DM arrives). The call audio must not drop, switch to the earpiece, or change volume. The audio package can change the phone's global audio mode; the app configures every player once at startup to avoid that (`docs/SOUNDS.md`, "Android audio mode"). If this check fails, that is the first place to look.
+6. Silent / Do-not-disturb: the ring should follow the ringer volume; the UI sounds follow the system-sounds volume.
+
+Also on iOS (still unbuildable until Firebase is set up): the audio session category is set to `playAndRecord` + mix with others, chosen to match what a call uses. Unverified.

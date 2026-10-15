@@ -8,6 +8,7 @@ import { useUsers } from '../lib/users'
 import { useNotifications } from '../lib/notifications'
 import { useVoiceChannel } from '../lib/useVoiceChannel'
 import { isLight, toggleTheme } from '../lib/theme'
+import { isEnabled as sfxEnabled, play as playSfx, setEnabled as setSfxEnabled } from '../lib/sfx'
 import GroupContextMenu from './GroupContextMenu'
 import VoiceSettingsPopover from './voice/VoiceSettingsPopover'
 
@@ -29,6 +30,7 @@ export default function UserPanel() {
   // Mirrors the class already on <html>, which the inline script in
   // index.html may have set before React ever mounted.
   const [light, setLightState] = useState(() => isLight())
+  const [sfxOn, setSfxOn] = useState(() => sfxEnabled())
   const gearBtnRef = useRef(null)
   const me = byId[profile?.id] || profile
   const status = computeStatus(me, now)
@@ -56,6 +58,18 @@ export default function UserPanel() {
       label: light ? 'Dark mode' : 'Light mode',
       icon: light ? <MoonIcon /> : <SunIcon />,
       onClick: () => setLightState(toggleTheme()),
+    },
+    {
+      label: sfxOn ? 'Sound effects: On' : 'Sound effects: Off',
+      icon: sfxOn ? <SpeakerIcon /> : <SpeakerOffIcon />,
+      onClick: () => {
+        const next = !sfxOn
+        setSfxEnabled(next)
+        setSfxOn(next)
+        // Turning it ON plays a ping, so you can tell it works — and, since
+        // this is a click, it also lifts the browser's autoplay block.
+        if (next) playSfx('dm_ping')
+      },
     },
     { separator: true },
     { label: 'Sign out', icon: <SignOutIcon />, onClick: signOut, danger: true },
@@ -194,6 +208,24 @@ function DeafenedIcon() {
   )
 }
 
+function SpeakerIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+    </svg>
+  )
+}
+function SpeakerOffIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <line x1="23" y1="9" x2="17" y2="15" />
+      <line x1="17" y1="9" x2="23" y2="15" />
+    </svg>
+  )
+}
 function SunIcon() {
   return (
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-4 h-4">
