@@ -11,10 +11,13 @@ import '../models/voice_participant.dart';
 import '../services/turn_service.dart';
 import '../services/voice_channel_repository.dart';
 import '../services/voice_foreground_service.dart';
+import '../services/sfx_rules.dart';
+import '../services/sfx_service.dart';
 import '../services/voice_pair_health.dart';
 import '../services/webrtc_service.dart';
 import 'auth_providers.dart';
 import 'calls_providers.dart' show webrtcServiceProvider;
+import 'sfx_providers.dart';
 
 /// Mesh WebRTC voice channels — the Android half of the system in
 /// `src/lib/useVoiceChannel.jsx`. Every participant holds a direct peer
@@ -243,6 +246,21 @@ class VoiceController extends StateNotifier<VoiceUiState> {
   /// [_Peer] so the attempt count survives the rebuild it triggers.
   final PairHealthTracker _health = PairHealthTracker();
 
+  /// Sound effects. [_joinedSession]: this session actually got into the
+  /// channel, so a failed join does not play a "left" chime. [_rosterPrimed]: the
+  /// roster's FIRST snapshot lists everyone already here, which is not news —
+  /// only changes after it make a sound.
+  bool _joinedSession = false;
+  bool _rosterPrimed = false;
+
+  /// Never lets a sound problem reach a voice session; also safe during
+  /// dispose, when the provider scope may already be gone.
+  void _sfx(Sfx sfx) {
+    try {
+      _ref.read(sfxServiceProvider).play(sfx);
+    } catch (_) {}
+  }
+
   // ---------- join / leave ----------
 
   Future<void> join(String groupId, String channelId, String channelName) async {
@@ -291,6 +309,10 @@ class VoiceController extends StateNotifier<VoiceUiState> {
       _iceServers = await TurnService.iceServers();
 
       await _repo.joinRoster(groupId, channelId, myUid);
+      // In, and not before: a join that fails above never chimes.
+      _joinedSession = true;
+      _rosterPrimed = false;
+      _sfx(Sfx.voiceJoin);
 
       _heartbeatTimer = Timer.periodic(_heartbeat, (_) async {
         final beat = await _repo.heartbeatRoster(groupId, channelId, myUid);
@@ -381,6 +403,9 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     _answeredOffers.clear();
     _lastLoudAt.clear();
     _health.clear();
+    if (_joinedSession) _sfx(Sfx.voiceLeave);
+    _joinedSession = false;
+    _rosterPrimed = false;
 
     if (ref != null && myUid != null) {
       await _repo.leaveRoster(ref.groupId, ref.channelId, myUid);
@@ -847,6 +872,21 @@ class VoiceController extends StateNotifier<VoiceUiState> {
     final myUid = _myUid;
     state = state.copyWith(participants: update.all);
     if (myUid == null) return;
+
+    // A tick when somebody ELSE comes or goes — but not for the first snapshot
+    // (see [_rosterPrimed]), and not while deafened: you asked not to hear the
+    // room.
+    final primed = _rosterPrimed;
+    _rosterPrimed = true;
+    for (final sound in rosterSounds(
+      primed: primed,
+      deafened: state.deafened,
+      myUid: myUid,
+      added: update.added,
+      removed: update.removed,
+    )) {
+      _sfx(sound);
+    }
 
     for (final uid in update.added) {
       if (uid == myUid || _peers.containsKey(uid)) continue;

@@ -8,6 +8,7 @@ import '../../providers/voice_channel_providers.dart';
 import '../../services/notification_listener_service.dart';
 import '../../services/presence_service.dart';
 import '../../theme/palette.dart';
+import '../../widgets/shared/sfx_daemon.dart';
 import '../../widgets/calls/call_overlay.dart';
 import '../../widgets/voice/voice_status_bar.dart';
 
@@ -83,6 +84,7 @@ class AppShell extends ConsumerWidget {
         const PresenceHeartbeat(),
         const NotificationDaemon(),
         const CallDaemon(),
+        const SfxDaemon(),
         // Visible on top of the current tab whenever a call is ringing/live.
         const CallOverlay(),
       ],
