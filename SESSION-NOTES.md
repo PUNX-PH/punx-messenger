@@ -2,9 +2,9 @@
 
 What was done, what is still waiting on you, and what was found but not fixed.
 
-## 1. Where things stand (updated 2026-10-15)
+## 1. Where things stand (updated 2026-10-15, end of day)
 
-All five PRs are merged and `main` (`9d2f4cd`) is deployed: Vercel and both Cloudflare Workers builds succeeded.
+PRs #1–#7 are all merged, and `main` (`1170520`) is deployed: Vercel and both Cloudflare Workers builds succeeded. https://plexus.punxai.online/ serves it, including the sound effects (all nine files return 200 at the right sizes, and the live bundle contains the sound code and the "Sound effects" menu item).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg` (the file on `main`; `firebase deploy --only firestore:rules`). New guests can redeem invites again.
@@ -18,9 +18,10 @@ All five PRs are merged and `main` (`9d2f4cd`) is deployed: Vercel and both Clou
    3. Leave a group.
    4. Send a DM (web, and the Android app).
    If one fails, roll back: check out `firestore.rules` from before PR #2 (`git log -- firestore.rules`) and redeploy it.
-2. **Build and test the Android app on a phone.** The release keystore is on the other PC (see section 6). The PR #4 and PR #5 manual checks (voice in the background, network drop, removed account, the side rail on a tablet) have not been run.
-3. **iOS cannot start** until a Firebase iOS app is registered (no `GoogleService-Info.plist`, no iOS options in `firebase_options.dart`).
-4. Open items in section 3, and the choice of an SFU provider for 30-person voice (section 4).
+2. **Build and test the Android app on a phone — on the other PC**, which has the release keystore (section 6); do not build it on this machine. Nothing in PRs #4, #5 and #7 has run on a device or even been compiled with Gradle since the new audio plugin was added. Their manual checks, all still to do: voice in the background, network drop, removed account, the side rail on a tablet (sections 6–7), and the sound checks in section 9 — above all that **call audio does not change when a sound plays during a voice call on speakerphone**.
+3. **Decide about the Android invite links screen (section 8).** It is built and tested but sits on a local branch, `claude/flutter-invite-links` (commit `43ecb04`), that has **not been pushed** and has no PR. It needs pushing and a PR, then merging, before it is in the app. When it merges, section 8 below will conflict with the copy on that branch; keep one.
+4. **iOS cannot start** until a Firebase iOS app is registered (no `GoogleService-Info.plist`, no iOS options in `firebase_options.dart`).
+5. Open items in section 3, and the choice of an SFU provider for 30-person voice (section 4).
 
 ### Running the migration script again
 
@@ -28,7 +29,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#5, all merged)
+## 2. What shipped (PRs #1–#7, all merged)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -47,7 +48,15 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **CI fix** — Cloudflare's build ran `npm run build` in `workers/`, which had no such script, so every branch build failed. Added `"build": "wrangler deploy --dry-run --outdir dist"`.
 
-Rules suite: **204 passing** (143 original). Worker suite: **18 passing**.
+**#4 — Android voice and release fixes** (details in section 6): background voice no longer dies on Android 14+ (the foreground service claimed the camera type unconditionally and its failure was never logged); the heartbeat leaves a channel the rules refuse, and sign-out or deactivation ends a call; stalled voice pairs are repaired like on the web; Bluetooth permission requested; brand text contrast; release builds fail without `key.properties`.
+
+**#5 — Flutter UI port** (section 7): day dividers, jump-to-latest pill, tint instead of coloured borders, wordmark on login, tolerant message parsing, read-marking that works in a busy channel, login overflow fixed on small phones and large text, a side rail on wide screens.
+
+**#6 — migration script and notes**: `scripts/migrate-invite-tokens.mjs` accepts a signed-in person's credential, not just a service-account key.
+
+**#7 — sound effects** (section 9, `docs/SOUNDS.md`): calls, DM ping and voice-channel sounds, web and Android, with a per-device switch.
+
+Rules suite: **204 passing** (143 original). Worker suite: **18 passing**. Web sound tests: **65**. Flutter: **168 passing** on `main`.
 
 ## 3. Found but not fixed
 
@@ -100,7 +109,7 @@ To confirm on a phone: join voice without granting camera and background the app
 - Verified on a real Gradle run (PR #4): a release build with no `key.properties` fails with the new message; with `ALLOW_DEBUG_SIGNED_RELEASE=1` it produces `build/app/outputs/bundle/release/app-release.aab` (75.2 MB), signer `CN=Android Debug` — **not uploadable to Play**. Debug builds were not tried.
 - Still never run on a phone: the voice changes in PR #4 (see the four checks in its description).
 
-## 7. Flutter UI port (branch `claude/flutter-ui-port`, stacked on PR #4)
+## 7. Flutter UI port (PR #5, merged)
 
 Ported from the web so the app matches it: day dividers ("Today", "Yesterday", "Tuesday, March 4"); time-only message headers (device 12/24h setting); jump-to-latest pill with an unread count and the same counting rules as the web (your own message scrolls you down, deleting the newest is not "new", older pages landing at the top are not "new", a channel switch resets it); pinned and @mention rows marked by tint instead of a coloured left border; the PUNX wordmark on the login screen; read-marking that no longer starves in a busy channel (the 400 ms debounce was being pushed back by every message — now it fires once per burst); tolerant message parsing (one malformed field used to throw inside the snapshot stream and take the whole chat down, the same crash the web had); tooltips / accessible names on 8 icon-only buttons.
 
@@ -110,7 +119,17 @@ Checked: `flutter analyze` clean, 132 tests pass. New widget tests render the me
 
 NOT checked: no test renders `AppShell`, so the new side rail has only been analyzed, not seen. Nothing has been run on a phone or tablet; tests catch overflow and logic, not how it looks. The launcher icon is unchanged: the app already has its own yellow PUNX icon, which differs from the black wordmark used on the web login. iOS is untouched and still cannot start (no Firebase config for it).
 
-## 9. Sound effects (branch `claude/sound-effects`)
+## 8. Android invite links screen (branch `claude/flutter-invite-links`, **not pushed, no PR yet**)
+
+Group admins can now create, copy and revoke invite links from the app (Group settings -> Manage invite links), the same as the web's Group Invites. Reads and writes the same `invites/{token}` documents, with the same shape the rules check; revoking asks first, which the web does not. The links open in the browser, where a guest signs in and joins: **joining from inside the app is not built** (it needs deep links and the guest sign-up flow, and touches the rules we just tightened).
+
+Links point at `AppConfig.webOrigin`, which defaults to `https://plexus.punxai.online`; override with `--dart-define=WEB_ORIGIN=https://...` for a staging site. The web builds links from whichever address the admin has open, so check the default is the address you want people to receive.
+
+Checked: `flutter analyze` clean, 169 tests pass. Tests cover the model, the token (43 URL-safe chars from a secure generator, 256 bits), the exact payload against what the web writes and the rules read, and the screen (permissions, create + copy, revoke with and without confirming, expired/revoked labelling) at 5 screen sizes at 1x and 2x text. Two deliberate breakages (a 42-char token, revoking without confirming) were each caught by a test. NOT checked: nothing has run against the real Firestore, on an emulator or on a phone; the payload matches the web's and the rules tests cover that shape, but the app itself has not written one.
+
+Still not in the app compared with the web: opening an invite inside the app, GIF favourites, and sharing your screen (Android can only watch one; sending needs the screen-capture permission and a foreground service type).
+
+## 9. Sound effects (PR #7, merged)
 
 Calls (ring, ringback, connected, ended), new DMs (ping) and voice channels (your own join/leave, plus a quiet tick when others come and go), on the web and on Android, with an on/off switch per device. Full description, file map and how to change a sound: `docs/SOUNDS.md`.
 
