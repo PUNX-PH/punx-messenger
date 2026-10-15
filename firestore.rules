@@ -118,10 +118,6 @@ service cloud.firestore {
         && request.auth.token.bot == true;
     }
 
-    function botRegistration() {
-      return get(/databases/$(database)/documents/bots/$(request.auth.uid)).data;
-    }
-
     // `enabled` is re-read here on every request rather than trusted from the
     // token, so switching a bot off in the admin panel cuts it off within
     // seconds instead of whenever its hour-long token happens to expire. The
@@ -165,7 +161,6 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(myUid())).data.role;
     }
 
-    function isSuperAdmin()      { return signedIn() && myRole() == 'super_admin'; }
     function isDeveloper()       { return signedIn() && myRole() == 'developer'; }
 
     // Bottom of the hierarchy: a guest is a group member whose channel access
