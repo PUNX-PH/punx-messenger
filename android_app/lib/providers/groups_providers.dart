@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/channel.dart';
 import '../models/channel_viewer.dart';
 import '../models/group.dart';
+import '../models/group_invite.dart';
 import '../services/groups_repository.dart';
+import '../services/invites_repository.dart';
 import '../utils/firestore_paths.dart';
 import 'auth_providers.dart';
 
@@ -86,3 +88,14 @@ final groupHasUnreadProvider = Provider.family<bool, String>((ref, groupId) {
     ),
   );
 });
+
+final invitesRepositoryProvider = Provider<InvitesRepository>(
+  (ref) => InvitesRepository(),
+);
+
+/// A group's invite links, newest first. Admins only: for anyone else the rules
+/// refuse the query, so the screen never subscribes unless the viewer can edit.
+final groupInvitesProvider = StreamProvider.autoDispose
+    .family<List<GroupInvite>, String>((ref, groupId) {
+      return ref.watch(invitesRepositoryProvider).listenGroupInvites(groupId);
+    });

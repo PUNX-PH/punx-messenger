@@ -15,6 +15,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
 import '../../widgets/shared/avatar.dart';
+import 'group_invites_screen.dart';
 
 /// Port of components/GroupSettingsModal.jsx, as a full-screen route (the
 /// web modal has two dense tabs' worth of content — a bottom sheet would be
@@ -162,6 +163,26 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
           ],
           if (_error != null)
             Text(_error!, style: AppTextStyles.sm(color: Palette.bad)),
+          if (canEdit) ...[
+            const SizedBox(height: 24),
+            _SectionHeader('Invite links'),
+            const SizedBox(height: 4),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.link, color: Palette.inkMuted),
+              title: const Text('Manage invite links'),
+              subtitle: Text(
+                'Let people outside the workspace join chosen channels.',
+                style: AppTextStyles.xs(color: Palette.inkMuted),
+              ),
+              trailing: Icon(Icons.chevron_right, color: Palette.inkMuted),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => GroupInvitesScreen(groupId: widget.groupId),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           _SectionHeader('Members — ${group.memberUids.length}'),
           const SizedBox(height: 8),
