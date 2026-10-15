@@ -19,7 +19,7 @@ PRs #1–#7 are all merged, and `main` (`1170520`) is deployed: Vercel and both 
    4. Send a DM (web, and the Android app).
    If one fails, roll back: check out `firestore.rules` from before PR #2 (`git log -- firestore.rules`) and redeploy it.
 2. **Build and test the Android app on a phone — on the other PC**, which has the release keystore (section 6); do not build it on this machine. Nothing in PRs #4, #5 and #7 has run on a device or even been compiled with Gradle since the new audio plugin was added. Their manual checks, all still to do: voice in the background, network drop, removed account, the side rail on a tablet (sections 6–7), and the sound checks in section 9 — above all that **call audio does not change when a sound plays during a voice call on speakerphone**.
-3. **Decide about the Android invite links screen (section 8).** It is built and tested but sits on a local branch, `claude/flutter-invite-links` (commit `43ecb04`), that has **not been pushed** and has no PR. It needs pushing and a PR, then merging, before it is in the app. When it merges, section 8 below will conflict with the copy on that branch; keep one.
+3. **Android invite links screen (section 8): open a PR for it.** It is built, tested and **pushed** as `claude/flutter-invite-links`, with `main` already merged into it (no conflicts; the combined branch passes `flutter analyze` and 205 tests). It only needs a PR and a merge. It adds no notes changes, so it will not conflict with this file.
 4. **iOS cannot start** until a Firebase iOS app is registered (no `GoogleService-Info.plist`, no iOS options in `firebase_options.dart`).
 5. Open items in section 3, and the choice of an SFU provider for 30-person voice (section 4).
 
@@ -119,7 +119,7 @@ Checked: `flutter analyze` clean, 132 tests pass. New widget tests render the me
 
 NOT checked: no test renders `AppShell`, so the new side rail has only been analyzed, not seen. Nothing has been run on a phone or tablet; tests catch overflow and logic, not how it looks. The launcher icon is unchanged: the app already has its own yellow PUNX icon, which differs from the black wordmark used on the web login. iOS is untouched and still cannot start (no Firebase config for it).
 
-## 8. Android invite links screen (branch `claude/flutter-invite-links`, **not pushed, no PR yet**)
+## 8. Android invite links screen (branch `claude/flutter-invite-links`, pushed, no PR yet)
 
 Group admins can now create, copy and revoke invite links from the app (Group settings -> Manage invite links), the same as the web's Group Invites. Reads and writes the same `invites/{token}` documents, with the same shape the rules check; revoking asks first, which the web does not. The links open in the browser, where a guest signs in and joins: **joining from inside the app is not built** (it needs deep links and the guest sign-up flow, and touches the rules we just tightened).
 
@@ -151,3 +151,24 @@ The sounds are generated, not recorded (`scripts/generate-sfx.mjs` writes `publi
 6. Silent / Do-not-disturb: the ring should follow the ringer volume; the UI sounds follow the system-sounds volume.
 
 Also on iOS (still unbuildable until Firebase is set up): the audio session category is set to `playAndRecord` + mix with others, chosen to match what a call uses. Unverified.
+
+## 10. Picking this up on another machine
+
+**Everything is on GitHub.** Every branch from this work is pushed; there are no stashes and no uncommitted changes. The one local-only oddity is a notes commit on `claude/flutter-voice-fixes` whose content already reached `main` through PR #5, so it can be ignored. If you have another checkout of the repo, `git pull` on `main` first — the original checkout here was 26 commits behind.
+
+**What is NOT in the repo, and has to be set up again:**
+- **Secrets.** The Android release keystore and `android/key.properties` (on the other PC, never in git); any Firebase service-account key; the Cloudflare/Vercel/GitHub sign-ins. `gh auth login` and `firebase login` on the new machine (in the user's own PowerShell, use `npx.cmd`, since script execution is disabled there).
+- **Tools.** Node, Flutter, Java 17+ and the Android SDK. On this machine they were: a portable JDK 21 at `C:\Users\ReyPunx\tools\jdk21\jdk-21.0.12.1+1` and the Android SDK at `C:\Users\ReyPunx\tools\android-sdk`; neither exists elsewhere unless installed. Then `npm i` and, in `android_app/`, `flutter pub get`.
+- **The assistant's saved memory** (what it remembered between sessions) lives in the user profile on this machine, not in the repo. Everything in it that matters is in these notes; the essentials: Viber is dropped (section 4), the release keystore is on the other PC (section 6), **do not build the Android app on the machine that does not have the keystore** — run `flutter analyze` and `flutter test` there, and list anything needing Gradle or a phone as a to-do (sections 6–9).
+
+**Running the checks**
+- Web: `npm run build`; sound tests `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs`.
+- Worker: `npm test` in `workers/`.
+- Firestore rules (204 tests): needs Java, and the two test libraries installed together — `npm i --no-save --legacy-peer-deps @firebase/rules-unit-testing firebase-admin` (installing either alone prunes the other and the suite dies with `ERR_MODULE_NOT_FOUND`, which looks like a rules failure and is not), then `npx firebase emulators:exec --only firestore --project punx-rules-test "node tests/rules.test.mjs"`. Details in section 5.
+- Flutter: in `android_app/`, `flutter analyze` and `flutter test`. The widget tests render at several screen sizes and fail on any overflow.
+
+**Habits that bit during this work**
+- Merge PRs with a **merge commit, not squash**, and in order. For stacked PRs retarget the next one to `main` after its base merges, and do **not** delete a base branch (`--delete-branch`) while another PR still targets it: that closes the dependent PR.
+- `main` auto-deploys the web app (Vercel) and Workers (Cloudflare) on every merge, including docs-only ones (identical code, but still a deploy). **Firestore rules do not auto-deploy**; they go out with `firebase deploy --only firestore:rules --project punx-msg`.
+- Several files are CRLF on Windows (`firestore.rules`, `tests/rules.test.mjs`, `docs/ROLES.md`, most Dart files): a multi-line edit that ignores that fails silently, and `dart format` over the whole project rewrites dozens of unrelated files — format only the files you changed.
+- Write commit messages and PR bodies to a file (`git commit -F`, `gh pr create --body-file`) and delete the file afterwards; `git add -A` has swept a temp file into a commit once.
