@@ -1,5 +1,9 @@
+import { useEffect, useRef } from 'react'
 import IncomingCallModal from './IncomingCallModal'
 import CallErrorToast from './CallErrorToast'
+import { useCall } from '../../lib/useCall'
+import { callSoundActions } from '../../lib/sfxRules'
+import { play, stop } from '../../lib/sfx'
 
 /**
  * Always-mounted (sibling of PresenceHeartbeat/NotificationDaemon in
@@ -18,6 +22,29 @@ export default function CallManager() {
     <>
       <IncomingCallModal />
       <CallErrorToast />
+      <CallSounds />
     </>
   )
+}
+
+/**
+ * Ring, ringback and the connected/ended chimes. It lives here, and not in the
+ * incoming-call modal, because the ring has to outlast any one view: it must
+ * keep sounding if you navigate, and stop the moment the call does.
+ */
+function CallSounds() {
+  const { status } = useCall()
+  const prev = useRef('idle')
+
+  useEffect(() => {
+    const actions = callSoundActions(prev.current, status)
+    prev.current = status
+    actions.stop.forEach(stop)
+    if (actions.play) play(actions.play)
+  }, [status])
+
+  // Never leave a ring running behind a page that has gone away.
+  useEffect(() => () => { stop('ring'); stop('ringback') }, [])
+
+  return null
 }

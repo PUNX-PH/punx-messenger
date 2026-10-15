@@ -18,6 +18,8 @@ import {
   pruneStaleParticipants, sendVoiceIceCandidate, setRosterState, voiceOffererUid, voicePairKey,
 } from './voiceChannel'
 import { createPeerConnection, getLocalStream, resolveIceServers, stopStream } from './webrtc'
+import { play as playSfx } from './sfx'
+import { rosterSounds } from './sfxRules'
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v))
 
@@ -132,6 +134,9 @@ function useVoiceChannelEngine() {
   const [speakingUids, setSpeakingUids] = useState(() => new Set())
   const [muted, setMuted] = useState(false)
   const [deafened, setDeafened] = useState(false)
+  // Read by handleRosterChange, which must not be rebuilt every time this flips.
+  const deafenedRef = useRef(false)
+  deafenedRef.current = deafened
   const [cameraOn, setCameraOn] = useState(false)
   const [screenSharing, setScreenSharing] = useState(false)
   const [localVideoStream, setLocalVideoStream] = useState(null) // whichever of camera/screen is active, or null
@@ -164,6 +169,12 @@ function useVoiceChannelEngine() {
   // describes, so a rebuilt pair remembers how many times it has been rebuilt.
   const repairRef = useRef(new Map())
   const repairIntervalRef = useRef(null)
+  // Sound effects. `joinedRef`: this session actually got into the channel, so
+  // a failed join does not play a "left" chime. `rosterPrimedRef`: the roster's
+  // FIRST snapshot lists everyone already here, which is not news — only changes
+  // after it make a sound.
+  const joinedRef = useRef(false)
+  const rosterPrimedRef = useRef(false)
   // Resolved once per join and reused for every peer in the session, so a
   // channel of six does not mint six TURN credentials. Null until join()
   // fills it, at which point createPeerFor stops falling back to STUN-only.
@@ -295,6 +306,10 @@ function useVoiceChannelEngine() {
     screenStreamRef.current = null
 
     if (ch && myUid) leaveRoster(ch.groupId, ch.channelId, myUid).catch(() => {})
+
+    if (joinedRef.current) playSfx('voice_leave')
+    joinedRef.current = false
+    rosterPrimedRef.current = false
 
     answeredOffersRef.current.clear()
     activeChannelRef.current = null
@@ -609,6 +624,14 @@ function useVoiceChannelEngine() {
     setParticipants(all)
     participantsRef.current = all
     if (!myUid) return
+
+    // A tick when somebody ELSE comes or goes — but not for the first snapshot
+    // (see rosterPrimedRef), and not if you have deafened: you asked not to hear
+    // the room.
+    const primed = rosterPrimedRef.current
+    rosterPrimedRef.current = true
+    rosterSounds({ primed, deafened: deafenedRef.current, myUid, added, removed }).forEach(playSfx)
+
     added.forEach(uid => {
       if (uid === myUid || peersRef.current.has(uid)) return
       if (voiceOffererUid(myUid, uid) === myUid) offerTo(uid)
@@ -791,6 +814,10 @@ function useVoiceChannelEngine() {
       setActiveChannel(ch)
 
       await joinRoster(groupId, channelId, myUid)
+      // In, and not before: a join that fails above never chimes.
+      joinedRef.current = true
+      rosterPrimedRef.current = false
+      playSfx('voice_join')
 
       heartbeatIntervalRef.current = setInterval(async () => {
         const stillListed = await heartbeatRoster(groupId, channelId, myUid)

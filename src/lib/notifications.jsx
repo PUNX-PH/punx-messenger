@@ -5,6 +5,7 @@ import { db } from './firebase'
 import { useAuth } from './auth'
 import { useUsers } from './users'
 import { listenMyDmConvos } from './db'
+import { play as playSfx } from './sfx'
 
 // ────────────────── Permission context ──────────────────
 
@@ -56,6 +57,11 @@ const stripTokens = (t) => (t || '')
   .replace(/[*_~]/g, '')
   .slice(0, MAX_BODY_LEN)
 
+/** True when this exact route is open in a tab you are actively using. */
+const isLookingAt = (path) =>
+  !!path && document.visibilityState === 'visible' && document.hasFocus()
+  && window.location.pathname === path
+
 export function NotificationDaemon() {
   const { profile } = useAuth()
   const { byId } = useUsers()
@@ -81,9 +87,14 @@ export function NotificationDaemon() {
   // to be the body text, which dropped the second "ok"; and it was recorded only
   // after the focus check below, so everything that arrived while the tab was in
   // front was still "new" the moment you left, and replayed as a burst.
-  const fire = ({ key, stamp, title, body, icon, path }) => {
+  const fire = ({ key, stamp, title, body, icon, path, sound }) => {
     if (lastByKey.current.get(key) === stamp) return
     lastByKey.current.set(key, stamp)
+    // The ping is independent of the OS notification: it plays with the tab in
+    // front too, because that is when you are most likely to be using the app
+    // with the sound on. The one exception is the conversation you are looking
+    // at — it is already on screen, and pinging for it would be noise.
+    if (sound && !isLookingAt(path)) playSfx('dm_ping')
     if (!shouldNotify()) return
     try {
       const n = new Notification(title, {
@@ -119,6 +130,7 @@ export function NotificationDaemon() {
           body: dm.lastMessageText || '',
           icon: author?.photoURL || undefined,
           path: `/dms/${dm.lastMessageAuthorUid}`,
+          sound: true,
         })
       })
     })

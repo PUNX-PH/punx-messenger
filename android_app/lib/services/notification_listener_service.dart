@@ -9,7 +9,10 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../providers/auth_providers.dart';
 import '../providers/users_providers.dart';
+import '../providers/sfx_providers.dart';
 import '../router/app_router.dart';
+import 'sfx_rules.dart';
+import 'sfx_service.dart';
 
 /// Foreground/backgrounded-but-alive notifications — port of
 /// notifications.jsx. There is no FCM/Cloud Function here, same as the web
@@ -27,6 +30,12 @@ class NotificationListenerService {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _mentionSub;
   DateTime? _baseline;
   final Map<String, String> _lastFired = {};
+
+  /// doc id -> the message timestamp we already pinged for. Kept apart from
+  /// [_lastFired], which only records while the app is in the background: this
+  /// one must record in the foreground too, or every unrelated update to a DM
+  /// document (a typing indicator, a read receipt) would ping again.
+  final Map<String, int> _pingedAt = {};
   String? _uid;
   bool _pluginInitialized = false;
 
@@ -41,6 +50,7 @@ class NotificationListenerService {
     _uid = uid;
     _baseline = DateTime.now();
     _lastFired.clear();
+    _pingedAt.clear();
 
     await _ensurePluginInitialized();
     try {
@@ -92,6 +102,8 @@ class NotificationListenerService {
     final members = List<String>.from(data['members'] as List? ?? const []);
     final otherUid = members.firstWhere((m) => m != uid, orElse: () => '');
     if (otherUid.isEmpty) return;
+
+    _pingIfNew(doc.id, ts.millisecondsSinceEpoch, '/dms/$otherUid');
     // Resolves the author's live display name from the workspace directory
     // (not the DM doc's `memberInfo` snapshot, which freezes at DM-creation
     // time) — matches notifications.jsx's `byId[dm.lastMessageAuthorUid]`.
@@ -104,6 +116,36 @@ class NotificationListenerService {
       body: body,
       path: '/dms/$otherUid',
     );
+  }
+
+  /// The in-app ping for a new DM: while the app is open, and not for the
+  /// conversation already on screen. In the background the system notification
+  /// does the announcing, with its own sound.
+  void _pingIfNew(String docId, int stamp, String path) {
+    final due = dmPingDue(
+      lastPingedStamp: _pingedAt[docId],
+      stamp: stamp,
+      appInFront:
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
+      viewingThisConversation: _isOnScreen(path),
+    );
+    _pingedAt[docId] = stamp;
+    if (due) _ref.read(sfxServiceProvider).play(Sfx.dmPing);
+  }
+
+  /// True when this conversation is the route currently open.
+  bool _isOnScreen(String path) {
+    try {
+      final here = _ref
+          .read(routerProvider)
+          .routerDelegate
+          .currentConfiguration
+          .uri
+          .path;
+      return here == path;
+    } catch (_) {
+      return false; // unknown route: better a ping than silence
+    }
   }
 
   void _handleMentionDoc(
