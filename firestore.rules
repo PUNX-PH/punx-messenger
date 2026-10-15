@@ -66,9 +66,8 @@ service cloud.firestore {
     // app has no access to. The read is cached per request, so it is one read
     // per request and not one per rule that asks.
     function iAmDeactivated() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && ('deactivated' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deactivated == true;
+      let me = /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(me) && get(me).data.get('deactivated', false) == true;
     }
 
     // Admission is EITHER an internal address, OR simply having a
@@ -86,9 +85,10 @@ service cloud.firestore {
     // so isGoogleAccount() short-circuits first, and their own kill switch is
     // `enabled` on the registry doc.
     function isHuman() {
+      let me = /databases/$(database)/documents/users/$(request.auth.uid);
       return isGoogleAccount()
-        && !iAmDeactivated()
-        && (isInternalEmail() || iHaveUserDoc());
+        && !(exists(me) && get(me).data.get('deactivated', false) == true)
+        && (isInternalEmail() || exists(me));
     }
 
     // Bots authenticate with a Firebase custom token minted by the Worker
@@ -128,9 +128,8 @@ service cloud.firestore {
     // exists() check keeps a deleted registration from erroring instead of
     // simply denying — deleting the doc is how a bot gets revoked.
     function isRegisteredBot() {
-      return isBotToken()
-        && exists(/databases/$(database)/documents/bots/$(request.auth.uid))
-        && botRegistration().enabled == true;
+      let reg = /databases/$(database)/documents/bots/$(request.auth.uid);
+      return isBotToken() && exists(reg) && get(reg).data.enabled == true;
     }
 
     function signedIn() { return isHuman() || isRegisteredBot(); }
@@ -141,8 +140,9 @@ service cloud.firestore {
     // token alone — no reads, nothing that can error. Scopes live on the bot's
     // registry doc; the admin panel is what grants them.
     function botCan(scope) {
+      let reg = /databases/$(database)/documents/bots/$(request.auth.uid);
       return !isBotToken()
-        || (isRegisteredBot() && scope in botRegistration().scopes);
+        || (exists(reg) && get(reg).data.enabled == true && scope in get(reg).data.scopes);
     }
 
     // Admin-tier capabilities a bot can be granted. Written as their own
@@ -178,8 +178,8 @@ service cloud.firestore {
     // super-admin reach. isTopTier() is the "manages the workspace itself"
     // tier (roles, bots, oversight); isWorkspaceAdmin() is the "manages groups
     // and content" tier, which developer is also part of.
-    function isTopTier()         { return isDeveloper() || isSuperAdmin(); }
-    function isWorkspaceAdmin()  { return signedIn() && (myRole() == 'admin' || myRole() == 'super_admin' || myRole() == 'developer'); }
+    function isTopTier()         { return signedIn() && myRole() in ['developer', 'super_admin']; }
+    function isWorkspaceAdmin()  { return signedIn() && myRole() in ['admin', 'super_admin', 'developer']; }
     function canManageBots()     { return isWorkspaceAdmin(); }
 
     // True unless this write would create or alter a `developer`, in which
@@ -214,8 +214,8 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/groups/$(groupId)).data.ownerUid;
     }
     function groupOwnerIsDeveloper(groupId) {
-      return exists(/databases/$(database)/documents/users/$(ownerUidOf(groupId)))
-        && get(/databases/$(database)/documents/users/$(ownerUidOf(groupId))).data.role == 'developer';
+      let owner = /databases/$(database)/documents/users/$(ownerUidOf(groupId));
+      return exists(owner) && get(owner).data.role == 'developer';
     }
 
     // Off-limits to everyone who isn't actually in it. Note there is no
@@ -230,9 +230,17 @@ service cloud.firestore {
     // own group. (Phrased without the literal old expression on purpose: a
     // mechanical find-and-replace across this file would otherwise rewrite
     // this comment too.)
+    // Inlined rather than composed from isGroupAdmin/outsideDeveloperGroup:
+    // this is the hottest helper in the file (17 call sites, several of them
+    // reached more than once per request), and each of those helpers re-ran
+    // signedIn() and re-read the same group document. Binding `g` once costs
+    // one read for both lists. The truth table is unchanged — a group admin,
+    // or a workspace admin who is not reaching into a developer's own group.
     function adminOverGroup(groupId) {
-      return isGroupAdmin(groupId)
-        || (isWorkspaceAdmin() && !outsideDeveloperGroup(groupId));
+      let g = get(/databases/$(database)/documents/groups/$(groupId)).data;
+      return (signedIn() && myUid() in g.adminUids)
+        || (isWorkspaceAdmin()
+            && !(groupOwnerIsDeveloper(groupId) && !(myUid() in g.memberUids)));
     }
 
     // Workspace-wide READ for super admins ("oversight"): every group, channel,
@@ -268,7 +276,7 @@ service cloud.firestore {
     // client is what defends that. Narrowing those write rules to members would
     // also take moderation away from plain admins, which is a separate call.
     function canOverseeAll() {
-      return isHuman() && (myRole() == 'super_admin' || myRole() == 'developer');
+      return isHuman() && myRole() in ['super_admin', 'developer'];
     }
 
     // Oversight of one group's CONTENTS. The group document itself stays
@@ -351,21 +359,49 @@ service cloud.firestore {
     // is never locked out of a channel the backfill missed, and it costs an
     // ordinary member nothing: both of its reads are already cached by this
     // point, and it short-circuits before the one that isn't.
+    // Two notes on what this does NOT call, both of them about the 1000
+    // expressions a rule gets to evaluate before Firestore gives up and
+    // denies — which this rule used to exceed on an ordinary member's denial.
+    //
+    // `myRole() != 'guest'` rather than `!isGuest()`: isGuest() re-runs
+    // signedIn(), and every call site has already proven membership, which
+    // implies it. If this is ever called somewhere that has not, put isGuest()
+    // back — a bare role read errors for a caller with no users document, and
+    // an error denies.
+    //
+    // The admin leg is adminOverGroup() spelled out rather than called, so the
+    // group is read once here instead of once more in isGroupAdmin() and twice
+    // again inside groupOwnerIsDeveloper(). Same truth table: a group admin, or
+    // a workspace admin who is not reaching into a developer's group from
+    // outside it. Keep the two in step.
     function channelVisible(groupId, ch) {
-      return (isGuest() && channelListsMe(ch))
-        || (!isGuest() && (
-              channelListsMe(ch)
-              || adminOverGroup(groupId)
-              || channelIsPublic(ch)
-           ));
+      let g = get(/databases/$(database)/documents/groups/$(groupId)).data;
+      let role = myRole();
+      return channelListsMe(ch)
+        || (role != 'guest'
+            && (myUid() in g.adminUids
+                || (role in ['admin', 'super_admin', 'developer']
+                    && !(groupOwnerIsDeveloper(groupId) && !(myUid() in g.memberUids)))
+                || channelIsPublic(ch)));
     }
     function channelDataOf(groupId, channelId) {
       return get(/databases/$(database)/documents/groups/$(groupId)/channels/$(channelId)).data;
     }
-    // For use from a channel's subcollections, where `resource` is not the
-    // channel. Costs one get, cached across a single request's rule evaluation.
-    function canSeeChannel(groupId, channelId) {
-      return channelVisible(groupId, channelDataOf(groupId, channelId));
+    // "A member of this group who can see this channel", for a channel's
+    // SUBCOLLECTIONS, where `resource` is the message or roster row rather
+    // than the channel — so the channel costs one get, cached for the rest of
+    // the request.
+    //
+    // It is one function because it was seven copies of `isGroupMember() &&
+    // canSeeChannel()`, and that pair ran signedIn() twice and derived the
+    // group path twice every time. The channel's own rules still call
+    // channelVisible() directly: there `resource.data` IS the channel, so
+    // there is nothing to fetch.
+    function memberCanSeeChannel(groupId, channelId) {
+      let g = get(/databases/$(database)/documents/groups/$(groupId)).data;
+      return signedIn()
+        && myUid() in g.memberUids
+        && channelVisible(groupId, channelDataOf(groupId, channelId));
     }
 
     // ── Invite links ──
@@ -381,14 +417,14 @@ service cloud.firestore {
       // caller had written themselves — a redemption record carrying whatever
       // expiresAt, groupId and channelIds they liked — and every check after it
       // passed against their own forged data. Real tokens are 40 letters/digits.
+      let invite = /databases/$(database)/documents/invites/$(token);
       return token is string
         && token.size() > 0
         && token.size() <= 128
         && token.matches('[A-Za-z0-9_-]+')
-        && exists(/databases/$(database)/documents/invites/$(token))
-        && !(('revoked' in inviteDataOf(token)) && inviteDataOf(token).revoked == true)
-        && ('expiresAt' in inviteDataOf(token))
-        && inviteDataOf(token).expiresAt > request.time;
+        && exists(invite)
+        && get(invite).data.get('revoked', false) != true
+        && get(invite).data.get('expiresAt', request.time) > request.time;
     }
 
     // The invite THIS account joined with, recorded in users/{me}/private/invite.
@@ -701,14 +737,13 @@ service cloud.firestore {
 
         // ───── Channel messages ─────
         match /messages/{msgId} {
-          allow read: if (isGroupMember(groupId) && canSeeChannel(groupId, channelId))
+          allow read: if memberCanSeeChannel(groupId, channelId)
             || overseeGroup(groupId);
 
           // Create: must be group member + author identifies the sender.
           // Oversight is NOT enough — posting is exactly what would give an
           // overseeing super admin away, so they have to join the group first.
-          allow create: if isGroupMember(groupId)
-            && canSeeChannel(groupId, channelId)
+          allow create: if memberCanSeeChannel(groupId, channelId)
             && request.resource.data.author.uid == myUid()
             && botCan('messages:write');
 
@@ -721,11 +756,11 @@ service cloud.firestore {
             // message — not pin it (admin-only, and a bot needs reactions:write
             // for that), and not rewrite who wrote it or when. There was no field
             // restriction here at all.
-            || (isGroupMember(groupId) && canSeeChannel(groupId, channelId)
+            || (memberCanSeeChannel(groupId, channelId)
                 && resource.data.author.uid == myUid()
                 && botCan('messages:write')
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'editedAt']))
-            || (isGroupMember(groupId) && canSeeChannel(groupId, channelId)
+            || (memberCanSeeChannel(groupId, channelId)
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
                 && botCan('reactions:write'))
             // Pinning is otherwise admin-only, but a bot with the react/pin
@@ -736,7 +771,7 @@ service cloud.firestore {
 
           // Delete: author, group admin, or workspace admin
           allow delete: if adminOverGroup(groupId)
-            || (isGroupMember(groupId) && canSeeChannel(groupId, channelId)
+            || (memberCanSeeChannel(groupId, channelId)
                 && resource.data.author.uid == myUid()
                 && botCan('messages:write'));
         }
@@ -753,15 +788,15 @@ service cloud.firestore {
           // Readable under oversight so a super admin can see who's in a voice
           // channel. Joining it stays member-only below — a roster doc is
           // precisely the thing the rest of the group would notice.
-          allow read: if (isGroupMember(groupId) && canSeeChannel(groupId, channelId))
+          allow read: if memberCanSeeChannel(groupId, channelId)
             || overseeGroup(groupId);
 
           // botCan gates a music/utility bot joining the mesh at all; past
           // this point a bot is just another participant, and the signaling
           // below treats it identically to a browser.
-          allow create: if isGroupMember(groupId) && uid == myUid()
-            && canSeeChannel(groupId, channelId)
+          allow create: if uid == myUid()
             && request.resource.data.uid == myUid()
+            && memberCanSeeChannel(groupId, channelId)
             && botCan('voice:join')
             && get(/databases/$(database)/documents/groups/$(groupId)/channels/$(channelId)).data.type == 'voice';
 

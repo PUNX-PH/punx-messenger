@@ -158,13 +158,49 @@ await testEnv.withSecurityRulesDisabled(async (ctx) => {
 })
 
 let pass = 0, fail = 0
+
+// ── The 1000-expression budget ──
+//
+// Firestore allows a rule 1000 expression evaluations and DENIES when it runs
+// out, reporting "the maximum of 1000 expressions to evaluate has been
+// reached" on the console rather than failing anything here. An assertFails
+// cannot tell that apart from the rule refusing on purpose, and 17 assertions
+// in this suite used to pass exactly that way: the attack each one describes
+// was never actually evaluated, and a legitimate request down the same path
+// was one helper call away from being denied in production for the same
+// reason. A rule that cannot finish is not a rule that said no.
+//
+// So the SDK's console output is watched, and a test whose denial came out of
+// the budget fails however it was asserted.
+const overBudget = []
+for (const level of ['warn', 'error']) {
+  const write = console[level].bind(console)
+  console[level] = (...args) => {
+    const text = args.map(String).join(' ')
+    if (text.includes('maximum of 1000 expressions')) overBudget.push(text)
+    write(...args)
+  }
+}
+const budgetSite = (text) => (text.match(/for '\w+' @ L\d+/g) || []).join(', ') || 'unknown rule'
+
 // A section can set `before` to reseed its fixtures. Without it, a test that finds a
 // hole (an assertFails that SUCCEEDS) leaves the database changed, and every later
 // test in the section runs against the aftermath and can pass or fail for the
 // wrong reason.
 let before = async () => {}
 const t = async (name, fn) => {
-  try { await before(); await fn(); console.log('  PASS  ' + name); pass++ }
+  const budgetMark = overBudget.length
+  try {
+    await before(); await fn()
+    if (overBudget.length > budgetMark) {
+      console.log('  FAIL  ' + name
+        + '\n          denied by the 1000-expression budget, not by the rule: '
+        + budgetSite(overBudget[budgetMark]))
+      fail++
+      return
+    }
+    console.log('  PASS  ' + name); pass++
+  }
   catch (e) { console.log('  FAIL  ' + name + '\n          ' + String(e.message || e).split('\n')[0]); fail++ }
 }
 const chans = (db, g) => getDocs(collection(db, 'groups', g, 'channels'))
@@ -810,6 +846,13 @@ await t('a group admin can still pin it', () => assertSucceeds(updateDoc(authore
 await t('any member who can see the channel can still react to it', () => assertSucceeds(
   updateDoc(authored(T1), { reactions: { '👍': [T1] } })))
 before = async () => {}
+
+// Anything the budget swallowed outside a test — during a `before` reseed, or
+// logged too late to be attributed to its own assertion — still gets reported.
+if (overBudget.length) {
+  console.log(`\n${overBudget.length} rule evaluation(s) hit the 1000-expression budget:`)
+  for (const site of [...new Set(overBudget.map(budgetSite))]) console.log('  ' + site)
+}
 
 console.log(`\n${pass} passed, ${fail} failed`)
 await testEnv.cleanup()
