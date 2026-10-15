@@ -1,37 +1,34 @@
-# Session notes — 2026-10-14
+# Session notes — 2026-10-14 to 2026-10-15
 
 What was done, what is still waiting on you, and what was found but not fixed.
 
-## 1. Do these next (production is in a half-deployed state)
+## 1. Where things stand (updated 2026-10-15)
 
-Merging to `main` auto-deploys the web app (Vercel) and the Workers (Cloudflare). **Firestore rules do not auto-deploy.** The web client now on `main` writes the invite token to `users/{uid}/private/invite`, which the *currently live* rules refuse, so **new guests cannot redeem invites until the rules are deployed.** Everything else (DMs, channels, staff sign-in) is unaffected.
+All five PRs are merged and `main` (`9d2f4cd`) is deployed: Vercel and both Cloudflare Workers builds succeeded.
 
-```bash
-git checkout main && git pull
-npx firebase login
-npx firebase deploy --only firestore:rules --project punx-msg
-```
+**Done in production**
+- Firestore rules deployed to `punx-msg` (the file on `main`; `firebase deploy --only firestore:rules`). New guests can redeem invites again.
+- Invite-token migration run with `--apply --revoke-exposed`: `invitedVia` removed from 3 user documents, the one live exposed invite (the "Test" group, channels general/test/music) revoked. A re-check reads 0 exposed tokens. Anyone who still needs that group needs a fresh link.
 
-Then smoke-test on the real app (only emulator tests have been run against the new rules):
+**Still to do**
 
-1. Redeem an invite as a brand-new Google account.
-2. Re-open the same invite link as an existing member.
-3. Leave a group.
-4. Send a DM.
+1. **Smoke-test the real app against the live rules.** Nothing has been run against them except the emulator. The first one matters most:
+   1. Redeem an invite as a brand-new Google account.
+   2. Re-open the same invite link as an existing member.
+   3. Leave a group.
+   4. Send a DM (web, and the Android app).
+   If one fails, roll back: check out `firestore.rules` from before PR #2 (`git log -- firestore.rules`) and redeploy it.
+2. **Build and test the Android app on a phone.** The release keystore is on the other PC (see section 6). The PR #4 and PR #5 manual checks (voice in the background, network drop, removed account, the side rail on a tablet) have not been run.
+3. **iOS cannot start** until a Firebase iOS app is registered (no `GoogleService-Info.plist`, no iOS options in `firebase_options.dart`).
+4. Open items in section 3, and the choice of an SFU provider for 30-person voice (section 4).
 
-Then clean up tokens that were already exposed in the user directory (needs a service-account key kept outside the repo). **Dry run first:**
+### Running the migration script again
 
-```bash
-npm i --no-save firebase-admin
-GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json node scripts/migrate-invite-tokens.mjs
-# then add --apply to remove the field, and --revoke-exposed to also close the live links
-```
+The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json`) or an `authorized_user` credential file. The second was used here: a file built from the Firebase CLI login (`~/.config/configstore/firebase-tools.json` refresh token, the client id/secret from `node_modules/firebase-tools/lib/api.js`, and `"quota_project_id": "punx-msg"`). Keep such a file outside the repo and OneDrive, and delete it afterwards. Re-running the script is free; a second pass finds nothing.
 
-`--revoke-exposed` also kills links you meant to keep; make fresh ones afterwards. Deleting the field does **not** un-leak a token someone already copied — only revoking does.
+In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-Last seen on `main` (`2adab7c`): main Worker build passed; gifs Worker build and Vercel still running. Re-check them.
-
-## 2. What shipped (PRs #1–#3, all merged)
+## 2. What shipped (PRs #1–#5, all merged)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
