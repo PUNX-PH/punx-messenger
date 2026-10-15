@@ -10,6 +10,15 @@ abstract final class AppConfig {
   static const allowedExtraEmails = ['perezjohnrey43@gmail.com'];
   static const superAdminEmails = ['rey@punx.ai'];
 
+  /// Where invite links point. The web client builds them from
+  /// `window.location.origin`, i.e. whichever address the admin has open; the app
+  /// has no origin of its own, so it needs this one. Override at build time with
+  /// `--dart-define=WEB_ORIGIN=https://…` (no trailing slash) for a staging site.
+  static const webOrigin = String.fromEnvironment(
+    'WEB_ORIGIN',
+    defaultValue: 'https://plexus.punxai.online',
+  );
+
   static bool isEmailAllowed(String email) {
     final e = email.toLowerCase();
     return e.endsWith('@$allowedEmailDomain') || allowedExtraEmails.contains(e);
