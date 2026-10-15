@@ -39,6 +39,12 @@
  *
  *   4. Then add --apply, and --revoke-exposed if you want the links closed.
  *
+ *   No key? GOOGLE_APPLICATION_CREDENTIALS may instead point at an
+ *   `authorized_user` file (a signed-in person's refresh token, e.g. built from the
+ *   Firebase CLI login, with "quota_project_id" set to the project). The script
+ *   then acts as that person, who needs Firestore access. Keep such a file outside
+ *   the repo and delete it afterwards.
+ *
  * Deploy the new firestore.rules and clients FIRST, or this script races a
  * redemption that is still writing the old shape. Re-running it is free: a second
  * pass finds nothing, and the VERIFY line at the end should read 0.
@@ -65,9 +71,21 @@ if (EMULATOR) {
   projectId = process.env.GCLOUD_PROJECT || 'demo-punx'
   initializeApp({ projectId })
 } else if (KEY) {
-  const serviceAccount = JSON.parse(readFileSync(KEY, 'utf8'))
-  projectId = serviceAccount.project_id
-  initializeApp({ credential: cert(serviceAccount), projectId })
+  const creds = JSON.parse(readFileSync(KEY, 'utf8'))
+  if (creds.type === 'authorized_user') {
+    // A signed-in person's credential (an `authorized_user` file, e.g. built from
+    // the Firebase CLI login) rather than a service-account key. It acts as that
+    // person, so they need Firestore access to the project.
+    projectId = process.env.GCLOUD_PROJECT || creds.quota_project_id
+    if (!projectId) {
+      console.error('That credential names no project. Add "quota_project_id" to it, or set GCLOUD_PROJECT.')
+      process.exit(1)
+    }
+    initializeApp({ credential: applicationDefault(), projectId })
+  } else {
+    projectId = creds.project_id
+    initializeApp({ credential: cert(creds), projectId })
+  }
 } else {
   console.error('Set GOOGLE_APPLICATION_CREDENTIALS to your service-account JSON. See the header of this file.')
   process.exit(1)
