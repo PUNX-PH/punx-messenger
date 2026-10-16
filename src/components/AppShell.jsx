@@ -4,6 +4,7 @@ import ServerRail from './ServerRail'
 import DMsSidebar from './DMsSidebar'
 import ChannelSidebar from './ChannelSidebar'
 import CallOverlay from './calls/CallOverlay'
+import { preloadCommon } from '../lib/lazyParts'
 
 const ShellContext = createContext({ openDrawer: () => {}, closeDrawer: () => {} })
 export const useShell = () => useContext(ShellContext)
@@ -15,6 +16,11 @@ export default function AppShell() {
 
   // Auto-close the mobile drawer whenever the route changes
   useEffect(() => { setDrawerOpen(false) }, [loc.pathname])
+
+  // Fetch the emoji picker and voice room in the background, so opening either for
+  // the first time is instant rather than a small wait. Cancelled if the shell goes
+  // away before it starts.
+  useEffect(() => preloadCommon(), [])
 
   // Lock body scroll when drawer is open on mobile
   useEffect(() => {

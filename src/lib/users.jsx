@@ -1,9 +1,10 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   collection, deleteField, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { useAuth } from './auth'
+import { sameUsers, shareIdentity } from './usersIdentity'
 
 // Low to high — the admin panel's role <select> renders them in this order.
 // `developer` is the TOP role: everything super_admin has, plus the one thing
@@ -72,15 +73,71 @@ export async function setUserDeactivated(uid, deactivated, actorUid) {
 //               member panels, the add-members dialog.
 //   users       the raw list, for the admin panel, which is the one screen
 //               that has to show removed accounts in order to restore them.
+//
+// WHO people are and WHEN they were last around travel separately, on purpose.
+// Every online person rewrites `lastSeen` every 45 seconds, and each write reaches
+// every client as a snapshot. Folded into the user objects, that re-rendered every
+// component reading this context (the message list, composer, both sidebars) each
+// time anyone's heartbeat landed. So the objects here carry identity only and keep
+// the SAME identity until a name, photo, role or the like changes (see
+// lib/usersIdentity.js); presence lives in usePresence(), published in batches.
 const UsersCtx = createContext({ users: [], activeUsers: [], byId: {} })
+
+// uid -> { presence, lastSeen }. Read with computeStatus(presence[uid], now).
+const PresenceCtx = createContext({})
+
+// How often a changed presence map is published. Statuses are bucketed by minutes
+// (away after 5, offline after 2 without a heartbeat) and drawn from a 30s tick, so
+// a few seconds of lag is invisible, while ten people's heartbeats collapse from
+// roughly one render every four seconds into at most one every fifteen.
+const PRESENCE_FLUSH_MS = 15_000
 
 export function UsersProvider({ children }) {
   const { profile } = useAuth()
   const [users, setUsers] = useState([])
+  const [presence, setPresence] = useState({})
+
+  // Carried between snapshots so unchanged people keep their object identity.
+  const identityRef = useRef(new Map())
+  const usersRef = useRef([])
+  const presenceRef = useRef({})
+  const dirtyRef = useRef(false)
+  // Read inside the listener, which must not be torn down when it changes.
+  const meIdRef = useRef(profile?.id)
+  meIdRef.current = profile?.id
 
   useEffect(() => {
     if (!profile) return
-    return listenAllUsers(setUsers)
+    identityRef.current = new Map() // a different account starts clean
+    usersRef.current = []
+    let first = true
+    const unsubscribe = listenAllUsers(list => {
+      const out = shareIdentity(identityRef.current, list, meIdRef.current)
+      identityRef.current = out.next
+      presenceRef.current = out.presence
+      // Compared against a ref, not inside a setState updater: updaters must be
+      // pure, and this one needs to set other state.
+      const same = sameUsers(usersRef.current, out.users)
+      if (!same) {
+        usersRef.current = out.users
+        setUsers(out.users)
+      }
+      // A render is happening anyway when the people changed, so publish presence
+      // with it; otherwise leave it for the next flush.
+      if (!same || first) {
+        dirtyRef.current = false
+        setPresence(out.presence)
+      } else {
+        dirtyRef.current = true
+      }
+      first = false
+    })
+    const flush = setInterval(() => {
+      if (!dirtyRef.current) return
+      dirtyRef.current = false
+      setPresence(presenceRef.current)
+    }, PRESENCE_FLUSH_MS)
+    return () => { unsubscribe(); clearInterval(flush) }
   }, [profile])
 
   const byId = useMemo(() => {
@@ -91,9 +148,18 @@ export function UsersProvider({ children }) {
 
   const activeUsers = useMemo(() => users.filter(u => !isDeactivated(u)), [users])
 
+  // Memoised: a fresh object each render would re-render every consumer whenever
+  // the provider itself did, even with nothing new to show.
+  const value = useMemo(() => ({ users, activeUsers, byId }), [users, activeUsers, byId])
+
   return (
-    <UsersCtx.Provider value={{ users, activeUsers, byId }}>{children}</UsersCtx.Provider>
+    <UsersCtx.Provider value={value}>
+      <PresenceCtx.Provider value={presence}>{children}</PresenceCtx.Provider>
+    </UsersCtx.Provider>
   )
 }
 
 export const useUsers = () => useContext(UsersCtx)
+
+/** uid -> { presence, lastSeen }, for computeStatus(presence[uid], now). */
+export const usePresence = () => useContext(PresenceCtx)

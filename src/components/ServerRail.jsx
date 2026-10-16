@@ -7,7 +7,8 @@ import {
   markGroupAsRead, toggleMuteGroup,
 } from '../lib/groups'
 import { isUnread, pathToReadKey } from '../lib/db'
-import CreateGroupModal from './CreateGroupModal'
+import LazySlot from './LazySlot'
+import { CreateGroupModal } from '../lib/lazyParts'
 import GroupContextMenu from './GroupContextMenu'
 
 export default function ServerRail() {
@@ -172,7 +173,11 @@ export default function ServerRail() {
         )}
       </aside>
 
-      <CreateGroupModal open={creating} onClose={() => setCreating(false)} />
+      {creating && (
+        <LazySlot overlay onDismiss={() => setCreating(false)}>
+          <CreateGroupModal open onClose={() => setCreating(false)} />
+        </LazySlot>
+      )}
 
       <GroupContextMenu
         open={menu.open}

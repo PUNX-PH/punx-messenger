@@ -4,7 +4,7 @@ import { useAuth, canManageBots, canManageRoles } from '../lib/auth'
 import Avatar from './Avatar'
 import { roleLabel } from '../lib/users'
 import { computeStatus, useTickNow } from '../lib/presence'
-import { useUsers } from '../lib/users'
+import { usePresence, useUsers } from '../lib/users'
 import { useNotifications } from '../lib/notifications'
 import { useVoiceChannel } from '../lib/useVoiceChannel'
 import { isLight, toggleTheme } from '../lib/theme'
@@ -33,7 +33,10 @@ export default function UserPanel() {
   const [sfxOn, setSfxOn] = useState(() => sfxEnabled())
   const gearBtnRef = useRef(null)
   const me = byId[profile?.id] || profile
-  const status = computeStatus(me, now)
+  const presence = usePresence()
+  // Presence from its own channel; `me` (a one-time read at sign-in, until the live
+  // list arrives) is only the fallback for the first moments.
+  const status = computeStatus(presence[profile?.id] || me, now)
 
   const openMenu = (e) => setMenu({ open: true, x: e.clientX, y: e.clientY })
 
