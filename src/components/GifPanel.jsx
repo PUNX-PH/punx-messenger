@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { searchGifs, trendingGifs, gifThumbUrl, gifSendUrl, gifSendMeta } from '../lib/gifs'
 import { getFavorites, isFavorited, toggleFavorite } from '../lib/gifFavorites'
+import { useAuth } from '../lib/auth'
 
 /**
  * Discord-style GIF search tab, backed by Klipy (proxied through the Worker
@@ -13,7 +14,9 @@ export default function GifPanel({ onPick }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [favorites, setFavorites] = useState(() => getFavorites())
+  // Favorites belong to the signed-in account, not to the browser (see gifFavorites.js).
+  const uid = useAuth()?.profile?.uid
+  const [favorites, setFavorites] = useState(() => getFavorites(uid))
 
   useEffect(() => {
     let cancelled = false
@@ -35,7 +38,7 @@ export default function GifPanel({ onPick }) {
 
   const onToggleFavorite = (e, item) => {
     e.stopPropagation()
-    setFavorites(toggleFavorite(item))
+    setFavorites(toggleFavorite(uid, item))
   }
 
   const searching = Boolean(query.trim())
