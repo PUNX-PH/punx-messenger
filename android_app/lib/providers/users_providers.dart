@@ -1,15 +1,40 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/user_profile.dart';
+import '../services/users_identity.dart';
 import '../services/users_repository.dart';
+import 'presence_providers.dart';
 
 final usersRepositoryProvider = Provider<UsersRepository>(
   (ref) => UsersRepository(),
 );
 
 /// Live workspace directory.
-final usersStreamProvider = StreamProvider<List<UserProfile>>((ref) {
-  return ref.watch(usersRepositoryProvider).listenUsers();
+///
+/// Emits only when WHO people are changes — a name, photo, role, deactivation.
+/// A heartbeat, an away/online flip or someone reading a channel arrives as a
+/// snapshot too, but changes nothing a screen shows, so it is not passed on: it
+/// used to rebuild every screen watching the directory, the message list included,
+/// each time anyone's `lastSeen` landed. Presence goes to [presenceStoreProvider]
+/// instead, in batches. See services/users_identity.dart.
+final usersStreamProvider = StreamProvider<List<UserProfile>>((ref) async* {
+  final store = ref.read(presenceStoreProvider.notifier);
+  var identities = <String, IdentityEntry>{};
+  List<UserProfile>? last;
+
+  await for (final raw in ref.watch(usersRepositoryProvider).listenUsers()) {
+    final out = shareIdentity(identities, raw);
+    identities = out.next;
+
+    final changed = last == null || !sameUsers(last, out.users);
+    // A rebuild is happening anyway when the people changed (and on the very
+    // first snapshot), so publish presence with it; otherwise let it batch.
+    store.publish(out.presence, immediate: changed);
+    if (changed) {
+      last = out.users;
+      yield out.users;
+    }
+  }
 });
 
 /// Derived uid -> profile lookup, for resolving live author/mention names.

@@ -56,11 +56,13 @@ class _MembersSheet extends ConsumerWidget {
           });
 
     final now = DateTime.now();
+    // Presence lives apart from the user objects (see users_identity.dart).
+    final presence = ref.watch(presenceStoreProvider);
     final online = members
-        .where((u) => computeStatus(u, now) != 'offline')
+        .where((u) => computeStatusFromPresence(presence[u.id], now) != 'offline')
         .toList();
     final offline = members
-        .where((u) => computeStatus(u, now) == 'offline')
+        .where((u) => computeStatusFromPresence(presence[u.id], now) == 'offline')
         .toList();
 
     return SafeArea(

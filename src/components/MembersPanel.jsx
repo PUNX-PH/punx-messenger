@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { useUsers } from '../lib/users'
+import { usePresence, useUsers } from '../lib/users'
 import { computeStatus, useTickNow } from '../lib/presence'
 import Avatar from './Avatar'
 
@@ -18,6 +18,7 @@ export default function MembersPanel({ group, open }) {
   // them, and keeping it means reactivating restores what they had.
   const { activeUsers: users } = useUsers()
   const now = useTickNow()
+  const presence = usePresence()
   const meUid = profile?.id
 
   const { online, offline, total } = useMemo(() => {
@@ -28,7 +29,7 @@ export default function MembersPanel({ group, open }) {
       .filter(u => memberSet.has(u.id))
       .map(u => ({
         ...u,
-        status: computeStatus(u, now),
+        status: computeStatus(presence[u.id], now),
         roleTier: group.ownerUid === u.id ? 0 : adminSet.has(u.id) ? 1 : 2,
       }))
       .sort((a, b) => {
@@ -40,7 +41,7 @@ export default function MembersPanel({ group, open }) {
       offline: members.filter(m => m.status === 'offline'),
       total: members.length,
     }
-  }, [users, group, now])
+  }, [users, group, now, presence])
 
   if (!open) return null
 

@@ -15,7 +15,9 @@ import DMConvo from './views/DMConvo'
 import MyNotes from './views/MyNotes'
 import GroupHome from './views/GroupHome'
 import Channel from './views/Channel'
-import AdminPanel from './views/AdminPanel'
+import LazySlot from './components/LazySlot'
+import PanelLoading from './components/PanelLoading'
+import { AdminPanel } from './lib/lazyParts'
 import InviteAccept from './views/InviteAccept'
 
 export default function App() {
@@ -63,7 +65,7 @@ function Gate() {
           <Route path="/me/notes"                  element={<MyNotes />} />
           <Route path="/g/:groupId"                element={<GroupHome />} />
           <Route path="/g/:groupId/c/:channelId"   element={<Channel />} />
-          <Route path="/admin"                     element={<AdminPanel />} />
+          <Route path="/admin"                     element={<LazySlot title="Admin panel unavailable" fallback={<PanelLoading />}><AdminPanel /></LazySlot>} />
           <Route path="*"                          element={<Navigate to="/dms" replace />} />
         </Route>
       )}

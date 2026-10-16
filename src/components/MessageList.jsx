@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import Avatar from './Avatar'
 import Lightbox from './Lightbox'
 import RoleBadge from './RoleBadge'
-import EmojiPicker from './EmojiPicker'
-import { useUsers } from '../lib/users'
+import LazySlot from './LazySlot'
+import { EmojiPicker } from '../lib/lazyParts'
+import { usePresence, useUsers } from '../lib/users'
 import { useEmojis } from '../lib/emojis'
 import { isOnlyEmojis, mentionsUid, renderMessage } from '../lib/markdown'
 import { computeStatus, useTickNow } from '../lib/presence'
@@ -36,6 +37,7 @@ export default function MessageList({
   const { byId: usersById } = useUsers()
   const { byName: emojiByName } = useEmojis()
   const now = useTickNow()
+  const presence = usePresence()
 
   // Distinguishing "a new message arrived" from "older ones were prepended" is
   // the whole job here: the first should follow the conversation down, the
@@ -224,6 +226,7 @@ export default function MessageList({
               usersById={usersById}
               emojiByName={emojiByName}
               tickNow={now}
+              presenceById={presence}
               canDeleteAny={canDeleteAny}
               readOnly={readOnly}
               meUid={meUid}
@@ -278,7 +281,7 @@ function ArrowDownIcon() {
 }
 
 function Group({
-  group, onZoom, canPin, onTogglePin, highlightId, usersById, emojiByName, tickNow,
+  group, onZoom, canPin, onTogglePin, highlightId, usersById, presenceById, emojiByName, tickNow,
   canDeleteAny, readOnly, meUid, editingId, setEditingId, onEdit, onDelete, onReact,
   onReply, onJumpToMessage,
 }) {
@@ -288,7 +291,7 @@ function Group({
     name:     currentAuthor?.name     || group.author?.name,
     photoURL: currentAuthor?.photoURL || group.author?.photoURL,
     role:     currentAuthor?.role,
-    status:   currentAuthor ? computeStatus(currentAuthor, tickNow) : undefined,
+    status:   currentAuthor ? computeStatus(presenceById?.[currentAuthor.id], tickNow) : undefined,
   }
   return (
     <div className="space-y-0">
@@ -470,13 +473,19 @@ function Row({
               >
                 <SmilePlusIcon />
               </button>
-              <EmojiPicker
-                anchorRef={reactBtnRef}
-                open={reactOpen}
-                onClose={() => setReactOpen(false)}
-                onPick={(token) => { onReact(message, token); setReactOpen(false) }}
-                position="bottom-right"
-              />
+              {/* Mounted only while open. This used to sit hidden inside EVERY
+                  message row, each with its own hooks and state. */}
+              {reactOpen && (
+                <LazySlot overlay onDismiss={() => setReactOpen(false)}>
+                  <EmojiPicker
+                    anchorRef={reactBtnRef}
+                    open
+                    onClose={() => setReactOpen(false)}
+                    onPick={(token) => { onReact(message, token); setReactOpen(false) }}
+                    position="bottom-right"
+                  />
+                </LazySlot>
+              )}
             </div>
           )}
           {onReply && (
