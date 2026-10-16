@@ -8,6 +8,7 @@ import { useAuth } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import { whoIsTyping } from '../lib/typing'
 import { sameMessages } from '../lib/messagesIdentity'
+import { describeListenError } from '../lib/listenError'
 import ErrorBoundary from './ErrorBoundary'
 import MessageList, { PinIcon } from './MessageList'
 import Composer from './Composer'
@@ -85,18 +86,33 @@ export default function ChatSurface({
   const [limit, setLimit] = useState(MESSAGE_PAGE)
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  // Set when the messages listener fails (no access, offline, missing index). A
+  // failed listener is dead, so "Try again" subscribes afresh via reloadKey.
+  const [loadError, setLoadError] = useState(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => { setLimit(MESSAGE_PAGE) }, [path])
 
   useEffect(() => {
     if (!path) return
     return listenMessages(path, (docs, meta) => {
+      setLoadError(null)
       // Same messages as the same objects: nothing to do (see messagesIdentity.js).
       setMessages(prev => (sameMessages(prev, docs) ? prev : docs))
       setHasMore(meta.hasMore)
       setLoadingMore(false)
-    }, limit)
-  }, [path, limit])
+    }, limit, (err) => {
+      console.error('[chat] could not load messages for', path, err)
+      // Not the previous conversation's messages, and not a bare empty list that
+      // reads as "nothing here yet".
+      setMessages([])
+      setLoadingMore(false)
+      setLoadError(describeListenError(err))
+    })
+  }, [path, limit, reloadKey])
+
+  // A different conversation starts without the last one's error.
+  useEffect(() => { setLoadError(null) }, [path])
 
   const loadOlder = useCallback(() => {
     if (loadingMore || !hasMore) return
@@ -248,6 +264,23 @@ export default function ChatSurface({
       {/* A message that cannot be rendered must not take the header, sidebar and
           composer with it — least of all for an admin who needs to open the
           channel to delete it. */}
+      {loadError ? (
+        <div role="alert" className="flex-1 grid place-items-center px-6">
+          <div className="text-center max-w-md text-ink-muted">
+            <div className="text-xl font-semibold text-ink mb-1">Messages couldn't be loaded</div>
+            <p className="text-sm">{loadError.message}</p>
+            {loadError.retryable && (
+              <button
+                type="button"
+                onClick={() => { setLoadError(null); setReloadKey(k => k + 1) }}
+                className="mt-4 px-3 py-1.5 rounded-md bg-brand text-white text-sm font-medium hover:bg-brand-hover transition-colors"
+              >
+                Try again
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
       <ErrorBoundary resetKey={path} title="This conversation can't be shown">
         <MessageList
           messages={messages}
@@ -270,6 +303,7 @@ export default function ChatSurface({
           highlightId={jumpId}
         />
       </ErrorBoundary>
+      )}
 
       <TypingIndicator names={typingNames} />
 

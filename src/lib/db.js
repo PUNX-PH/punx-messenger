@@ -70,7 +70,10 @@ function cleanMessage(data) {
   }
 }
 
-export function listenMessages(path, cb, lim = MESSAGE_PAGE) {
+// `onError` matters: a listener that fails never delivers again, and without it the
+// chat just stays as it was (an empty "start of the conversation" over a channel
+// that is full of messages). See listenError.js for what the person is told.
+export function listenMessages(path, cb, lim = MESSAGE_PAGE, onError) {
   const q = query(collection(db, ...path.split('/')), orderBy('createdAt', 'desc'), fbLimit(lim))
   // Messages that did not change keep the object they had, so the list can skip
   // them (see messagesIdentity.js). The first snapshot reports everything as added.
@@ -86,7 +89,7 @@ export function listenMessages(path, cb, lim = MESSAGE_PAGE) {
     // total is an exact multiple of the page size — the cost is one extra
     // fetch that returns nothing new, and the caller stops asking.
     cb(docs, { hasMore: snap.size >= lim })
-  })
+  }, onError)
 }
 
 // Encode a container path into a safe Firestore map key.
