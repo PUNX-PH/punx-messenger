@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9 and #11–#13 are merged, and `main` (`2e15ef0`) is deployed: Vercel and both Cloudflare Workers builds succeeded. https://plexus.punxai.online/ serves it. Checked on the live site: the split bundle and its on-demand parts, the sound files, and the one-day cache on built files (section 13).
+PRs #1–#9, #11–#13, #15 and #16 are merged. Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green, but I have not looked at the production deploy or the live site since, and neither has been tried in the signed-in app.** This file is PR #14.
 
 **PR #10 is still open and is superseded by this file**: its "picking this up on another machine" section is folded into section 10 below, updated, and its other edits describe a state that no longer exists (the invite screen it calls unpushed was merged as #9). Close it without merging.
 
@@ -24,7 +24,9 @@ PRs #1–#9 and #11–#13 are merged, and `main` (`2e15ef0`) is deployed: Vercel
 2. **Check the Android changes on a phone, on the other PC** (which has the release keystore; do not build Android on this machine). Nothing from PRs #4, #5, #7, #9 and #11 has been run on a device by me, and the app has not been compiled with Gradle since the audio plugin and the invite screen were added. Checks, all still to do: voice in the background, network drop, removed account (section 6); the side rail on a tablet (7); **create an invite from the app, open the link in a browser, and join** (8); the sound checks, above all that **call audio does not change when a sound plays on speakerphone** (9); status dots in the DM list, members sheet and message authors (11).
 3. **iOS: prepared, needs a Mac.** `docs/IOS.md` has the ordered runbook and device checklist; `node scripts/ios-setup.mjs` checks the project and, with `--apply`, wires the Firebase file in once you have it (section 12). Still missing: `GoogleService-Info.plist` (create/fetch with the Firebase CLI after `firebase login --reauth`; the login on this machine has expired), a signing team, and any run on a device. Decision pending: Sign in with Apple, before App Store review.
 4. **On the signed-in web app, open the on-demand parts once** (emoji picker from the composer and from a message's reaction button, with its GIF tab; admin panel; a voice room; group settings, channel access and create-group dialogs). They were wired in but I could not sign in to try them (section 11).
-5. Close PR #10 (above). Then the open items in section 3, and the choice of an SFU provider for 30-person voice (section 4).
+5. **Try background blur in a real call** (section 15): the button in a voice channel and in a video call, on and off while the camera runs, a real person (is the cut-out clean around hair and glasses?), two browsers, and Safari and Firefox. The first use downloads about 12 MB and takes several seconds.
+6. **Check a busy chat in the signed-in web app** (section 14): the typing indicator appears and disappears, edit, delete, react, reply and pin still work, and the scroll position holds when loading older messages.
+7. Close PR #10 (above). Then the open items in section 3, and the choice of an SFU provider for 30-person voice (section 4).
 
 ### Running the migration script again
 
@@ -32,7 +34,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#13)
+## 2. What shipped (PRs #1–#16)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -71,7 +73,13 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#13 — caching** (section 13): built files cached for a day instead of re-checked on every load.
 
-Test counts on `main` at the end: **Flutter 238**, **Node 119** (sound, presence identity, lazy loader, iOS setup), Worker 18, Firestore rules 204 (with the caveat in section 3).
+**#14 — notes** (this file).
+
+**#15 — chat re-renders** (section 14): an open chat no longer re-renders and re-parses every message every 2 seconds or on every snapshot.
+
+**#16 — background blur** (section 15): a "Blur your background" button for the camera in voice channels and video calls (web only).
+
+Test counts on `main` at the end: **Flutter 238**, **Node 142** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -82,11 +90,11 @@ Test counts on `main` at the end: **Flutter 238**, **Node 119** (sound, presence
 - `isGroupAdmin()` ignores membership (a `members:manage` bot can leave an admin in `adminUids` after removing them from `memberUids`).
 - **@mention notifications are denied by the rules** (both clients swallow the error). A safe fix needs a collection-group rule keyed on `mentionedUids` plus an index.
 - **Presence still costs reads**: Firestore delivers every heartbeat to every client, and that grows with the square of the number online (section 11 fixed the re-rendering, not the reads). The real fix is to move presence out of the `users` collection.
-- The web message list is not memoised, so it re-renders its rows on the 30 s presence tick.
 - Failed Firestore listeners show an empty chat instead of an error.
 - No Content-Security-Policy or other security headers.
 - GIF favourites are shared between accounts on one browser.
 - **Not in the Android app compared with the web:** opening an invite inside the app (the link opens in the browser), GIF favourites, and sharing your screen (Android can only watch one; sending needs the screen-capture permission and a foreground service type).
+- **Background blur is web only**: the Android and iOS apps use a different camera pipeline and would need a native segmentation model (section 15).
 - **iOS cannot start** until the Firebase iOS config exists and it has been built once on a Mac: section 12.
 
 **Fixed since the first review** (all merged in #4, details in section 6): the foreground-service camera type that likely killed background voice on Android 14+; removed accounts keeping their voice session; no voice self-repair on Android; `BLUETOOTH_CONNECT` never requested; release builds signing with the debug key; the Android brand-text contrast. The "callee gets no media on a 1:1 call" suspicion was traced and is **not a bug** (`ActiveCallView` re-reads the stream from state on every build).
@@ -180,7 +188,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 
 ## 10. Picking this up on another machine
 
-**Everything is on GitHub.** All work from this stretch is merged to `main` except PR #10, which is superseded by this file. There were no stashes and no uncommitted changes when this was written. If you have another checkout, `git pull` on `main` first.
+**Everything is on GitHub.** All work from this stretch is merged to `main` except PR #10, which is superseded by this file, and PR #14 (this file itself) until it is merged. There were no stashes and no uncommitted changes when this was written. If you have another checkout, `git pull` on `main` first.
 
 **What is NOT in the repo, and has to be set up again:**
 - **Secrets.** The Android release keystore and `android/key.properties` (on the other PC, never in git); any Firebase service-account key; the Cloudflare, Vercel and GitHub sign-ins. Run `gh auth login` and `firebase login` on the new machine (in the user's own PowerShell use `npx.cmd`, since script execution is disabled there).
@@ -188,7 +196,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **The assistant's saved memory** (what it remembered between sessions) lives in the user profile on this machine, not in the repo. Everything in it that matters is in these notes; the essentials: Viber is dropped (section 4); the release keystore is on the other PC (section 6); **do not build the Android app on a machine without the keystore**, run `flutter analyze` and `flutter test` there, and list anything needing Gradle or a phone as a to-do.
 
 **Running the checks**
-- Web: `npm run build`. Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs`.
+- Web: `npm run build` (and `npm run dev`) first copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run). Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs`.
 - Worker: `npm test` in `workers/`.
 - Firestore rules: see section 5 (needs Java, and the two test libraries installed together).
 - Flutter: in `android_app/`, `flutter analyze` and `flutter test`. The widget tests render at several screen sizes and fail on any overflow.
@@ -218,7 +226,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **Android:** compiled by `flutter analyze` and tested, but not built with Gradle or run on a device (built on the other PC). Check the members sheet, DM list dots and message author dots still show the right status.
 - Real Firestore: the presence batching was tested against a stand-in stream, not live data.
 
-**Not done, in rough order of value:** move presence out of `users` (read cost, above); the message list is not memoised, so it re-renders its rows on the 30 s tick; failed Firestore listeners show an empty chat instead of an error; no Content-Security-Policy or other security headers; GIF favourites are shared between accounts on one browser.
+**Not done, in rough order of value (the memoised message list was done afterwards, section 14):** move presence out of `users` (read cost, above); failed Firestore listeners show an empty chat instead of an error; no Content-Security-Policy or other security headers; GIF favourites are shared between accounts on one browser.
 
 ## 12. iOS preparation (PR #12)
 
@@ -239,3 +247,35 @@ The live site sent every built file with `Cache-Control: public, max-age=0, must
 **One day, not a year with `immutable`, on purpose.** Running `vercel.json` through Vercel's own routing library showed the rule applies to every `/assets/` URL including ones that no longer exist, and this app rewrites unknown URLs to `index.html`, so a stale tab asking for a deleted file gets a 200 with HTML. With a year-long lifetime the browser would keep that wrong answer for a year, which bites if a rollback later brings that file name back. A day bounds it.
 
 **Verified on production after the deploy:** built files `max-age=86400`; `index.html` and `/dms` still `max-age=0, must-revalidate`; `/sfx/ring.wav` and the logo untouched. In a real browser a direct fetch of the main app file transferred 0 bytes (about 7 ms, served from cache), while the ring sound, which still revalidates, took a 300-byte check costing about 69 ms. So the saving is roughly one round trip per visit (the files load in parallel), on that connection and from one measurement, **not bytes**: unchanged files were already answered with a bodyless 304. A whole-page reload in the in-app browser pane still showed the small checks; that pane does not seem to treat reloads like a normal browser, so I trust the direct fetch. To undo, revert PR #13.
+
+## 14. Open chats stopped re-rendering every message (PR #15)
+
+**The problem.** `ChatSurface` ran a timer every 2 seconds, in every open conversation, to age out the typing indicator. Each tick re-rendered the whole message list and re-parsed the markdown of every message on screen, whether or not anyone was typing. On top of that every Firestore snapshot rebuilt every message object, so the list could not tell "one new message" from "everything changed".
+
+**The fix.**
+- `src/lib/typing.js`: `whoIsTyping` also says when the answer will next change, and the chat sleeps until then. An idle chat does no work.
+- `src/lib/messagesIdentity.js` + `listenMessages` (`src/lib/db.js`): a message Firestore did not report as added or modified (`docChanges()`) keeps the same object. Growing the window with "load earlier messages" recreates the listener, so that one render still rebuilds every row.
+- `MessageList.jsx`: `Row` and `Group` are `memo`, blocks are built only when the messages change, and only the first row of a group is given the author. `ChatSurface.jsx` handlers are `useCallback`.
+
+**Checked.** 12 tests (`tests/chat-identity.test.mjs`); six deliberate breakages caught. Measured in a browser with 200 messages by counting reads of `message.text`, old `MessageList` from `main` against the new one: five parent re-renders **4,335 reads -> 0**; one new message **1,738 -> 4**.
+
+**NOT checked.** Not run in the signed-in app (I cannot sign in). After deploy, in a busy channel: the typing indicator appears and disappears, edit, delete, react, reply and pin, and scroll position when loading older messages. A status dot on an unchanged row now updates when its group re-renders (every 30 s), not on every render. Presence *reads* are unchanged (section 11).
+
+## 15. Background blur (PR #16)
+
+**What.** A "Blur your background" button beside the camera button in voice channels (`VoiceStatusBar`) and in the video-call controls (`CallOverlay`). The person stays sharp and everything behind them is blurred. It can be turned on or off while the camera runs, or set first. The choice is remembered per browser (`src/lib/useBlurPref.js`, localStorage) and shared by both buttons.
+
+**How.**
+- `src/lib/backgroundBlur.js`: MediaPipe selfie segmentation (the "landscape" model) on the GPU says which pixels are the person; the person is drawn over a blurred copy of the frame on a canvas, and the canvas is captured as a new video track. Browsers without canvas filters (older Safari) blur by shrinking and stretching back. A worker timer drives it, because `requestAnimationFrame` stops and page timers are cut to once a second in a hidden tab, which would freeze your picture the moment you switch tabs mid-call. It waits for the first blurred frame (10 s limit) before handing over the track, so a failure surfaces rather than sending black.
+- `src/lib/camera.js`: the camera with blur switchable while it runs. The caller sends `camera.track` and, after `setBlur`, swaps with `replaceTrack` (no renegotiation). Calls are serialised, and closing the camera mid-start does not leak the processor.
+- `useVoiceChannel.jsx` and `useCall.jsx`: blur is applied **before** the first frame is sent, so the room is never shown while the model starts. If blur cannot start, the plain camera is used, the person is told, and the setting is switched off. In a 1:1 call the camera's own track follows the on/off button, so a blur turned on later does not revive a camera that was switched off.
+- **Assets.** `@mediapipe/selfie_segmentation` (Apache-2.0, a devDependency). `scripts/copy-mediapipe.mjs` runs before `dev` and `build` and copies the model and the WebAssembly runtime (about 12 MB; a browser fetches only the runtime variant it can run) into `public/mediapipe/`, which is not committed. They are served from our own origin, so a call never depends on a third-party CDN, and are fetched only when blur is first turned on. The package is a classic script that fails in a production Vite build if imported, so it is loaded with a script tag instead. If the package is missing the script only warns.
+
+**Checked.** 11 tests (`tests/camera.test.mjs`); eight deliberate breakages caught (one survived at first because its test stopped the camera before the start had begun; fixed). In a real browser with a **synthetic camera** (a striped test pattern, no person): the blurred output's edge sharpness dropped from 63.4 to 0.1; **20.6 frames per second with the tab hidden**; start-up **15 s the first time** on the dev server (about 12 MB uncompressed plus compiling the runtime) and **1.2 s once cached** (111 ms when turned off and on again, because a spare segmenter is kept). The Vercel build of the PR succeeded, so the copy step works there.
+
+**NOT checked.**
+- **A real person in front of a real camera**: whether the cut-out is clean around hair, glasses and hands, and how it looks. The compositing follows MediaPipe's own demo; I could not see it on a person.
+- A real call between two browsers; Safari and Firefox; slow laptops; the production first-load time (Vercel compresses, so it should be faster than the dev server, but I did not measure it).
+- The two buttons in the real UI (I could not sign in); they compile and follow the pattern of their neighbours.
+
+**Not done.** Android and iOS: those apps use flutter_webrtc's own camera pipeline and would need a native segmentation model (ML Kit or MediaPipe tasks). A blur-strength choice or a replacement image is not built. Only your own camera is processed, but the GPU cost is per sender, so a slow laptop is the case to watch.
