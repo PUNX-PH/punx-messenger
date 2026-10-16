@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useVoiceChannel } from '../../lib/useVoiceChannel'
+import { blurSupported } from '../../lib/backgroundBlur'
 
 // Not every browser implements output-device routing (Safari doesn't) —
 // feature-detect once rather than letting setSinkId throw per <audio> el.
@@ -25,6 +26,7 @@ export default function VoiceStatusBar() {
   const {
     activeChannel, remoteStreams, deafened, connError, voicePrefs, leave, clearConnError,
     cameraOn, screenSharing, toggleCamera, toggleScreenShare,
+    blurBackground, cameraStarting, setBackgroundBlur,
   } = useVoiceChannel()
 
   const [autoplayBlocked, setAutoplayBlocked] = useState(false)
@@ -137,6 +139,16 @@ export default function VoiceStatusBar() {
         <FeatureButton onClick={toggleCamera} active={cameraOn} label={cameraOn ? 'Turn off camera' : 'Turn on camera'}>
           {cameraOn ? <VideoIcon /> : <VideoOffIcon />}
         </FeatureButton>
+        {blurSupported() && (
+          <FeatureButton
+            onClick={() => setBackgroundBlur(!blurBackground)}
+            active={blurBackground}
+            disabled={cameraStarting}
+            label={cameraStarting ? 'Starting background blur…' : blurBackground ? 'Turn off background blur' : 'Blur your background'}
+          >
+            <BlurBackgroundIcon />
+          </FeatureButton>
+        )}
         <FeatureButton onClick={toggleScreenShare} active={screenSharing} label={screenSharing ? 'Stop screen share' : 'Share your screen'}>
           <ScreenShareIcon />
         </FeatureButton>
@@ -145,15 +157,17 @@ export default function VoiceStatusBar() {
   )
 }
 
-function FeatureButton({ onClick, active, label, children }) {
+function FeatureButton({ onClick, active, disabled, label, children }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       title={label}
       aria-label={label}
+      aria-pressed={active}
       className={[
-        'w-8 h-8 rounded-full grid place-items-center transition-colors shrink-0',
+        'w-8 h-8 rounded-full grid place-items-center transition-colors shrink-0 disabled:opacity-60 disabled:animate-pulse',
         active ? 'bg-brand text-white' : 'bg-bg-raised text-ink-muted hover:text-ink',
       ].join(' ')}
     >
@@ -167,6 +181,17 @@ function VoiceIcon({ className = '' }) {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
       <path d="M11 5 6 9H2v6h4l5 4V5Z" />
       <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+    </svg>
+  )
+}
+
+function BlurBackgroundIcon() {
+  // A person in front of a soft, dotted backdrop.
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="9" r="3" />
+      <path d="M7 19c0-2.8 2.2-5 5-5s5 2.2 5 5" />
+      <path d="M3 5v.01M3 9v.01M3 13v.01M21 5v.01M21 9v.01M21 13v.01M6 3v.01M18 3v.01" />
     </svg>
   )
 }
