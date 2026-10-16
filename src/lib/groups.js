@@ -3,6 +3,7 @@ import {
   onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 import { pathToReadKey } from './db'
+import { watched } from './dataHealth'
 import { db } from './firebase'
 import { newId } from './storage'
 import { PRESETS, resizeToDataURL } from './images'
@@ -19,9 +20,9 @@ export function listenMyGroups(uid, cb) {
     collection(db, 'groups'),
     where('memberUids', 'array-contains', uid),
   )
-  return onSnapshot(q, snap => {
+  return onSnapshot(q, ...watched('your groups', snap => {
     cb(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byCreatedAt))
-  })
+  }))
 }
 
 /**
@@ -141,9 +142,9 @@ export async function setChannelAccess(groupId, channelId, { isPrivate, allowUid
 
 // Listen to a single group doc
 export function listenGroup(groupId, cb) {
-  return onSnapshot(doc(db, 'groups', groupId), snap => {
+  return onSnapshot(doc(db, 'groups', groupId), ...watched('this group', snap => {
     cb(snap.exists() ? { id: snap.id, ...snap.data() } : null)
-  })
+  }, `group:${groupId}`))
 }
 
 /**
@@ -265,7 +266,11 @@ export async function deleteChannel(groupId, channelId) {
 
 export function listenCategories(groupId, cb) {
   const q = query(collection(db, 'groups', groupId, 'categories'), orderBy('order', 'asc'))
-  return onSnapshot(q, snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+  return onSnapshot(q, ...watched(
+    'channel categories',
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    `categories:${groupId}`,
+  ))
 }
 
 export async function createCategory(groupId, { name, createdBy }) {
