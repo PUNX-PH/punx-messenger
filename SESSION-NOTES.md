@@ -4,9 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#13, #15 and #16 are merged. Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green, but I have not looked at the production deploy or the live site since, and neither has been tried in the signed-in app.** This file is PR #14.
-
-**PR #10 is still open and is superseded by this file**: its "picking this up on another machine" section is folded into section 10 below, updated, and its other edits describe a state that no longer exists (the invite screen it calls unpushed was merged as #9). Close it without merging.
+PRs #1–#9, #11–#17 are merged (#10 was closed unmerged). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green, but I have not looked at the production deploy or the live site since, and neither has been tried in the signed-in app.** #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -26,7 +24,7 @@ PRs #1–#9, #11–#13, #15 and #16 are merged. Up to #13 (`2e15ef0`) I checked 
 4. **On the signed-in web app, open the on-demand parts once** (emoji picker from the composer and from a message's reaction button, with its GIF tab; admin panel; a voice room; group settings, channel access and create-group dialogs). They were wired in but I could not sign in to try them (section 11).
 5. **Try background blur in a real call** (section 15): the button in a voice channel and in a video call, on and off while the camera runs, a real person (is the cut-out clean around hair and glasses?), two browsers, and Safari and Firefox. The first use downloads about 12 MB and takes several seconds.
 6. **Check a busy chat in the signed-in web app** (section 14): the typing indicator appears and disappears, edit, delete, react, reply and pin still work, and the scroll position holds when loading older messages.
-7. Close PR #10 (above). Then the open items in section 3, and the choice of an SFU provider for 30-person voice (section 4).
+7. The open items in section 3, and the choice of an SFU provider for 30-person voice (section 4).
 
 ### Running the migration script again
 
@@ -34,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#16)
+## 2. What shipped (PRs #1–#17)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -65,7 +63,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#9 — Android invite links screen** (section 8): admins create, copy and revoke a group's invite links from Group settings; reads and writes the same documents as the web.
 
-**#10 — superseded, still open** (see section 1).
+**#10 — superseded and closed unmerged**: its "picking this up on another machine" section is folded into section 10, and its other edits described a state that no longer existed.
 
 **#11 — speed pass** (section 11): presence heartbeats no longer re-render the whole app (web and Android); the web bundle is split; a failed on-demand load cannot take the app down.
 
@@ -78,6 +76,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 **#15 — chat re-renders** (section 14): an open chat no longer re-renders and re-parses every message every 2 seconds or on every snapshot.
 
 **#16 — background blur** (section 15): a "Blur your background" button for the camera in voice channels and video calls (web only).
+
+**#17 — CI and `CLAUDE.md`** (section 16): the tests now run on every PR and on `main`.
 
 Test counts on `main` at the end: **Flutter 238**, **Node 142** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
@@ -188,7 +188,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 
 ## 10. Picking this up on another machine
 
-**Everything is on GitHub.** All work from this stretch is merged to `main` except PR #10, which is superseded by this file, and PR #14 (this file itself) until it is merged. There were no stashes and no uncommitted changes when this was written. If you have another checkout, `git pull` on `main` first.
+**Everything is on GitHub.** All work from this stretch is merged to `main`, except PR #10, which was closed because this file supersedes it. There were no stashes and no uncommitted changes when this was written. If you have another checkout, `git pull` on `main` first.
 
 **What is NOT in the repo, and has to be set up again:**
 - **Secrets.** The Android release keystore and `android/key.properties` (on the other PC, never in git); any Firebase service-account key; the Cloudflare, Vercel and GitHub sign-ins. Run `gh auth login` and `firebase login` on the new machine (in the user's own PowerShell use `npx.cmd`, since script execution is disabled there).
@@ -196,7 +196,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **The assistant's saved memory** (what it remembered between sessions) lives in the user profile on this machine, not in the repo. Everything in it that matters is in these notes; the essentials: Viber is dropped (section 4); the release keystore is on the other PC (section 6); **do not build the Android app on a machine without the keystore**, run `flutter analyze` and `flutter test` there, and list anything needing Gradle or a phone as a to-do.
 
 **Running the checks**
-- Web: `npm run build` (and `npm run dev`) first copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run). Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs`.
+- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `npm run build` (and `npm run dev`) first copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run). Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs`.
 - Worker: `npm test` in `workers/`.
 - Firestore rules: see section 5 (needs Java, and the two test libraries installed together).
 - Flutter: in `android_app/`, `flutter analyze` and `flutter test`. The widget tests render at several screen sizes and fail on any overflow.
@@ -279,3 +279,21 @@ The live site sent every built file with `Cache-Control: public, max-age=0, must
 - The two buttons in the real UI (I could not sign in); they compile and follow the pattern of their neighbours.
 
 **Not done.** Android and iOS: those apps use flutter_webrtc's own camera pipeline and would need a native segmentation model (ML Kit or MediaPipe tasks). A blur-strength choice or a replacement image is not built. Only your own camera is processed, but the GPU cost is per sender, so a slow laptop is the case to watch.
+
+## 16. CI and CLAUDE.md (PR #17)
+
+**Why.** Until this PR the only checks on a pull request were Vercel's and Cloudflare's builds, so "all checks green" said nothing about whether a single test had run.
+
+**What.** `.github/workflows/ci.yml` runs on every pull request and on pushes to `main`, on Linux runners, as four jobs:
+- **Web tests and build**: every `tests/*.test.mjs` except the rules suite (a new test file is picked up without editing the workflow), then `npm run build`.
+- **Worker tests**: `npm test` in `workers/`.
+- **Firestore rules tests**: the rules suite against the emulator (Java 21). `@firebase/rules-unit-testing` and `firebase-admin` are installed together with `--no-save`, because either one alone removes the other and the suite then fails with `ERR_MODULE_NOT_FOUND`, which looks like a rules failure.
+- **Flutter analyze and tests**: Flutter is pinned to 3.44.8 (the version used here). Raise the pin on purpose when upgrading Flutter locally, or an analyzer change becomes a surprise failure on an unrelated PR.
+
+A newer push to the same branch cancels the older run. The macOS iOS build stays manual (`ios.yml`), because macOS runners cost ten times as much.
+
+`CLAUDE.md` at the repo root records the commands, how PRs are done here, and the gotchas from sections 3, 10 and 13 (CRLF files, no Android builds without the keystore, rules not auto-deploying, the one-day cache, presence identity), so a new session starts with them.
+
+**Checked.** The same commands were run locally first: 142 web tests, 18 worker tests, 204 rules tests, a clean `flutter analyze` and 238 Flutter tests. The workflow's first run was the PR's own checks, and all four jobs passed: rules 1m16s, Flutter 2m19s, web 1m32s, worker 15s.
+
+**NOT done.** Nothing enforces it: a red PR can still be merged until the four jobs are marked **required** in the repo's branch protection settings on GitHub (a one-time setting for an admin; I cannot change it from here). The jobs have only ever been seen passing; that a deliberately broken test makes them fail was not tried in CI. Reading failures needs the job log on GitHub (`gh pr checks` shows only pass or fail).
