@@ -1,0 +1,95 @@
+name: CI
+
+# Runs every automated test the project has on each pull request and on main, so
+# that "the checks are green" means the tests passed and not only that Vercel and
+# Cloudflare managed to build. Linux runners only (cheap); the macOS iOS build
+# stays manual, see ios.yml.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Web tests and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Every tests/*.test.mjs except the Firestore rules suite, which needs the
+      # emulator and has its own job. A new test file is picked up automatically.
+      - name: Node tests
+        run: node --test $(ls tests/*.test.mjs | grep -v '/rules\.test\.mjs$')
+      # Also copies the background-blur model into public/ (the prebuild step).
+      - run: npm run build
+
+  worker:
+    name: Worker tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: workers/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  rules:
+    name: Firestore rules tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      # Not in package.json on purpose. Install BOTH in one command: installing
+      # either one alone with --no-save removes the other, and the suite then
+      # dies with ERR_MODULE_NOT_FOUND, which looks like a rules failure.
+      - run: npm i --no-save --legacy-peer-deps @firebase/rules-unit-testing firebase-admin
+      - name: Rules tests against the Firestore emulator
+        env:
+          CI: 'true'
+        run: npx firebase emulators:exec --only firestore --project punx-rules-test "node tests/rules.test.mjs"
+
+  flutter:
+    name: Flutter analyze and tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # The version the project is developed and checked against. Raise it
+          # on purpose; an unpinned "latest" would turn analyzer changes into
+          # surprise failures on unrelated pull requests.
+          flutter-version: 3.44.8
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
