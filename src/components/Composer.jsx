@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import EmojiPicker from './EmojiPicker'
+import LazySlot from './LazySlot'
+import { EmojiPicker } from '../lib/lazyParts'
 import Avatar from './Avatar'
 import { useUsers } from '../lib/users'
 import { useAuth } from '../lib/auth'
@@ -366,14 +367,18 @@ export default function Composer({
           >
             <SmileyIcon />
           </button>
-          <EmojiPicker
-            anchorRef={emojiBtnRef}
-            open={emojiOpen}
-            onClose={() => setEmojiOpen(false)}
-            onPick={insertAtCursor}
-            onPickGif={sendGif}
-            initialTab={pickerTab}
-          />
+          {emojiOpen && (
+            <LazySlot overlay onDismiss={() => setEmojiOpen(false)}>
+              <EmojiPicker
+                anchorRef={emojiBtnRef}
+                open
+                onClose={() => setEmojiOpen(false)}
+                onPick={insertAtCursor}
+                onPickGif={sendGif}
+                initialTab={pickerTab}
+              />
+            </LazySlot>
+          )}
         </div>
 
         <button

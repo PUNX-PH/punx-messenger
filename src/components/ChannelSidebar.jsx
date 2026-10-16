@@ -15,9 +15,9 @@ import {
 import { isUnread, pathToReadKey } from '../lib/db'
 import { useVoiceChannel } from '../lib/useVoiceChannel'
 import UserPanel from './UserPanel'
-import GroupSettingsModal from './GroupSettingsModal'
+import LazySlot from './LazySlot'
 import GroupContextMenu from './GroupContextMenu'
-import ChannelAccessModal from './ChannelAccessModal'
+import { ChannelAccessModal, GroupSettingsModal } from '../lib/lazyParts'
 import VoiceParticipants from './voice/VoiceParticipants'
 import VoiceStatusBar from './voice/VoiceStatusBar'
 
@@ -401,20 +401,31 @@ export default function ChannelSidebar() {
       <VoiceStatusBar />
       <UserPanel />
 
-      <ChannelAccessModal
-        open={!!accessFor}
-        onClose={() => setAccessFor(null)}
-        groupId={groupId}
-        channel={accessFor}
-        group={group}
-      />
+      {/* Dialogs load on first use and are only mounted while open. Both return
+          nothing when closed and have no exit animation, so this is the same on
+          screen — minus a hidden copy of each sitting in every sidebar. */}
+      {accessFor && (
+        <LazySlot overlay onDismiss={() => setAccessFor(null)}>
+          <ChannelAccessModal
+            open
+            onClose={() => setAccessFor(null)}
+            groupId={groupId}
+            channel={accessFor}
+            group={group}
+          />
+        </LazySlot>
+      )}
 
-      <GroupSettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        group={group}
-        initialTab={settingsInitialTab}
-      />
+      {settingsOpen && (
+        <LazySlot overlay onDismiss={() => setSettingsOpen(false)}>
+          <GroupSettingsModal
+            open
+            onClose={() => setSettingsOpen(false)}
+            group={group}
+            initialTab={settingsInitialTab}
+          />
+        </LazySlot>
+      )}
 
       <GroupContextMenu
         open={addMenu.open}

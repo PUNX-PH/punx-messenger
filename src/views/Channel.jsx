@@ -4,7 +4,9 @@ import { useAuth, canOversee, channelViewer, isAdmin, isGhost } from '../lib/aut
 import { listenChannels, listenGroup } from '../lib/groups'
 import ChatSurface from '../components/ChatSurface'
 import MembersPanel, { MembersToggle } from '../components/MembersPanel'
-import VoiceChannelRoom from './VoiceChannelRoom'
+import LazySlot from '../components/LazySlot'
+import PanelLoading from '../components/PanelLoading'
+import { VoiceChannelRoom } from '../lib/lazyParts'
 
 export default function Channel() {
   const { groupId, channelId } = useParams()
@@ -65,7 +67,11 @@ export default function Channel() {
   const ghost = group === undefined ? canOversee(profile) : isGhost(profile, group)
 
   if (channel.type === 'voice') {
-    return <VoiceChannelRoom channel={channel} groupId={groupId} readOnly={ghost} />
+    return (
+      <LazySlot title="Voice channel unavailable" fallback={<PanelLoading />}>
+        <VoiceChannelRoom channel={channel} groupId={groupId} readOnly={ghost} />
+      </LazySlot>
+    )
   }
 
   const elevated = !ghost && (isAdmin(profile) || group?.adminUids?.includes(profile?.id))
