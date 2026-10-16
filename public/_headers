@@ -1,0 +1,12 @@
+# Read by Cloudflare's static assets (wrangler.toml [assets]); other hosts ignore it.
+# Vercel gets the same rule from vercel.json, Firebase Hosting from firebase.json.
+#
+# Everything under /assets/ is a built file whose NAME contains a hash of its
+# contents: a changed file has a different name, so a cached one can never be stale.
+# Without this the host sends `max-age=0, must-revalidate` and the browser asks the
+# server about every one of them, on every page load, before using its copy.
+#
+# NOT applied to index.html (it names the current files, so it must always be
+# checked) or to /sfx/ (those file names carry no hash).
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
