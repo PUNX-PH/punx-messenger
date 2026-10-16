@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19 and #20 are merged (#10 was closed unmerged; #18 was a notes update). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green, but I have not looked at the production deploy or the live site since, and neither has been tried in the signed-in app.** #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17 and #19–#21 are merged (#10 was closed unmerged; #18 was a notes update). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green, but I have not looked at the production deploy or the live site since, and neither has been tried in the signed-in app.** #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#20)
+## 2. What shipped (PRs #1–#21)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -83,6 +83,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#20 — other listener failures** (section 18): one banner says when the people, group, DM, category or emoji feeds stopped updating.
 
+**#21 — GIF favourites per account** (section 19): favourites are no longer one list shared by everyone who signs in on a browser.
+
 Test counts on `main` at the end: **Flutter 238**, **Node 142** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
 
@@ -96,7 +98,7 @@ Test counts on `main` at the end: **Flutter 238**, **Node 142** (sound, presence
 - **Presence still costs reads**: Firestore delivers every heartbeat to every client, and that grows with the square of the number online (section 11 fixed the re-rendering, not the reads). The real fix is to move presence out of the `users` collection.
 - Listener failures are now reported (sections 17 and 18), except two on purpose: the typing indicator's, and the mention-notification listener, which the rules already deny for everyone (see the @mention item above), so reporting it would put a permanent banner on every screen.
 - No Content-Security-Policy or other security headers.
-- GIF favourites are shared between accounts on one browser.
+- GIF favourites are per account but still per browser: they do not follow someone to another device (section 19).
 - **Not in the Android app compared with the web:** opening an invite inside the app (the link opens in the browser), GIF favourites, and sharing your screen (Android can only watch one; sending needs the screen-capture permission and a foreground service type).
 - **Background blur is web only**: the Android and iOS apps use a different camera pipeline and would need a native segmentation model (section 15).
 - **iOS cannot start** until the Firebase iOS config exists and it has been built once on a Mac: section 12.
@@ -200,7 +202,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **The assistant's saved memory** (what it remembered between sessions) lives in the user profile on this machine, not in the repo. Everything in it that matters is in these notes; the essentials: Viber is dropped (section 4); the release keystore is on the other PC (section 6); **do not build the Android app on a machine without the keystore**, run `flutter analyze` and `flutter test` there, and list anything needing Gradle or a phone as a to-do.
 
 **Running the checks**
-- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `npm run build` (and `npm run dev`) first copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run). Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs`.
+- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `npm run build` (and `npm run dev`) first copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run). Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs tests/gif-favorites.test.mjs`.
 - Worker: `npm test` in `workers/`.
 - Firestore rules: see section 5 (needs Java, and the two test libraries installed together).
 - Flutter: in `android_app/`, `flutter analyze` and `flutter test`. The widget tests render at several screen sizes and fail on any overflow.
@@ -230,7 +232,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **Android:** compiled by `flutter analyze` and tested, but not built with Gradle or run on a device (built on the other PC). Check the members sheet, DM list dots and message author dots still show the right status.
 - Real Firestore: the presence batching was tested against a stand-in stream, not live data.
 
-**Not done, in rough order of value (the memoised message list was done afterwards, section 14):** move presence out of `users` (read cost, above); failed listeners (done afterwards, sections 17 and 18); no Content-Security-Policy or other security headers; GIF favourites are shared between accounts on one browser.
+**Not done, in rough order of value (the memoised message list was done afterwards, section 14):** move presence out of `users` (read cost, above); failed listeners (done afterwards, sections 17 and 18); no Content-Security-Policy or other security headers (GIF favourites were made per account afterwards, section 19).
 
 ## 12. iOS preparation (PR #12)
 
@@ -326,3 +328,13 @@ A newer push to the same branch cancels the older run. The macOS iOS build stays
 **Checked.** 10 tests (`tests/data-health.test.mjs`); ten deliberate breakages caught. In a browser, the real banner driven through: nothing wrong shows nothing; one feed; two feeds with one denied (adds the access hint); Dismiss hides it; a new failure shows it again; all recovered clears it; the Reload button is present. The build passes.
 
 **NOT checked.** Against real Firestore (no Firebase configuration in the local setup), so no real listener has been seen to fail and report; the sign-in/sign-out clearing was reasoned, not exercised; and the banner has not been seen in the signed-in app. It could show a banner for a failure that was previously invisible and harmless: if so, that is the point, but watch for one that appears for everyone (that would be a rules problem like the mention one, to be fixed in the rules, not hidden).
+
+## 19. GIF favourites belong to an account (PR #21)
+
+**The problem.** Favourite GIFs were one list in the browser's `localStorage`, under a single key. Anyone who signed in on a shared computer saw, and could add to or remove from, the previous person's favourites.
+
+**The fix.** `src/lib/gifFavorites.js` keys the list by the signed-in account (`punx.gifFavorites.<uid>`); `GifPanel` passes the account in. **The old shared list is not thrown away**: the first account that opens its favourites after the upgrade adopts it, and the shared copy is removed so nobody else inherits it. With two people on one browser that means the first to look gets it, which is a guess; it is better than deleting it. The read path is also tougher: a damaged or hand-edited value, or entries without an id, give an empty or trimmed list instead of a crash in the GIF panel, and a full or blocked `localStorage` still shows the favourite for the session.
+
+**Checked.** 13 tests (`tests/gif-favorites.test.mjs`); the mutation run killed every non-equivalent change (one survivor, dropping the `Array.isArray` check, is equivalent: the surrounding `try/catch` already turns a non-array into an empty list; and the run found a real gap, an old list being adopted while nobody is signed in, which got its own test). In a browser, the real `GifPanel` with the account and the network stubbed: with an old shared list in storage, the first account saw it in Favorites, a second account on the same browser saw none, and the first still had it afterwards.
+
+**NOT done.** Favourites are still per browser: they do not follow someone to another device or browser. Syncing them (a `users/{uid}` subcollection) needs a Firestore rules change, which is a deployment decision, so it was not started. Not checked in the signed-in app, and not with real Klipy results (the panel's trending and search were stubbed out; only the Favorites tab was exercised).
