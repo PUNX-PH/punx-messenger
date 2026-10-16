@@ -4,6 +4,7 @@ import {
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { useAuth } from './auth'
+import { watched } from './dataHealth'
 import { PRESETS, resizeToDataURL } from './images'
 
 // Workspace-wide custom emojis. Stored at /emojis/{id}.
@@ -13,7 +14,7 @@ const NAME_RE = /^[a-z0-9_]{2,32}$/
 
 export function listenEmojis(cb) {
   const q = query(collection(db, 'emojis'), orderBy('name'))
-  return onSnapshot(q, snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+  return onSnapshot(q, ...watched('custom emojis', snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))))
 }
 
 export async function createEmoji({ name, file, createdBy }) {

@@ -6,6 +6,7 @@ import { db } from './firebase'
 import { PRESETS, resizeToDataURL } from './images'
 import { extractMentionedUids } from './markdown'
 import { shareMessages } from './messagesIdentity'
+import { watched } from './dataHealth'
 
 // Deterministic DM convo id from two uids
 export const dmConvoId = (a, b) => [a, b].sort().join('__')
@@ -13,9 +14,9 @@ export const dmConvoId = (a, b) => [a, b].sort().join('__')
 // Listen to all users (workspace directory)
 export function listenUsers(cb) {
   const q = query(collection(db, 'users'), orderBy('name'))
-  return onSnapshot(q, (snap) => {
+  return onSnapshot(q, ...watched('people', (snap) => {
     cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-  })
+  }))
 }
 
 // Ensure DM convo doc exists, return its id
@@ -110,7 +111,7 @@ export async function markRead(uid, containerPath) {
 // Returns a map keyed by the *other* member's uid → convo doc.
 export function listenMyDmConvos(uid, cb) {
   const q = query(collection(db, 'dms'), where('members', 'array-contains', uid))
-  return onSnapshot(q, snap => {
+  return onSnapshot(q, ...watched('direct messages', snap => {
     const byOther = {}
     for (const d of snap.docs) {
       const data = { id: d.id, ...d.data() }
@@ -118,7 +119,7 @@ export function listenMyDmConvos(uid, cb) {
       if (otherUid) byOther[otherUid] = data
     }
     cb(byOther)
-  })
+  }))
 }
 
 // Send a message at the given collection path.

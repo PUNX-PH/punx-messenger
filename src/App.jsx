@@ -19,6 +19,7 @@ import LazySlot from './components/LazySlot'
 import PanelLoading from './components/PanelLoading'
 import { AdminPanel } from './lib/lazyParts'
 import InviteAccept from './views/InviteAccept'
+import DataProblemsBanner from './components/DataProblemsBanner'
 
 export default function App() {
   return (
@@ -48,6 +49,8 @@ function Gate() {
   if (loading) return <Loading label="Signing you in" />
 
   return (
+    <>
+    <DataProblemsBanner />
     <Routes>
       {/* Outside the login wall on purpose. An invited outsider arrives with no
           account, and after signing in still has no profile — firestore.rules
@@ -70,5 +73,6 @@ function Gate() {
         </Route>
       )}
     </Routes>
+    </>
   )
 }

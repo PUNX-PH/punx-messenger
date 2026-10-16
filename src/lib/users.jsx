@@ -5,6 +5,7 @@ import {
 import { db } from './firebase'
 import { useAuth } from './auth'
 import { sameUsers, shareIdentity } from './usersIdentity'
+import { watched } from './dataHealth'
 
 // Low to high — the admin panel's role <select> renders them in this order.
 // `developer` is the TOP role: everything super_admin has, plus the one thing
@@ -21,9 +22,9 @@ export const roleLabel = (r) =>
 
 export function listenAllUsers(cb) {
   const q = query(collection(db, 'users'), orderBy('name'))
-  return onSnapshot(q, snap =>
+  return onSnapshot(q, ...watched('people', snap =>
     cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-  )
+  ))
 }
 
 export async function setUserRole(uid, role) {
