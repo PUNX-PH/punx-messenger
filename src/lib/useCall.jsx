@@ -15,6 +15,9 @@ import {
   sendIceCandidate, sweepStaleOutboundCalls, upgradeCallToVideo,
 } from './calls'
 import { createPeerConnection, getLocalStream, stopStream, resolveIceServers } from './webrtc'
+import { openCamera } from './camera'
+import { blurSupported, createBlurProcessor } from './backgroundBlur'
+import { useBlurPref, setBlurPref, getBlurPref } from './useBlurPref'
 
 const NO_ANSWER_TIMEOUT_MS = 45_000
 const TERMINAL_STATES = ['declined', 'cancelled', 'missed', 'ended', 'failed']
@@ -41,6 +44,11 @@ function useCallEngine() {
   // kept in refs, mirrored to state only where the UI needs to re-render.
   const pcRef = useRef(null)
   const localStreamRef = useRef(null)
+  // The camera, wrapped so its background can be blurred (lib/camera.js). Its
+  // .track is what the other side receives; .raw is the camera's own track.
+  const cameraRef = useRef(null)
+  const blurBackground = useBlurPref()
+  const [cameraStarting, setCameraStarting] = useState(false)
   const callIdRef = useRef(null)
   const roleRef = useRef(null) // 'caller' | 'callee'
   const unsubCallRef = useRef(null)
@@ -79,6 +87,8 @@ function useCallEngine() {
     pcRef.current?.close(); pcRef.current = null
     stopStream(localStreamRef.current)
     localStreamRef.current = null
+    cameraRef.current?.stop()
+    cameraRef.current = null
     callIdRef.current = null
     roleRef.current = null
     appliedCandidateIdsRef.current = new Set()
@@ -89,7 +99,30 @@ function useCallEngine() {
     setIceState('new')
     setMuted(false)
     setCameraOff(false)
+    setCameraStarting(false)
   }, [])
+
+  // Wraps the camera in `stream` (if it has one) so it can be blurred, and swaps
+  // the blurred track in BEFORE anything is sent: someone who turns blur on to hide
+  // their room must never have it shown while the model starts. If blur cannot
+  // start the plain camera is used and the person is told.
+  const prepareCamera = async (stream) => {
+    const raw = stream.getVideoTracks()[0]
+    if (!raw) return
+    const cam = openCamera(raw, { createProcessor: createBlurProcessor })
+    cameraRef.current = cam
+    if (!getBlurPref()) return
+    setCameraStarting(true)
+    const r = await cam.setBlur(true)
+    setCameraStarting(false)
+    if (!r.ok) {
+      setBlurPref(false)
+      setConnError(`Couldn't blur your background (${r.error?.message || 'unknown error'}). Your camera is on without it.`)
+      return
+    }
+    stream.removeTrack(raw)
+    stream.addTrack(cam.track)
+  }
 
   const flushPendingCandidates = (pc) => {
     const pending = pendingRemoteCandidatesRef.current
@@ -239,6 +272,7 @@ function useCallEngine() {
     roleRef.current = 'caller'
     try {
       const stream = await getLocalStream({ video: callType === 'video' })
+      await prepareCamera(stream)
       setLocalStreamBoth(stream)
       // TURN when the Worker can mint it, STUN alone otherwise. Never throws.
       const pc = setupPeerConnection(await resolveIceServers())
@@ -272,6 +306,7 @@ function useCallEngine() {
     roleRef.current = 'callee'
     try {
       const stream = await getLocalStream({ video: call.type === 'video' })
+      await prepareCamera(stream)
       setLocalStreamBoth(stream)
       const pc = setupPeerConnection(await resolveIceServers())
       stream.getTracks().forEach(t => pc.addTrack(t, stream))
@@ -301,8 +336,9 @@ function useCallEngine() {
     setConnError(null)
     try {
       const videoStream = await getLocalStream({ audio: false, video: true })
-      const [videoTrack] = videoStream.getVideoTracks()
-      if (!videoTrack) throw new Error('No camera track available.')
+      if (!videoStream.getVideoTracks()[0]) throw new Error('No camera track available.')
+      await prepareCamera(videoStream)
+      const videoTrack = cameraRef.current?.track ?? videoStream.getVideoTracks()[0]
 
       pc.addTrack(videoTrack, currentStream)
       currentStream.addTrack(videoTrack)
@@ -357,7 +393,38 @@ function useCallEngine() {
     const track = localStreamRef.current?.getVideoTracks()[0]
     if (!track) return
     track.enabled = !track.enabled
+    // The camera's own track follows, so a blur turned on later starts in the
+    // same on/off state rather than reviving a camera that was switched off.
+    if (cameraRef.current) cameraRef.current.raw.enabled = track.enabled
     setCameraOff(!track.enabled)
+  }, [])
+
+  // Blur on or off, during the call or before the camera is on. In a call the
+  // track being sent is swapped in place; nobody renegotiates.
+  const setBackgroundBlur = useCallback(async (on) => {
+    if (on && !blurSupported()) {
+      setConnError("This browser can't blur the background.")
+      return
+    }
+    setBlurPref(on)
+    const cam = cameraRef.current
+    const stream = localStreamRef.current
+    if (!cam || !stream) return
+    const before = cam.track
+    if (on) setCameraStarting(true)
+    const r = await cam.setBlur(on)
+    setCameraStarting(false)
+    if (cameraRef.current !== cam) return // the call ended meanwhile
+    if (!r.ok) {
+      setBlurPref(false)
+      setConnError(`Couldn't blur your background (${r.error?.message || 'unknown error'}).`)
+    }
+    if (r.track === before) return
+    const sender = pcRef.current?.getSenders().find(s => s.track === before)
+    await sender?.replaceTrack(r.track).catch(() => {})
+    // A new stream object, so the <video> showing it picks the new track up.
+    const next = new MediaStream([...stream.getAudioTracks(), r.track])
+    setLocalStreamBoth(next)
   }, [])
 
   // Tear down on sign-out / app close.
@@ -377,7 +444,7 @@ function useCallEngine() {
   return {
     call, status, myUid, localStream, remoteStream, muted, cameraOff, connError, iceState,
     startCall, accept, decline, cancel, hangup, endActiveCall, addVideo,
-    toggleMute, toggleCamera, clearConnError: () => setConnError(null),
+    toggleMute, toggleCamera, blurBackground, cameraStarting, setBackgroundBlur, clearConnError: () => setConnError(null),
   }
 }
 
