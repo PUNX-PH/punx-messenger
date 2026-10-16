@@ -4,9 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/copy-mediapipe.mjs",
     "dev": "vite",
-    "prebuild": "node scripts/copy-mediapipe.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "vite build && firebase deploy --only hosting"

@@ -8,33 +8,43 @@
 // downloaded unless someone turns background blur on; the files are about 12 MB
 // in all, but a browser fetches only the runtime variant it can run.
 //
-// Runs before `dev` and `build` (see package.json). public/mediapipe/ is not
+// Called from vite.config.js, so it runs on EVERY build and dev start however
+// Vite is started. It used to be an npm "prebuild" hook, which a host that runs
+// `vite build` directly never fires: the site went live with the blur code and
+// without the model, and the files answered with the app's HTML. It can still be
+// run by hand: `node scripts/copy-mediapipe.mjs`. public/mediapipe/ is not
 // committed.
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const from = path.join(root, 'node_modules', '@mediapipe', 'selfie_segmentation')
-const to = path.join(root, 'public', 'mediapipe')
 const SKIP = new Set(['README.md', 'index.d.ts', 'package.json'])
 
-if (!fs.existsSync(from)) {
-  // Not fatal: the app works without it, the blur button just reports that blur
-  // is unavailable. Say so loudly enough that a missing install is noticed.
-  console.warn('[mediapipe] @mediapipe/selfie_segmentation is not installed; background blur will be unavailable.')
-  process.exit(0)
+/**
+ * @returns {{ copied: number, missing: boolean }} `missing` when the package is not
+ *   installed (not fatal: the app works, the blur button reports it is unavailable).
+ */
+export function copyMediapipe({ log = console } = {}) {
+  const from = path.join(root, 'node_modules', '@mediapipe', 'selfie_segmentation')
+  const to = path.join(root, 'public', 'mediapipe')
+  if (!fs.existsSync(from)) {
+    log.warn('[mediapipe] @mediapipe/selfie_segmentation is not installed; background blur will be unavailable.')
+    return { copied: 0, missing: true }
+  }
+  fs.mkdirSync(to, { recursive: true })
+  let copied = 0
+  for (const name of fs.readdirSync(from)) {
+    if (SKIP.has(name)) continue
+    const src = path.join(from, name)
+    const dst = path.join(to, name)
+    const same = fs.existsSync(dst) && fs.statSync(dst).size === fs.statSync(src).size
+    if (same) continue
+    fs.copyFileSync(src, dst)
+    copied++
+  }
+  log.log(`[mediapipe] ${copied ? `copied ${copied} file(s) to` : 'up to date in'} public/mediapipe`)
+  return { copied, missing: false }
 }
 
-fs.mkdirSync(to, { recursive: true })
-let copied = 0
-for (const name of fs.readdirSync(from)) {
-  if (SKIP.has(name)) continue
-  const src = path.join(from, name)
-  const dst = path.join(to, name)
-  const same = fs.existsSync(dst) && fs.statSync(dst).size === fs.statSync(src).size
-  if (same) continue
-  fs.copyFileSync(src, dst)
-  copied++
-}
-console.log(`[mediapipe] ${copied ? `copied ${copied} file(s) to` : 'up to date in'} public/mediapipe`)
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) copyMediapipe()
