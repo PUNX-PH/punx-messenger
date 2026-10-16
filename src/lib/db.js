@@ -5,6 +5,7 @@ import {
 import { db } from './firebase'
 import { PRESETS, resizeToDataURL } from './images'
 import { extractMentionedUids } from './markdown'
+import { shareMessages } from './messagesIdentity'
 
 // Deterministic DM convo id from two uids
 export const dmConvoId = (a, b) => [a, b].sort().join('__')
@@ -71,9 +72,15 @@ function cleanMessage(data) {
 
 export function listenMessages(path, cb, lim = MESSAGE_PAGE) {
   const q = query(collection(db, ...path.split('/')), orderBy('createdAt', 'desc'), fbLimit(lim))
+  // Messages that did not change keep the object they had, so the list can skip
+  // them (see messagesIdentity.js). The first snapshot reports everything as added.
+  let known = new Map()
   return onSnapshot(q, (snap) => {
-    const docs = snap.docs.map(d => ({ id: d.id, ...cleanMessage(d.data()) }))
-    docs.reverse() // oldest first, the order the list renders in
+    const changed = new Set(snap.docChanges().map(c => c.doc.id))
+    const raw = snap.docs.map(d => ({ id: d.id, ...cleanMessage(d.data()) }))
+    raw.reverse() // oldest first, the order the list renders in
+    const { messages: docs, next } = shareMessages(known, raw, changed)
+    known = next
     // `hasMore` is inferred from a full page: if the window is saturated there
     // is probably more behind it. It can be wrong once, on a channel whose
     // total is an exact multiple of the page size — the cost is one extra
