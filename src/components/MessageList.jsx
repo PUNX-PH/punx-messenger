@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import Avatar from './Avatar'
 import Lightbox from './Lightbox'
 import RoleBadge from './RoleBadge'
@@ -156,6 +156,11 @@ export default function MessageList({
     el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }, [scrollToId])
 
+  // Day dividers and author groups, in one pass. A new day always starts a new
+  // group, so a run of messages never straddles a divider. Rebuilt only when the
+  // messages change, not on every render of the list.
+  const blocks = useMemo(() => buildBlocks(messages), [messages])
+
   if (!messages?.length) {
     return (
       <div className="flex-1 grid place-items-center px-6">
@@ -165,39 +170,6 @@ export default function MessageList({
         </div>
       </div>
     )
-  }
-
-  // Day dividers and author groups, in one pass. A new day always starts a new
-  // group, so a run of messages never straddles a divider.
-  const blocks = []
-  let lastGroup = null
-  let lastDay = null
-  for (const m of messages) {
-    const ts = toDate(m.createdAt)
-    // A message still waiting for its server timestamp has no date yet. It
-    // belongs to the day already on screen, not to a new one.
-    const day = ts ? ts.toDateString() : lastDay
-    if (day && day !== lastDay) {
-      blocks.push({ type: 'day', key: `day-${day}`, date: ts })
-      lastDay = day
-      lastGroup = null
-    }
-    const lastTs = lastGroup && toDate(lastGroup.last)
-    const close = lastGroup && (!ts || !lastTs || (ts - lastTs) < 5 * 60 * 1000)
-    if (lastGroup && lastGroup.author?.uid === m.author?.uid && close) {
-      lastGroup.items.push(m); lastGroup.last = m.createdAt
-    } else {
-      lastGroup = {
-        type: 'group',
-        // The first message's id, not the array index: older pages are
-        // prepended, and an index key would remount — and so reset — every
-        // group on screen each time one loaded.
-        key: m.id,
-        author: m.author,
-        items: [m], first: m.createdAt, last: m.createdAt,
-      }
-      blocks.push(lastGroup)
-    }
   }
 
   return (
@@ -261,6 +233,40 @@ export default function MessageList({
   )
 }
 
+function buildBlocks(messages) {
+  const blocks = []
+  let lastGroup = null
+  let lastDay = null
+  for (const m of messages || []) {
+    const ts = toDate(m.createdAt)
+    // A message still waiting for its server timestamp has no date yet. It
+    // belongs to the day already on screen, not to a new one.
+    const day = ts ? ts.toDateString() : lastDay
+    if (day && day !== lastDay) {
+      blocks.push({ type: 'day', key: `day-${day}`, date: ts })
+      lastDay = day
+      lastGroup = null
+    }
+    const lastTs = lastGroup && toDate(lastGroup.last)
+    const close = lastGroup && (!ts || !lastTs || (ts - lastTs) < 5 * 60 * 1000)
+    if (lastGroup && lastGroup.author?.uid === m.author?.uid && close) {
+      lastGroup.items.push(m); lastGroup.last = m.createdAt
+    } else {
+      lastGroup = {
+        type: 'group',
+        // The first message's id, not the array index: older pages are
+        // prepended, and an index key would remount — and so reset — every
+        // group on screen each time one loaded.
+        key: m.id,
+        author: m.author,
+        items: [m], first: m.createdAt, last: m.createdAt,
+      }
+      blocks.push(lastGroup)
+    }
+  }
+  return blocks
+}
+
 function DayDivider({ date }) {
   return (
     <div role="separator" aria-label={dayLabel(date)} className="flex items-center gap-3 select-none">
@@ -280,19 +286,22 @@ function ArrowDownIcon() {
   )
 }
 
-function Group({
+const Group = memo(function Group({
   group, onZoom, canPin, onTogglePin, highlightId, usersById, presenceById, emojiByName, tickNow,
   canDeleteAny, readOnly, meUid, editingId, setEditingId, onEdit, onDelete, onReact,
   onReply, onJumpToMessage,
 }) {
   const currentAuthor = usersById?.[group.author?.uid]
-  const author = {
-    ...group.author,
-    name:     currentAuthor?.name     || group.author?.name,
-    photoURL: currentAuthor?.photoURL || group.author?.photoURL,
-    role:     currentAuthor?.role,
-    status:   currentAuthor ? computeStatus(presenceById?.[currentAuthor.id], tickNow) : undefined,
-  }
+  const name = currentAuthor?.name || group.author?.name
+  const photoURL = currentAuthor?.photoURL || group.author?.photoURL
+  const role = currentAuthor?.role
+  const status = currentAuthor ? computeStatus(presenceById?.[currentAuthor.id], tickNow) : undefined
+  // The same object until one of these changes, so a status ageing out re-renders
+  // the header row of this group and none of the rest.
+  const author = useMemo(
+    () => ({ ...group.author, name, photoURL, role, status }),
+    [group.author, name, photoURL, role, status],
+  )
   return (
     <div className="space-y-0">
       {group.items.map((m, idx) => (
@@ -300,8 +309,9 @@ function Group({
           key={m.id}
           message={m}
           showHeader={idx === 0}
-          author={author}
-          firstTime={group.first}
+          // Only the first row of a group shows the author, so only it is told.
+          author={idx === 0 ? author : null}
+          firstTime={idx === 0 ? group.first : null}
           onZoom={onZoom}
           canPin={canPin}
           onTogglePin={onTogglePin}
@@ -311,7 +321,7 @@ function Group({
           canDeleteAny={canDeleteAny}
           readOnly={readOnly}
           editing={editingId === m.id}
-          setEditing={(on) => setEditingId(on ? m.id : null)}
+          setEditingId={setEditingId}
           onEdit={onEdit}
           onDelete={onDelete}
           onReact={onReact}
@@ -323,13 +333,18 @@ function Group({
       ))}
     </div>
   )
-}
+})
 
-function Row({
+// Memoised: a conversation re-renders for reasons that have nothing to do with
+// any one message (a scroll position, someone typing, a status ageing), and the
+// markdown of every message on screen used to be parsed again each time. A row
+// now renders again only when its own message, or something it shows, changes.
+const Row = memo(function Row({
   message, showHeader, author, firstTime, onZoom, canPin, onTogglePin, highlighted,
-  emojiByName, isAuthor, canDeleteAny, readOnly, editing, setEditing, onEdit, onDelete,
+  emojiByName, isAuthor, canDeleteAny, readOnly, editing, setEditingId, onEdit, onDelete,
   onReact, onReply, onJumpToMessage, meUid, usersById,
 }) {
+  const setEditing = (on) => setEditingId(on ? message.id : null)
   const onlyEmojis = isOnlyEmojis(message.text)
   const emojiSize = onlyEmojis ? 40 : 22
   const mentionsMe = mentionsUid(message.text, meUid)
@@ -534,7 +549,7 @@ function Row({
       )}
     </div>
   )
-}
+})
 
 function ReactionChip({ emojiKey, uids, meUid, emojiByName, usersById, onToggle }) {
   const mine = uids.includes(meUid)

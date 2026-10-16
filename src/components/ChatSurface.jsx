@@ -6,6 +6,8 @@ import {
 } from '../lib/db'
 import { useAuth } from '../lib/auth'
 import { useUsers } from '../lib/users'
+import { whoIsTyping } from '../lib/typing'
+import { sameMessages } from '../lib/messagesIdentity'
 import ErrorBoundary from './ErrorBoundary'
 import MessageList, { PinIcon } from './MessageList'
 import Composer from './Composer'
@@ -62,23 +64,19 @@ export default function ChatSurface({
     return listenContainer(containerPath, setContainer)
   }, [containerPath])
 
-  // Fast ticker (every 2s) so stale typing entries age out promptly
+  // Wake up when the next typing entry runs out, and not otherwise. This used to
+  // be a timer ticking every 2s in every open conversation, re-rendering the
+  // whole message list each time to learn that nobody was typing.
   useEffect(() => {
-    if (!containerPath) return
-    const t = setInterval(() => setNowTick(Date.now()), 2000)
-    return () => clearInterval(t)
-  }, [containerPath])
+    const { expiresIn } = whoIsTyping(container?.typing, profile?.uid, Date.now())
+    if (expiresIn === null) return
+    const t = setTimeout(() => setNowTick(Date.now()), expiresIn + 50)
+    return () => clearTimeout(t)
+  }, [container, profile?.uid, nowTick])
 
   const typingNames = useMemo(() => {
-    const typing = container?.typing || {}
-    return Object.entries(typing)
-      .filter(([uid, ts]) => {
-        if (uid === profile?.uid) return false
-        const ms = ts?.toMillis?.() ?? 0
-        return nowTick - ms < 6000
-      })
-      .map(([uid]) => usersById[uid]?.name)
-      .filter(Boolean)
+    const { uids } = whoIsTyping(container?.typing, profile?.uid, nowTick)
+    return uids.map(uid => usersById[uid]?.name).filter(Boolean)
   }, [container, profile?.uid, nowTick, usersById])
 
   // How many messages are currently subscribed. Grows when the list asks for
@@ -93,7 +91,8 @@ export default function ChatSurface({
   useEffect(() => {
     if (!path) return
     return listenMessages(path, (docs, meta) => {
-      setMessages(docs)
+      // Same messages as the same objects: nothing to do (see messagesIdentity.js).
+      setMessages(prev => (sameMessages(prev, docs) ? prev : docs))
       setHasMore(meta.hasMore)
       setLoadingMore(false)
     }, limit)
@@ -145,34 +144,37 @@ export default function ChatSurface({
     ? (isTyping) => setTyping(containerPath, profile.uid, isTyping)
     : null
 
-  const onTogglePin = async (m) => {
+  // Stable between renders so the message rows, which are memoised, are not
+  // re-rendered just because this component was.
+  const onTogglePin = useCallback(async (m) => {
     await setMessagePinned(`${path}/${m.id}`, !m.pinned)
-  }
+  }, [path])
 
-  const onEdit = async (m, text) => {
+  const onEdit = useCallback(async (m, text) => {
     await editMessageText(`${path}/${m.id}`, text)
-  }
+  }, [path])
 
-  const onDelete = async (m) => {
+  const onDelete = useCallback(async (m) => {
     await deleteMessage(`${path}/${m.id}`)
-  }
+  }, [path])
 
-  const onReact = async (m, key) => {
-    if (!profile?.uid) return
-    await toggleReaction(`${path}/${m.id}`, key, profile.uid)
-  }
+  const myUid = profile?.uid
+  const onReact = useCallback(async (m, key) => {
+    if (!myUid) return
+    await toggleReaction(`${path}/${m.id}`, key, myUid)
+  }, [path, myUid])
 
   const pinned = useMemo(
     () => messages.filter(m => m.pinned).slice().reverse(), // newest pinned first
     [messages]
   )
 
-  const jumpTo = (id) => {
+  const jumpTo = useCallback((id) => {
     setJumpId(null)
     requestAnimationFrame(() => setJumpId(id))
     setPinnedOpen(false)
     setTimeout(() => setJumpId(null), 1500)
-  }
+  }, [])
 
   return (
     <main className="flex-1 flex flex-col min-w-0 bg-bg-main">
