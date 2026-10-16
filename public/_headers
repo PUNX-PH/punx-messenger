@@ -1,0 +1,20 @@
+# Read by Cloudflare's static assets (wrangler.toml [assets]); other hosts ignore it.
+# Vercel gets the same rule from vercel.json.
+#
+# Everything under /assets/ is a built file whose NAME contains a hash of its
+# contents: a changed file has a different name, so a cached one is never stale.
+# Without this the host sends `max-age=0, must-revalidate` and the browser asks the
+# server about every one of them, on every page load, before using its copy.
+#
+# One DAY, not a year with `immutable`, and that is deliberate. This app rewrites
+# unknown URLs to index.html, so a tab left open across a deploy that asks for a
+# file the deploy deleted gets a 200 with HTML instead of a 404 -- and with a
+# year-long lifetime the browser would keep that wrong answer for a year, which
+# bites if a later deploy (a rollback, say) brings that exact file name back. A day
+# bounds it. The saving, which is skipping the per-file check for visits within a
+# day, is the same either way for anyone who comes back that often.
+#
+# NOT applied to index.html (it names the current files, so it must always be
+# checked) or to /sfx/ (those file names carry no hash).
+/assets/*
+  Cache-Control: public, max-age=86400
