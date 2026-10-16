@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17 are merged (#10 was closed unmerged). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green, but I have not looked at the production deploy or the live site since, and neither has been tried in the signed-in app.** #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17 and #19 are merged (#10 was closed unmerged; #18 was a notes update). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green, but I have not looked at the production deploy or the live site since, and neither has been tried in the signed-in app.** #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#17)
+## 2. What shipped (PRs #1–#19)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -79,6 +79,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#17 — CI and `CLAUDE.md`** (section 16): the tests now run on every PR and on `main`.
 
+**#19 — chat load errors** (section 17): a conversation that cannot load says so, instead of looking empty.
+
 Test counts on `main` at the end: **Flutter 238**, **Node 142** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
 
@@ -90,7 +92,7 @@ Test counts on `main` at the end: **Flutter 238**, **Node 142** (sound, presence
 - `isGroupAdmin()` ignores membership (a `members:manage` bot can leave an admin in `adminUids` after removing them from `memberUids`).
 - **@mention notifications are denied by the rules** (both clients swallow the error). A safe fix needs a collection-group rule keyed on `mentionedUids` plus an index.
 - **Presence still costs reads**: Firestore delivers every heartbeat to every client, and that grows with the square of the number online (section 11 fixed the re-rendering, not the reads). The real fix is to move presence out of the `users` collection.
-- Failed Firestore listeners show an empty chat instead of an error.
+- Only the message listener reports its failures (section 17); the other listeners (users, groups, DM list, notifications, voice roster) still fail silently.
 - No Content-Security-Policy or other security headers.
 - GIF favourites are shared between accounts on one browser.
 - **Not in the Android app compared with the web:** opening an invite inside the app (the link opens in the browser), GIF favourites, and sharing your screen (Android can only watch one; sending needs the screen-capture permission and a foreground service type).
@@ -196,7 +198,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **The assistant's saved memory** (what it remembered between sessions) lives in the user profile on this machine, not in the repo. Everything in it that matters is in these notes; the essentials: Viber is dropped (section 4); the release keystore is on the other PC (section 6); **do not build the Android app on a machine without the keystore**, run `flutter analyze` and `flutter test` there, and list anything needing Gradle or a phone as a to-do.
 
 **Running the checks**
-- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `npm run build` (and `npm run dev`) first copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run). Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs`.
+- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `npm run build` (and `npm run dev`) first copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run). Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs`.
 - Worker: `npm test` in `workers/`.
 - Firestore rules: see section 5 (needs Java, and the two test libraries installed together).
 - Flutter: in `android_app/`, `flutter analyze` and `flutter test`. The widget tests render at several screen sizes and fail on any overflow.
@@ -226,7 +228,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **Android:** compiled by `flutter analyze` and tested, but not built with Gradle or run on a device (built on the other PC). Check the members sheet, DM list dots and message author dots still show the right status.
 - Real Firestore: the presence batching was tested against a stand-in stream, not live data.
 
-**Not done, in rough order of value (the memoised message list was done afterwards, section 14):** move presence out of `users` (read cost, above); failed Firestore listeners show an empty chat instead of an error; no Content-Security-Policy or other security headers; GIF favourites are shared between accounts on one browser.
+**Not done, in rough order of value (the memoised message list was done afterwards, section 14):** move presence out of `users` (read cost, above); failed listeners other than the chat's (section 17); no Content-Security-Policy or other security headers; GIF favourites are shared between accounts on one browser.
 
 ## 12. iOS preparation (PR #12)
 
@@ -297,3 +299,13 @@ A newer push to the same branch cancels the older run. The macOS iOS build stays
 **Checked.** The same commands were run locally first: 142 web tests, 18 worker tests, 204 rules tests, a clean `flutter analyze` and 238 Flutter tests. The workflow's first run was the PR's own checks, and all four jobs passed: rules 1m16s, Flutter 2m19s, web 1m32s, worker 15s.
 
 **NOT done.** Nothing enforces it: a red PR can still be merged until the four jobs are marked **required** in the repo's branch protection settings on GitHub (a one-time setting for an admin; I cannot change it from here). The jobs have only ever been seen passing; that a deliberately broken test makes them fail was not tried in CI. Reading failures needs the job log on GitHub (`gh pr checks` shows only pass or fail).
+
+## 17. A conversation that cannot load says so (PR #19)
+
+**The problem.** The messages listener had no error handler. A Firestore listener that fails is finished and never delivers again, so a channel you had lost access to, or one whose query needed a missing index, or one opened while the server was unreachable, simply stayed as it was: "This is the start of the conversation" over a channel that might be full of messages. Nothing said anything was wrong.
+
+**The fix.** `listenMessages` takes an error callback; `ChatSurface` shows a panel in place of the list ("Messages couldn't be loaded" plus a reason) and clears the messages, so the previous conversation's messages cannot show under the error. `src/lib/listenError.js` turns the Firestore error code into words: **no access** (`permission-denied`) and **missing index** (`failed-precondition`) say so and offer no retry, because retrying cannot help; **unreachable** (`unavailable`, `deadline-exceeded`, `cancelled`) and anything else offer **Try again**, which subscribes afresh. The raw error text is logged to the console and never shown.
+
+**Checked.** 6 tests (`tests/listen-error.test.mjs`); five deliberate breakages caught. In a browser, the real `ChatSurface` with the data layer replaced by a stub that fails on purpose: the first failure showed "Couldn't reach the server" with Try again; Try again resubscribed; a second failure showed the no-access message with no button. The build passes.
+
+**NOT checked.** Against real Firestore: the local dev setup has no Firebase configuration, so a real `permission-denied` was not produced; the error codes are from Firestore's documentation, not observed. A successful retry after an error was exercised only through the stub. Not done: the other listeners (users, groups, DM list, notifications, voice roster) still fail silently; the message *composer* is still shown under the error panel and its sends would fail on their own.
