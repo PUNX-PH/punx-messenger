@@ -19,6 +19,9 @@ import {
 } from './voiceChannel'
 import { createPeerConnection, getLocalStream, resolveIceServers, stopStream } from './webrtc'
 import { play as playSfx } from './sfx'
+import { openCamera } from './camera'
+import { blurSupported, createBlurProcessor } from './backgroundBlur'
+import { useBlurPref, setBlurPref } from './useBlurPref'
 import { rosterSounds } from './sfxRules'
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v))
@@ -140,6 +143,11 @@ function useVoiceChannelEngine() {
   const [cameraOn, setCameraOn] = useState(false)
   const [screenSharing, setScreenSharing] = useState(false)
   const [localVideoStream, setLocalVideoStream] = useState(null) // whichever of camera/screen is active, or null
+  // Background blur: the wish (remembered per browser, applies the next time the
+  // camera turns on) and whether the camera is busy starting up (the first blur
+  // downloads and starts a model, which takes a few seconds).
+  const blurBackground = useBlurPref()
+  const [cameraStarting, setCameraStarting] = useState(false)
   const [connError, setConnError] = useState(null)
   const [joining, setJoining] = useState(false)
   const [voicePrefs, setVoicePrefs] = useState(loadVoicePrefs) // {inputDeviceId, outputDeviceId, inputVolume, outputVolume}
@@ -153,6 +161,7 @@ function useVoiceChannelEngine() {
   const micSourceRef = useRef(null) // Web Audio node wrapping localStreamRef's track — swapped out on device change
   const processedStreamRef = useRef(null) // gain node's output — THIS is what gets added to every peer connection
   const cameraStreamRef = useRef(null) // raw getUserMedia video stream, only while cameraOn
+  const cameraRef = useRef(null) // lib/camera.js wrapper: .track is what peers are sent (blurred or not)
   const screenStreamRef = useRef(null) // raw getDisplayMedia stream, only while screenSharing — mutually exclusive with camera
   const peersRef = useRef(new Map()) // peerUid -> { pc, videoSender, unsubCandidates, pendingCandidates, appliedCandidateIds }
   // peerUid -> the offer SDP already answered for that pair. Deliberately NOT
@@ -300,6 +309,8 @@ function useVoiceChannelEngine() {
     audioCtxRef.current = null
     stopStream(localStreamRef.current)
     localStreamRef.current = null
+    cameraRef.current?.stop()
+    cameraRef.current = null
     stopStream(cameraStreamRef.current)
     cameraStreamRef.current = null
     stopStream(screenStreamRef.current)
@@ -331,7 +342,7 @@ function useVoiceChannelEngine() {
   // Reads only refs, so an empty dep list is genuinely stable rather than a
   // stale closure waiting to happen.
   const activeVideoTrack = useCallback(
-    () => cameraStreamRef.current?.getVideoTracks()[0] || screenStreamRef.current?.getVideoTracks()[0] || null,
+    () => cameraRef.current?.track || screenStreamRef.current?.getVideoTracks()[0] || null,
     [],
   )
 
@@ -888,6 +899,8 @@ function useVoiceChannelEngine() {
   // and that has to land on correct behavior regardless of whatever
   // `screenSharing` happened to be captured in that closure at the time.
   const stopCameraTracks = useCallback(() => {
+    cameraRef.current?.stop()
+    cameraRef.current = null
     stopStream(cameraStreamRef.current)
     cameraStreamRef.current = null
     setCameraOn(false)
@@ -918,16 +931,56 @@ function useVoiceChannelEngine() {
       if (screenSharing) stopScreenShareTracks()
       const camStream = await navigator.mediaDevices.getUserMedia({ video: true })
       cameraStreamRef.current = camStream
-      const track = camStream.getVideoTracks()[0]
+      const cam = openCamera(camStream.getVideoTracks()[0], { createProcessor: createBlurProcessor })
+      cameraRef.current = cam
+      // Blur BEFORE anything is sent: someone who turns blur on to hide their room
+      // must never have it shown for the second the model takes to start.
+      if (blurBackground) {
+        setCameraStarting(true)
+        const r = await cam.setBlur(true)
+        setCameraStarting(false)
+        if (cameraRef.current !== cam) return // switched off while it was starting
+        if (!r.ok) {
+          setBlurPref(false)
+          setConnError(`Couldn't blur your background (${r.error?.message || 'unknown error'}). Your camera is on without it.`)
+        }
+      }
+      const track = cam.track
       peersRef.current.forEach(entry => entry.videoSender?.replaceTrack(track).catch(() => {}))
       setCameraOn(true)
-      setLocalVideoStream(camStream)
+      setLocalVideoStream(new MediaStream([track]))
       const ch = activeChannelRef.current
       if (ch && myUid) setRosterState(ch.groupId, ch.channelId, myUid, { cameraOn: true })
     } catch (e) {
+      setCameraStarting(false)
+      cameraRef.current?.stop()
+      cameraRef.current = null
       setConnError(`Couldn't turn on your camera: ${e.message}`)
     }
-  }, [cameraOn, screenSharing, stopCameraTracks, stopScreenShareTracks, myUid])
+  }, [cameraOn, screenSharing, blurBackground, stopCameraTracks, stopScreenShareTracks, myUid])
+
+  // Blur on or off. Takes effect at once if the camera is already running (the
+  // track every peer is receiving is swapped, nobody renegotiates), and is
+  // remembered for the next time the camera turns on.
+  const setBackgroundBlur = useCallback(async (on) => {
+    if (on && !blurSupported()) {
+      setConnError("This browser can't blur the background.")
+      return
+    }
+    setBlurPref(on)
+    const cam = cameraRef.current
+    if (!cam) return
+    if (on) setCameraStarting(true)
+    const r = await cam.setBlur(on)
+    setCameraStarting(false)
+    if (cameraRef.current !== cam) return
+    if (!r.ok) {
+      setBlurPref(false)
+      setConnError(`Couldn't blur your background (${r.error?.message || 'unknown error'}).`)
+    }
+    peersRef.current.forEach(entry => entry.videoSender?.replaceTrack(r.track).catch(() => {}))
+    setLocalVideoStream(new MediaStream([r.track]))
+  }, [])
 
   const toggleScreenShare = useCallback(async () => {
     if (screenSharing) { stopScreenShareTracks(); return }
@@ -1146,7 +1199,7 @@ function useVoiceChannelEngine() {
 
   return {
     activeChannel, participants, remoteStreams, speakingUids, muted, deafened, connError, joining, myUid,
-    cameraOn, screenSharing, localVideoStream,
+    cameraOn, screenSharing, localVideoStream, blurBackground, cameraStarting, setBackgroundBlur,
     voicePrefs, join, leave, toggleMute, toggleDeafen, toggleCamera, toggleScreenShare,
     setInputDevice, setOutputDevice, setInputVolume, setOutputVolume, setAudioProcessing,
     clearConnError: () => setConnError(null),

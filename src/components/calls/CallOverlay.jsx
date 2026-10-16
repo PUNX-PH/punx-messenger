@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Avatar from '../Avatar'
 import { useUsers } from '../../lib/users'
 import { useCall } from '../../lib/useCall'
+import { blurSupported } from '../../lib/backgroundBlur'
 
 /**
  * In-call UI: outgoing-ringing card or connected video tiles + controls.
@@ -17,6 +18,7 @@ export default function CallOverlay() {
   const {
     call, status, myUid, localStream, remoteStream, muted, cameraOff,
     connError, iceState, endActiveCall, toggleMute, toggleCamera, addVideo,
+    blurBackground, cameraStarting, setBackgroundBlur,
   } = useCall()
   const { byId } = useUsers()
 
@@ -150,6 +152,16 @@ export default function CallOverlay() {
             <VideoIcon />
           </ControlButton>
         )}
+        {isVideoCall && blurSupported() && (
+          <ControlButton
+            onClick={() => setBackgroundBlur(!blurBackground)}
+            active={blurBackground}
+            disabled={cameraStarting}
+            label={cameraStarting ? 'Starting background blur…' : blurBackground ? 'Turn off background blur' : 'Blur your background'}
+          >
+            <BlurBackgroundIcon />
+          </ControlButton>
+        )}
         <ControlButton onClick={endActiveCall} danger label="Hang up">
           <HangupIcon />
         </ControlButton>
@@ -158,14 +170,16 @@ export default function CallOverlay() {
   )
 }
 
-function ControlButton({ onClick, active, danger, label, children }) {
+function ControlButton({ onClick, active, danger, disabled, label, children }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       title={label}
       aria-label={label}
+      aria-pressed={active}
       className={[
-        'w-12 h-12 rounded-full grid place-items-center transition-colors shrink-0',
+        'w-12 h-12 rounded-full grid place-items-center transition-colors shrink-0 disabled:opacity-60 disabled:animate-pulse',
         danger ? 'bg-bad text-white hover:opacity-90'
           : active ? 'bg-white text-black'
           : 'bg-white/15 text-white hover:bg-white/25',
@@ -173,6 +187,17 @@ function ControlButton({ onClick, active, danger, label, children }) {
     >
       {children}
     </button>
+  )
+}
+
+function BlurBackgroundIcon() {
+  // A person in front of a soft, dotted backdrop.
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="9" r="3" />
+      <path d="M7 19c0-2.8 2.2-5 5-5s5 2.2 5 5" />
+      <path d="M3 5v.01M3 9v.01M3 13v.01M21 5v.01M21 9v.01M21 13v.01M6 3v.01M18 3v.01" />
+    </svg>
   )
 }
 

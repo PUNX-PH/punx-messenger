@@ -9,6 +9,9 @@ dist
 .claude/
 .vercel/
 
+# Copied from node_modules by scripts/copy-mediapipe.mjs before dev and build
+public/mediapipe/
+
 # Build artefact that duplicates the tracked android_app/ios/ tree
 android_app/ios.zip
 
