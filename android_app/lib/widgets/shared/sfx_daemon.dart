@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/calls_providers.dart';
 import '../../providers/sfx_providers.dart';
+import '../../providers/voice_channel_providers.dart';
 import '../../services/sfx_rules.dart';
 import '../../services/sfx_service.dart';
 
@@ -25,6 +26,7 @@ class SfxDaemon extends ConsumerStatefulWidget {
 
 class _SfxDaemonState extends ConsumerState<SfxDaemon> {
   late final SfxService _sfx = ref.read(sfxServiceProvider);
+  bool _voiceConnected = false;
 
   @override
   void initState() {
@@ -40,6 +42,9 @@ class _SfxDaemonState extends ConsumerState<SfxDaemon> {
   }
 
   void _onStatus(CallStatus prev, CallStatus next) {
+    // Before anything plays: the sound that goes with a call CONNECTING must be
+    // judged as live, and the one that goes with it ENDING as not.
+    _sfx.setLiveAudio(isLiveAudio(call: next, voiceConnected: _voiceConnected));
     final actions = callSoundActions(prev, next);
     for (final s in actions.stop) {
       unawaited(_sfx.stop(s));
@@ -65,6 +70,18 @@ class _SfxDaemonState extends ConsumerState<SfxDaemon> {
       callControllerProvider.select((s) => s.status),
       (prev, next) => _onStatus(prev ?? CallStatus.idle, next),
     );
+    ref.listen<bool>(voiceControllerProvider.select((v) => v.connected), (
+      _,
+      connected,
+    ) {
+      _voiceConnected = connected;
+      _sfx.setLiveAudio(
+        isLiveAudio(
+          call: ref.read(callControllerProvider).status,
+          voiceConnected: connected,
+        ),
+      );
+    });
     return const SizedBox.shrink();
   }
 }

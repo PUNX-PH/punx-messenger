@@ -40,15 +40,19 @@ jobs:
 
       # Firebase needs GoogleService-Info.plist at RUNTIME, not to compile, so
       # its absence does not fail this build — the app would launch and then
-      # fail to initialise Firebase. Wired in from a secret when present so a
-      # signed build is actually usable.
+      # fail to initialise Firebase. Use the one committed to the repo if there
+      # is one (the Android google-services.json is committed too: these are
+      # public identifiers, not secrets); otherwise wire one in from a secret so
+      # a signed build is actually usable.
       - name: Add GoogleService-Info.plist (if configured)
         env:
           PLIST_B64: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST_B64 }}
         run: |
-          if [ -n "$PLIST_B64" ]; then
+          if [ -f ios/Runner/GoogleService-Info.plist ]; then
+            echo "using the plist committed to the repo"
+          elif [ -n "$PLIST_B64" ]; then
             echo "$PLIST_B64" | base64 --decode > ios/Runner/GoogleService-Info.plist
-            echo "plist written"
+            echo "plist written from the secret"
           elif [ "${{ inputs.signed }}" = "true" ]; then
             # A signed .ipa is something people install. One without the plist
             # launches and then cannot reach Firebase, so refuse to produce it.
@@ -58,6 +62,19 @@ jobs:
             echo "::warning::No IOS_GOOGLE_SERVICE_INFO_PLIST_B64 secret."
             echo "::warning::The build will compile but Firebase will not initialise at launch."
           fi
+
+      # Wires the plist into the Xcode project and the Google sign-in URL scheme
+      # into Info.plist (edits made on this runner only), then checks everything
+      # else iOS needs: usage strings, the Podfile flag that lets notifications be
+      # enabled, bundle ids, background audio. A compile-only run reports and
+      # carries on; a signed run stops here, with a clear message, rather than
+      # producing an app that crashes at sign-in. See docs/IOS.md.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: iOS readiness
+        continue-on-error: ${{ !inputs.signed }}
+        run: node ../scripts/ios-setup.mjs --apply
 
       - run: flutter analyze
 

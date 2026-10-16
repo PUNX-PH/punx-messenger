@@ -35,6 +35,19 @@ enum Sfx {
   String get bundledPath => 'assets/$asset';
 }
 
+/// iOS only: whether sound effects may play while a call or voice channel has live
+/// audio. **Off until someone has tried it on an iPhone.**
+///
+/// The audio package manages the app's shared AVAudioSession itself: it activates
+/// it when a sound starts and DEactivates it when the last one ends
+/// (`controlAudioSession` in audioplayers_darwin). During a voice call that session
+/// belongs to WebRTC too, so a ping finishing could cut the call's audio. iOS may
+/// refuse the deactivation while audio is running (harmless) or may not; this
+/// cannot be settled from a desk. So the sounds stay quiet during live audio on
+/// iOS, and the first thing to try on a device is flipping this and checking that a
+/// call survives a ping. Android has no such issue and always plays.
+const playSoundsDuringLiveAudioOnIOS = false;
+
 /// Whatever actually makes the noise. A seam so the rules in [SfxService] can be
 /// tested without a phone, and so the audio package can be swapped.
 abstract class SfxBackend {
@@ -52,12 +65,24 @@ abstract class SfxBackend {
 /// Every failure is swallowed. A sound that cannot play must never take a call,
 /// a message or a voice join down with it.
 class SfxService {
-  SfxService(this._backend, {DateTime Function()? now})
-    : _now = now ?? DateTime.now;
+  SfxService(
+    this._backend, {
+    DateTime Function()? now,
+    bool? playsDuringLiveAudio,
+  }) : _now = now ?? DateTime.now,
+       _playsDuringLiveAudio =
+           playsDuringLiveAudio ?? (!_isIOS || playSoundsDuringLiveAudioOnIOS);
+
+  static bool get _isIOS =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   final SfxBackend _backend;
   final DateTime Function() _now;
 
+  /// May sounds play while a call or voice channel has live audio? See
+  /// [playSoundsDuringLiveAudioOnIOS].
+  final bool _playsDuringLiveAudio;
+  bool _liveAudio = false;
   bool _enabled = true;
   bool _ready = false;
   final Map<Sfx, DateTime> _lastPlayed = {};
@@ -75,9 +100,16 @@ class SfxService {
     }
   }
 
+  /// Tell the service whether a call or voice channel currently has live audio.
+  /// Set BEFORE playing the sound that goes with the change, so a sound that
+  /// belongs to the start of a call is judged as live and one that belongs to its
+  /// end is not.
+  void setLiveAudio(bool live) => _liveAudio = live;
+
   /// Fire-and-forget. Sounds are never worth awaiting.
   void play(Sfx sfx) {
     if (!_enabled || !_ready) return;
+    if (_liveAudio && !_playsDuringLiveAudio) return;
     final gap = sfx.minGap;
     final now = _now();
     final last = _lastPlayed[sfx];
@@ -155,13 +187,15 @@ class AudioplayersBackend implements SfxBackend {
         audioFocus: AndroidAudioFocus.none,
       ),
       iOS: AudioContextIOS(
-        // The category a voice call uses anyway. A different one here would be
-        // switched globally the first time a ping played during a call.
-        category: AVAudioSessionCategory.playAndRecord,
-        options: const {
-          AVAudioSessionOptions.mixWithOthers,
-          AVAudioSessionOptions.defaultToSpeaker,
-        },
+        // Ambient: follows the silent switch, mixes with other apps' audio and
+        // never interrupts it. The plugin's own default is `playback`, which
+        // ignores the silent switch (a ping would sound on a phone set to silent)
+        // and applies at launch whether or not this is called. Voice and calls
+        // switch the session to what they need themselves (flutter_webrtc, via
+        // Helper.ensureAudioSession), and sounds are held back while that is live
+        // — see [playSoundsDuringLiveAudioOnIOS].
+        category: AVAudioSessionCategory.ambient,
+        options: const {},
       ),
     );
   }

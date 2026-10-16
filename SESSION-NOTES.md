@@ -20,7 +20,7 @@ PRs #1–#7 are all merged, and `main` (`1170520`) is deployed: Vercel and both 
    If one fails, roll back: check out `firestore.rules` from before PR #2 (`git log -- firestore.rules`) and redeploy it.
 2. **Build and test the Android app on a phone — on the other PC**, which has the release keystore (section 6); do not build it on this machine. Nothing in PRs #4, #5 and #7 has run on a device or even been compiled with Gradle since the new audio plugin was added. Their manual checks, all still to do: voice in the background, network drop, removed account, the side rail on a tablet (sections 6–7), and the sound checks in section 9 — above all that **call audio does not change when a sound plays during a voice call on speakerphone**.
 3. **Decide about the Android invite links screen (section 8).** It is built and tested but sits on a local branch, `claude/flutter-invite-links` (commit `43ecb04`), that has **not been pushed** and has no PR. It needs pushing and a PR, then merging, before it is in the app. When it merges, section 8 below will conflict with the copy on that branch; keep one.
-4. **iOS cannot start** until a Firebase iOS app is registered (no `GoogleService-Info.plist`, no iOS options in `firebase_options.dart`).
+4. **iOS: prepared, needs a Mac.** Everything that can be done without one is done. `docs/IOS.md` has the ordered runbook and the device checklist; `node scripts/ios-setup.mjs` checks the project and, with `--apply`, wires the Firebase file in once you have it (it also runs in the iOS CI workflow). Still missing: `GoogleService-Info.plist` (create/fetch with the Firebase CLI, after `firebase login --reauth`; the login on the first PC had expired), a signing team, and any run on a device. Decision pending: Sign in with Apple, before App Store review.
 5. Open items in section 3, and the choice of an SFU provider for 30-person voice (section 4).
 
 ### Running the migration script again
@@ -62,7 +62,7 @@ Rules suite: **204 passing** (143 original). Worker suite: **18 passing**. Web s
 
 - `isGroupAdmin()` ignores membership (a `members:manage` bot can leave an admin in `adminUids` after removing them from `memberUids`).
 - **@mention notifications are denied by the rules** (both clients swallow the error). A safe fix needs a collection-group rule keyed on `mentionedUids` plus an index.
-- **iOS cannot start**: `GoogleService-Info.plist` is not referenced by `ios/Runner.xcodeproj`, and `firebase_options.dart` has no iOS options. Needs an iOS app registered in the Firebase console first. CI now refuses to build a *signed* .ipa without the plist secret, but that only reports the problem.
+- **iOS cannot start** until the Firebase iOS config exists. Prepared as far as possible without a Mac (see item 4 in section 1 and `docs/IOS.md`): the Google sign-in URL scheme and the Xcode wiring for the Firebase file are done by `scripts/ios-setup.mjs --apply`; the notifications flag, photo-library string and sound-effect audio settings are already in. Never compiled.
 
 ### Flutter fixes made afterwards (in the working tree, not committed or pushed)
 
@@ -150,4 +150,4 @@ The sounds are generated, not recorded (`scripts/generate-sfx.mjs` writes `publi
 5. **The one that matters most:** while in a voice channel on **speakerphone**, make a sound happen (someone joins, a DM arrives). The call audio must not drop, switch to the earpiece, or change volume. The audio package can change the phone's global audio mode; the app configures every player once at startup to avoid that (`docs/SOUNDS.md`, "Android audio mode"). If this check fails, that is the first place to look.
 6. Silent / Do-not-disturb: the ring should follow the ringer volume; the UI sounds follow the system-sounds volume.
 
-Also on iOS (still unbuildable until Firebase is set up): the audio session category is set to `playAndRecord` + mix with others, chosen to match what a call uses. Unverified.
+Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (respects the silent switch, mixes with other apps) and are held back while a call or voice channel has live audio (`playSoundsDuringLiveAudioOnIOS = false` in `lib/services/sfx_service.dart`). Reason: the audio package activates and deactivates the shared audio session as sounds start and stop, which during a call is WebRTC's session too, and whether that can cut call audio cannot be known without a device. Unverified; the test to flip it is in `docs/IOS.md`. (An earlier version of this note said `playAndRecord`; that was changed.)
