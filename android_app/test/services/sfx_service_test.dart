@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:punx_messenger/services/sfx_service.dart';
 
@@ -141,6 +142,92 @@ void main() {
         expect(backend.started, [Sfx.dmPing]);
       },
     );
+  });
+
+  group('live audio (the iOS guard)', () {
+    // The guard is on by default only on iOS; tests pass the setting explicitly
+    // so they say what they mean on any platform.
+    SfxService guarded() =>
+        SfxService(backend, now: () => clock, playsDuringLiveAudio: false);
+    SfxService unguarded() =>
+        SfxService(backend, now: () => clock, playsDuringLiveAudio: true);
+
+    test('held back while a call or voice channel has live audio', () async {
+      sfx = guarded();
+      await ready();
+      sfx.setLiveAudio(true);
+      sfx.play(Sfx.dmPing);
+      sfx.play(Sfx.voiceJoin);
+      sfx.play(Sfx.callConnected);
+      expect(backend.started, isEmpty);
+    });
+
+    test('plays freely the moment the live audio ends', () async {
+      sfx = guarded();
+      await ready();
+      sfx.setLiveAudio(true);
+      sfx.play(Sfx.dmPing);
+      sfx.setLiveAudio(false);
+      sfx.play(Sfx.callEnded);
+      expect(backend.started, [Sfx.callEnded]);
+    });
+
+    test('with no live audio it behaves like any other platform', () async {
+      sfx = guarded();
+      await ready();
+      sfx.play(Sfx.ring);
+      sfx.play(Sfx.dmPing);
+      expect(backend.started, [Sfx.ring, Sfx.dmPing]);
+    });
+
+    test(
+      'stopping is never held back, so a ring can always be silenced',
+      () async {
+        sfx = guarded();
+        await ready();
+        sfx.setLiveAudio(true);
+        await sfx.stop(Sfx.ring);
+        expect(backend.stopped, [Sfx.ring]);
+      },
+    );
+
+    test('the unguarded setting (Android) plays during live audio', () async {
+      sfx = unguarded();
+      await ready();
+      sfx.setLiveAudio(true);
+      sfx.play(Sfx.peerJoin);
+      expect(backend.started, [Sfx.peerJoin]);
+    });
+
+    test(
+      'by default, on Android, live audio does not hold sounds back',
+      () async {
+        final byDefault = SfxService(backend, now: () => clock);
+        await byDefault.init();
+        byDefault.setLiveAudio(true);
+        byDefault.play(Sfx.dmPing);
+        expect(backend.started, [Sfx.dmPing]);
+      },
+    );
+
+    test('by default, on iOS, it does', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final byDefault = SfxService(backend, now: () => clock);
+      await byDefault.init();
+      byDefault.setLiveAudio(true);
+      byDefault.play(Sfx.dmPing);
+      expect(backend.started, isEmpty);
+      byDefault.setLiveAudio(false);
+      byDefault.play(Sfx.dmPing);
+      expect(backend.started, [
+        Sfx.dmPing,
+      ], reason: 'and plays again when the call ends');
+    });
+
+    test('the iOS switch ships OFF; flip it only after a device test', () {
+      expect(playSoundsDuringLiveAudioOnIOS, isFalse);
+    });
   });
 
   test('stop() reaches the backend', () async {

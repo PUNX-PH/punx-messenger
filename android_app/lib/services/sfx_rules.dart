@@ -33,6 +33,12 @@ import 'sfx_service.dart';
   }
 }
 
+/// Is there live call or voice audio right now? True while a 1:1 call is connected
+/// or a voice channel is joined — NOT while a call is merely ringing, when no media
+/// is flowing and the ring plays freely.
+bool isLiveAudio({required CallStatus call, required bool voiceConnected}) =>
+    call == CallStatus.connected || voiceConnected;
+
 /// Sounds for a voice-channel roster change, for people OTHER than me.
 ///
 /// [primed] is false for the roster's first snapshot after I join: it lists

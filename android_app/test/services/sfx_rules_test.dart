@@ -93,6 +93,35 @@ void main() {
     });
   });
 
+  group('live audio', () {
+    test('a connected call or a joined voice channel is live', () {
+      expect(
+        isLiveAudio(call: CallStatus.connected, voiceConnected: false),
+        isTrue,
+      );
+      expect(isLiveAudio(call: CallStatus.idle, voiceConnected: true), isTrue);
+      expect(
+        isLiveAudio(call: CallStatus.connected, voiceConnected: true),
+        isTrue,
+      );
+    });
+
+    test('a call that is only ringing is not: no media is flowing yet', () {
+      expect(
+        isLiveAudio(call: CallStatus.incoming, voiceConnected: false),
+        isFalse,
+      );
+      expect(
+        isLiveAudio(call: CallStatus.outgoing, voiceConnected: false),
+        isFalse,
+      );
+      expect(
+        isLiveAudio(call: CallStatus.idle, voiceConnected: false),
+        isFalse,
+      );
+    });
+  });
+
   group('DM ping', () {
     bool due({
       int? last,

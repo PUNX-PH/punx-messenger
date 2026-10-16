@@ -47,5 +47,20 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+
+    # permission_handler compiles in ONLY the permissions switched on here; any
+    # other is a no-op that quietly reports "denied". The app asks for exactly one
+    # through it: notifications (lib/services/notification_listener_service.dart
+    # and the profile sheet). Without this flag the notifications switch cannot be
+    # turned on, on iOS. Camera and microphone do not go through this plugin —
+    # flutter_webrtc asks for those itself — so they are deliberately not listed.
+    target.build_configurations.each do |config|
+      # A list, whatever the setting held before (CocoaPods usually writes a list,
+      # but a plain string would have the flag glued onto it), and added once.
+      defs = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+      defs = [defs] unless defs.is_a?(Array)
+      defs << 'PERMISSION_NOTIFICATIONS=1' unless defs.include?('PERMISSION_NOTIFICATIONS=1')
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
+    end
   end
 end
