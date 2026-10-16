@@ -14,7 +14,7 @@ Where to read first: `SESSION-NOTES.md` (what was done, what is unverified, what
 ```bash
 npm ci
 node --test $(ls tests/*.test.mjs | grep -v '/rules\.test\.mjs$')   # web logic tests
-npm run build                                                        # also copies the blur model to public/mediapipe
+npm run build                                                        # vite.config.js also copies the blur model to public/mediapipe
 (cd workers && npm ci && npm test)                                   # worker tests
 (cd android_app && flutter analyze && flutter test)                  # Flutter, pinned to 3.44.8 in CI
 ```

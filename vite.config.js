@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { copyMediapipe } from './scripts/copy-mediapipe.mjs'
 
 // Third-party libraries get their own files, apart from the app's own code.
 //
@@ -16,8 +17,13 @@ const vendorChunk = (id) => {
   return undefined // anything else stays with the code that uses it
 }
 
+// Puts the background-blur model in public/ before Vite reads it, on every dev start
+// and every build, whatever command started Vite (see scripts/copy-mediapipe.mjs for
+// why this is not an npm "prebuild" hook).
+const blurModel = { name: 'blur-model', config: () => { copyMediapipe() } }
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), blurModel],
   server: { port: 5173, host: true },
   build: {
     rollupOptions: { output: { manualChunks: vendorChunk } },

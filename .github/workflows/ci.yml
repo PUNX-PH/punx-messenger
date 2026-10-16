@@ -32,8 +32,12 @@ jobs:
       # emulator and has its own job. A new test file is picked up automatically.
       - name: Node tests
         run: node --test $(ls tests/*.test.mjs | grep -v '/rules\.test\.mjs$')
-      # Also copies the background-blur model into public/ (the prebuild step).
-      - run: npm run build
+      # Run through Vite directly, not an npm script, the way a host might: the
+      # background-blur model must still end up in the built site. (It once did
+      # not, and production served the app's HTML in its place.)
+      - run: npx vite build
+      - name: The built site contains the blur model
+        run: 'for f in selfie_segmentation.js selfie_segmentation.tflite selfie_segmentation_solution_simd_wasm_bin.wasm; do test -s "dist/mediapipe/$f" || { echo "::error::dist/mediapipe/$f is missing"; exit 1; }; done'
 
   worker:
     name: Worker tests

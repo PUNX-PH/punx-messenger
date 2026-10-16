@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17 and #19–#21 are merged (#10 was closed unmerged; #18 was a notes update). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green, but I have not looked at the production deploy or the live site since, and neither has been tried in the signed-in app.** #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17 and #19–#22 are merged (#10 was closed unmerged; #18 was a notes update). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 (section 15); confirm on the live site after it deploys.** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#21)
+## 2. What shipped (PRs #1–#22)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -84,6 +84,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 **#20 — other listener failures** (section 18): one banner says when the people, group, DM, category or emoji feeds stopped updating.
 
 **#21 — GIF favourites per account** (section 19): favourites are no longer one list shared by everyone who signs in on a browser.
+
+**#22 — blur model reaches production** (section 15): the live-site check found the model files were not deployed; the copy now happens inside the Vite config, and CI checks the built site contains them.
 
 Test counts on `main` at the end: **Flutter 238**, **Node 142** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
@@ -202,7 +204,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **The assistant's saved memory** (what it remembered between sessions) lives in the user profile on this machine, not in the repo. Everything in it that matters is in these notes; the essentials: Viber is dropped (section 4); the release keystore is on the other PC (section 6); **do not build the Android app on a machine without the keystore**, run `flutter analyze` and `flutter test` there, and list anything needing Gradle or a phone as a to-do.
 
 **Running the checks**
-- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `npm run build` (and `npm run dev`) first copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run). Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs tests/gif-favorites.test.mjs`.
+- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `vite.config.js` copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run) on every build and dev start. Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs tests/gif-favorites.test.mjs`.
 - Worker: `npm test` in `workers/`.
 - Firestore rules: see section 5 (needs Java, and the two test libraries installed together).
 - Flutter: in `android_app/`, `flutter analyze` and `flutter test`. The widget tests render at several screen sizes and fail on any overflow.
@@ -275,7 +277,9 @@ The live site sent every built file with `Cache-Control: public, max-age=0, must
 - `src/lib/backgroundBlur.js`: MediaPipe selfie segmentation (the "landscape" model) on the GPU says which pixels are the person; the person is drawn over a blurred copy of the frame on a canvas, and the canvas is captured as a new video track. Browsers without canvas filters (older Safari) blur by shrinking and stretching back. A worker timer drives it, because `requestAnimationFrame` stops and page timers are cut to once a second in a hidden tab, which would freeze your picture the moment you switch tabs mid-call. It waits for the first blurred frame (10 s limit) before handing over the track, so a failure surfaces rather than sending black.
 - `src/lib/camera.js`: the camera with blur switchable while it runs. The caller sends `camera.track` and, after `setBlur`, swaps with `replaceTrack` (no renegotiation). Calls are serialised, and closing the camera mid-start does not leak the processor.
 - `useVoiceChannel.jsx` and `useCall.jsx`: blur is applied **before** the first frame is sent, so the room is never shown while the model starts. If blur cannot start, the plain camera is used, the person is told, and the setting is switched off. In a 1:1 call the camera's own track follows the on/off button, so a blur turned on later does not revive a camera that was switched off.
-- **Assets.** `@mediapipe/selfie_segmentation` (Apache-2.0, a devDependency). `scripts/copy-mediapipe.mjs` runs before `dev` and `build` and copies the model and the WebAssembly runtime (about 12 MB; a browser fetches only the runtime variant it can run) into `public/mediapipe/`, which is not committed. They are served from our own origin, so a call never depends on a third-party CDN, and are fetched only when blur is first turned on. The package is a classic script that fails in a production Vite build if imported, so it is loaded with a script tag instead. If the package is missing the script only warns.
+- **Assets.** `@mediapipe/selfie_segmentation` (Apache-2.0, a devDependency). `scripts/copy-mediapipe.mjs`, called from `vite.config.js` on every build and dev start, copies the model and the WebAssembly runtime (about 12 MB; a browser fetches only the runtime variant it can run) into `public/mediapipe/`, which is not committed. They are served from our own origin, so a call never depends on a third-party CDN, and are fetched only when blur is first turned on. The package is a classic script that fails in a production Vite build if imported, so it is loaded with a script tag instead. If the package is missing the script only warns.
+
+**Found on the live site, and fixed (#22).** The copy was first an npm `prebuild` hook. After #16 deployed, `/mediapipe/selfie_segmentation.js` and the model on production answered `200 text/html` (the app's own page, via the single-page-app rewrite) instead of the files, so a blur attempt would have failed with the "Couldn't blur your background" message while every PR check was green. The likely cause is that the host runs `vite build` directly, which never fires an npm `prebuild` hook; I could not read the host's build log or settings to confirm. The copy now runs from `vite.config.js`, so it happens however Vite is started (shown locally: deleting `public/mediapipe` and `dist` and running a bare `npx vite build` produces all nine files in `dist/mediapipe`). CI now builds with `npx vite build` and fails if the model is missing from `dist`. **To do after it deploys:** fetch `/mediapipe/selfie_segmentation.js` and `.tflite` on the live site and check they are not HTML.
 
 **Checked.** 11 tests (`tests/camera.test.mjs`); eight deliberate breakages caught (one survived at first because its test stopped the camera before the start had begun; fixed). In a real browser with a **synthetic camera** (a striped test pattern, no person): the blurred output's edge sharpness dropped from 63.4 to 0.1; **20.6 frames per second with the tab hidden**; start-up **15 s the first time** on the dev server (about 12 MB uncompressed plus compiling the runtime) and **1.2 s once cached** (111 ms when turned off and on again, because a spare segmenter is kept). The Vercel build of the PR succeeded, so the copy step works there.
 
@@ -301,6 +305,8 @@ A newer push to the same branch cancels the older run. The macOS iOS build stays
 `CLAUDE.md` at the repo root records the commands, how PRs are done here, and the gotchas from sections 3, 10 and 13 (CRLF files, no Android builds without the keystore, rules not auto-deploying, the one-day cache, presence identity), so a new session starts with them.
 
 **Checked.** The same commands were run locally first: 142 web tests, 18 worker tests, 204 rules tests, a clean `flutter analyze` and 238 Flutter tests. The workflow's first run was the PR's own checks, and all four jobs passed: rules 1m16s, Flutter 2m19s, web 1m32s, worker 15s.
+
+**Also checks the built site.** The web job builds with `npx vite build` and fails if `dist/mediapipe` lacks the blur model (section 15).
 
 **NOT done.** Nothing enforces it: a red PR can still be merged until the four jobs are marked **required** in the repo's branch protection settings on GitHub (a one-time setting for an admin; I cannot change it from here). The jobs have only ever been seen passing; that a deliberately broken test makes them fail was not tried in CI. Reading failures needs the job log on GitHub (`gh pr checks` shows only pass or fail).
 
