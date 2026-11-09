@@ -148,12 +148,20 @@ export function computeSnapshot(prefs) {
   }
 }
 
-const APPLIED = Symbol('punx.appliedVars')
+// Every variable the preferences can set. Anything on this list that a snapshot does
+// not set is removed, so going back to the original leaves nothing behind. It is a
+// fixed list, not a record of what this code set earlier, because the script in
+// index.html also sets some of them before the app starts, and a record kept here
+// would not know about those.
+export const MANAGED_VARS = [
+  '--bg-deepest', '--bg-dark', '--bg-main', '--bg-raised', '--bg-hover',
+  '--line-subtle', '--line-strong', '--ink-muted', '--ink-dim',
+  '--brand', '--brand-hover', '--brand-text', '--font-body',
+]
 
 /**
  * Puts a snapshot on the page. `root` is <html>; it is passed in so a test can use a
- * stand-in. Variables set earlier and not in this snapshot are removed, so going
- * back to the original leaves nothing behind.
+ * stand-in. Managed variables the snapshot does not set are removed.
  * @returns {boolean} whether the light theme is now showing
  */
 export function applySnapshot(snap, root, { systemLight = false } = {}) {
@@ -162,10 +170,8 @@ export function applySnapshot(snap, root, { systemLight = false } = {}) {
 
   const next = { ...snap.vars[light ? 'light' : 'dark'] }
   if (snap.fontStack) next['--font-body'] = snap.fontStack
-  const before = root[APPLIED] || new Set()
-  for (const name of before) if (!(name in next)) root.style.removeProperty(name)
+  for (const name of MANAGED_VARS) if (!(name in next)) root.style.removeProperty(name)
   for (const [name, value] of Object.entries(next)) root.style.setProperty(name, value)
-  root[APPLIED] = new Set(Object.keys(next))
 
   if (snap.fontSize) root.style.setProperty('font-size', snap.fontSize)
   else root.style.removeProperty('font-size')
