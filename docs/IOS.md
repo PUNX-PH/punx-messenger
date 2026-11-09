@@ -1,8 +1,24 @@
 # iOS setup
 
-Everything that can be done without a Mac is done and committed. **The iOS app has
-never been compiled or run**; this page is the ordered list of what is left, and it
-can only be done on a Mac. The bundle id is **`com.punx.plexus`**, matching Android.
+Everything that can be done without a Mac is done and committed, **including the
+Firebase configuration** (the iOS app "Plexus" was already registered in the
+`punx-msg` Firebase project; its `GoogleService-Info.plist` is committed and wired
+into the Xcode project). The readiness check is **15 ok, 0 blocking, and one warning:
+the signing team**, which only a person in Xcode can set. **The iOS app has never been
+run on a device**; this page is the ordered list of what is left, and it can only be
+done on a Mac. The bundle id is **`com.punx.plexus`**, matching Android.
+
+**The short way, on the Mac:** `bash scripts/ios-first-build.sh`. It does steps 1, 3, 4
+and the unsigned compile of step 5 (checks the machine, runs the project check,
+`flutter pub get`, `pod install`, `flutter build ios --no-codesign`), stops at the
+first thing that is wrong and says what, and ends by telling you the last three things
+only you can do (pick the signing team in Xcode, plug in the phone, run the checklist).
+The numbered steps below say what each part is for.
+
+**No Mac?** The "Build iOS (macOS runner)" workflow in GitHub Actions does the unsigned
+compile for you (the repository is public, so macOS minutes are free). A build you can
+install on a phone still needs a Mac with Xcode, or the signing secrets listed in that
+workflow.
 
 ## On the Mac, in order
 
@@ -17,9 +33,12 @@ your own iPhone; TestFlight and the App Store need the paid Apple Developer Prog
    (cd android_app && flutter pub get)
    ```
 
-2. **Firebase iOS app.** The app cannot launch without `GoogleService-Info.plist`,
-   and there is no iOS app registered in the Firebase project that this repo knows
-   about. First check, so it is not registered twice:
+2. **Firebase iOS app. Already done (2026-11-09); skip this unless the file is ever lost
+   or the app is re-registered.** The app is registered as "Plexus" (App ID
+   `1:781531419503:ios:d7c24f1f998a09dc13ce9a`, bundle id `com.punx.plexus`) and
+   `android_app/ios/Runner/GoogleService-Info.plist` is committed (its bundle id,
+   project and Google sign-in client were checked). To redo it: the app cannot launch
+   without that file. First check, so an app is not registered twice:
    ```bash
    firebase login --reauth
    firebase apps:list --project punx-msg
@@ -37,7 +56,9 @@ your own iPhone; TestFlight and the App Store need the paid Apple Developer Prog
    already is, for the web app; the plist only contains `CLIENT_ID` and
    `REVERSED_CLIENT_ID` when it is.
 
-3. **Wire it in, and check everything else.** From the repo root:
+3. **Wire it in, and check everything else. The two wiring edits are already
+   committed**, so this now only re-checks (a run with `--apply` changes nothing). From
+   the repo root:
    ```bash
    node scripts/ios-setup.mjs --apply
    ```
