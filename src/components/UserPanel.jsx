@@ -11,6 +11,8 @@ import { isLight, toggleTheme } from '../lib/theme'
 import { isEnabled as sfxEnabled, play as playSfx, setEnabled as setSfxEnabled } from '../lib/sfx'
 import GroupContextMenu from './GroupContextMenu'
 import VoiceSettingsPopover from './voice/VoiceSettingsPopover'
+import LazySlot from './LazySlot'
+import { PreferencesModal } from '../lib/lazyParts'
 
 // Compact, Discord-style bottom bar: avatar + name/role, then whatever
 // icons are actually relevant right now. Mic/deafen only show up while
@@ -27,6 +29,7 @@ export default function UserPanel() {
   const now = useTickNow()
   const [menu, setMenu] = useState({ open: false, x: 0, y: 0 })
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false)
+  const [prefsOpen, setPrefsOpen] = useState(false)
   // Mirrors the class already on <html>, which the inline script in
   // index.html may have set before React ever mounted.
   const [light, setLightState] = useState(() => isLight())
@@ -57,6 +60,7 @@ export default function UserPanel() {
     ...(canManageRoles(profile) || canManageBots(profile)
       ? [{ label: 'Admin panel', icon: <ShieldIcon />, onClick: () => navigate('/admin') }]
       : []),
+    { label: 'Appearance & preferences', icon: <PaletteIcon />, onClick: () => setPrefsOpen(true) },
     {
       label: light ? 'Dark mode' : 'Light mode',
       icon: light ? <MoonIcon /> : <SunIcon />,
@@ -107,6 +111,11 @@ export default function UserPanel() {
       {voiceSettingsOpen && (
         <VoiceSettingsPopover anchorRef={gearBtnRef} onClose={() => setVoiceSettingsOpen(false)} />
       )}
+      {prefsOpen && (
+        <LazySlot overlay title="Preferences couldn't be opened" onDismiss={() => setPrefsOpen(false)}>
+          <PreferencesModal open onClose={() => setPrefsOpen(false)} />
+        </LazySlot>
+      )}
     </div>
   )
 }
@@ -134,6 +143,16 @@ function GearIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  )
+}
+function PaletteIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.8 1.8-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.8-1.7H17a4 4 0 0 0 4-4c0-4.4-4-8.2-9-8.2z" />
+      <circle cx="7.5" cy="11" r="1" fill="currentColor" />
+      <circle cx="10.5" cy="7" r="1" fill="currentColor" />
+      <circle cx="15.5" cy="7.5" r="1" fill="currentColor" />
     </svg>
   )
 }

@@ -11,11 +11,30 @@
     <title>Punx Messenger</title>
     <script>
     // Inline and synchronous, deliberately: this has to run before the first
-    // paint or a light-mode user sees a dark flash on every load. Wrapped
-    // because localStorage throws outright in some privacy modes.
+    // paint or someone with a light theme or their own colours sees the default
+    // ones flash on every load. Wrapped because localStorage throws outright in
+    // some privacy modes.
+    //
+    // It applies the snapshot of the saved preferences that the app itself stores
+    // (src/lib/prefsStore.js), and must do exactly what applySnapshot() in
+    // src/lib/prefs.js does; tests/prefs.test.mjs runs this very script and holds
+    // it to that. With no snapshot it falls back to the old light/dark switch.
     try {
-      if (localStorage.getItem('themeMode') === 'light') {
-        document.documentElement.classList.add('light')
+      var root = document.documentElement
+      var snap = null
+      try { snap = JSON.parse(localStorage.getItem('punx.prefsCss')) } catch (e) {}
+      if (snap && typeof snap === 'object' && snap.vars && typeof snap.vars === 'object') {
+        var light = snap.theme === 'light' ||
+          (snap.theme === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)
+        root.classList.toggle('light', !!light)
+        var vars = snap.vars[light ? 'light' : 'dark'] || {}
+        for (var name in vars) root.style.setProperty(name, vars[name])
+        if (snap.fontStack) root.style.setProperty('--font-body', snap.fontStack)
+        if (snap.fontSize) root.style.setProperty('font-size', snap.fontSize)
+        if (snap.density) root.dataset.density = snap.density
+        if (snap.motion) root.dataset.motion = snap.motion
+      } else if (localStorage.getItem('themeMode') === 'light') {
+        root.classList.add('light')
       }
     } catch (e) {}
   </script>

@@ -49,7 +49,8 @@ export default {
         bad:   'rgb(var(--bad) / <alpha-value>)',
       },
       fontFamily: {
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        // --font-body is set only when someone picks another font (see src/lib/prefs.js).
+        sans: ['var(--font-body, Inter)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       fontSize: {
         xs:   ['0.75rem',  { lineHeight: '1rem' }],

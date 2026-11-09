@@ -7,7 +7,7 @@
 //   AdminPanel          few people ever open it
 //   VoiceChannelRoom    a whole screen, needed only when a voice channel is opened
 //   EmojiPicker         opens on a click; it also carries the GIF panel
-//   GroupSettingsModal, ChannelAccessModal, CreateGroupModal
+//   GroupSettingsModal, ChannelAccessModal, CreateGroupModal, PreferencesModal
 //                       dialogs, shown on demand
 import { lazyWithPreload, preloadWhenIdle } from './lazy'
 
@@ -17,6 +17,7 @@ export const EmojiPicker = lazyWithPreload(() => import('../components/EmojiPick
 export const GroupSettingsModal = lazyWithPreload(() => import('../components/GroupSettingsModal'))
 export const ChannelAccessModal = lazyWithPreload(() => import('../components/ChannelAccessModal'))
 export const CreateGroupModal = lazyWithPreload(() => import('../components/CreateGroupModal'))
+export const PreferencesModal = lazyWithPreload(() => import('../components/PreferencesModal'))
 
 /**
  * Warms up what nearly everyone ends up using, once the app is up. The admin panel

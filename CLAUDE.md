@@ -43,5 +43,6 @@ A green PR therefore means the tests passed, not just that Vercel and Cloudflare
 - **iOS has never been compiled** (needs a Mac): `docs/IOS.md`, `node scripts/ios-setup.mjs`.
 - **Built files are cached for one day** (`vercel.json`, `public/_headers`), deliberately not a year: the SPA rewrite answers a missing file with HTML and a 200.
 - **Presence** is kept out of the identity of users (`src/lib/usersIdentity.js`, `usePresence`); do not put `lastSeen`/`presence` back on objects that are passed around, or every heartbeat re-renders the app.
+- **Personal preferences** (theme, colours, text size, clock, send key...) are one validated object (`src/lib/prefs.js`), kept on the device and in `users/{uid}.prefs`. Colour choices are computed to stay readable (`src/lib/palettes.js`); do not hard-code a colour in a component, use the CSS variables. The small script in `index.html` must do exactly what `applySnapshot()` does; `tests/prefs.test.mjs` runs it and checks.
 - **PowerShell in the user's own terminal blocks `npx`;** use `npx.cmd`. In PowerShell, parse `gh ... --json` with `ConvertFrom-Json`.
 - **Secrets never go in the repo or in chat:** the keystore, `key.properties`, service-account keys, the Firebase CLI login. If a task needs one, say so and stop.
