@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17 and #19–#22 are merged (#10 was closed unmerged; #18 was a notes update). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17 and #19–#22 and #24 are merged (#10 was closed unmerged; #18 and #23 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#22)
+## 2. What shipped (PRs #1–#24)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -87,6 +87,10 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#22 — blur model reaches production** (section 15): the live-site check found the model files were not deployed; the copy now happens inside the Vite config, and CI checks the built site contains them.
 
+**#23 — notes** (the live-site check of the blur model).
+
+**#24 — security headers** (section 20): the site now sends nosniff, no-framing, a referrer policy and a permissions policy.
+
 Test counts on `main` at the end: **Flutter 238**, **Node 142** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
 
@@ -99,7 +103,7 @@ Test counts on `main` at the end: **Flutter 238**, **Node 142** (sound, presence
 - **@mention notifications are denied by the rules** (both clients swallow the error). A safe fix needs a collection-group rule keyed on `mentionedUids` plus an index.
 - **Presence still costs reads**: Firestore delivers every heartbeat to every client, and that grows with the square of the number online (section 11 fixed the re-rendering, not the reads). The real fix is to move presence out of the `users` collection.
 - Listener failures are now reported (sections 17 and 18), except two on purpose: the typing indicator's, and the mention-notification listener, which the rules already deny for everyone (see the @mention item above), so reporting it would put a permanent banner on every screen.
-- No Content-Security-Policy or other security headers.
+- No Content-Security-Policy yet (the other basic security headers were added, section 20). A CSP needs a signed-in test of sign-in, Firestore, GIFs, voice and blur before it can be enforced.
 - GIF favourites are per account but still per browser: they do not follow someone to another device (section 19).
 - **Not in the Android app compared with the web:** opening an invite inside the app (the link opens in the browser), GIF favourites, and sharing your screen (Android can only watch one; sending needs the screen-capture permission and a foreground service type).
 - **Background blur is web only**: the Android and iOS apps use a different camera pipeline and would need a native segmentation model (section 15).
@@ -204,7 +208,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **The assistant's saved memory** (what it remembered between sessions) lives in the user profile on this machine, not in the repo. Everything in it that matters is in these notes; the essentials: Viber is dropped (section 4); the release keystore is on the other PC (section 6); **do not build the Android app on a machine without the keystore**, run `flutter analyze` and `flutter test` there, and list anything needing Gradle or a phone as a to-do.
 
 **Running the checks**
-- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `vite.config.js` copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run) on every build and dev start. Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs tests/gif-favorites.test.mjs`.
+- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `vite.config.js` copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run) on every build and dev start. Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs tests/gif-favorites.test.mjs tests/security-headers.test.mjs`.
 - Worker: `npm test` in `workers/`.
 - Firestore rules: see section 5 (needs Java, and the two test libraries installed together).
 - Flutter: in `android_app/`, `flutter analyze` and `flutter test`. The widget tests render at several screen sizes and fail on any overflow.
@@ -234,7 +238,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **Android:** compiled by `flutter analyze` and tested, but not built with Gradle or run on a device (built on the other PC). Check the members sheet, DM list dots and message author dots still show the right status.
 - Real Firestore: the presence batching was tested against a stand-in stream, not live data.
 
-**Not done, in rough order of value (the memoised message list was done afterwards, section 14):** move presence out of `users` (read cost, above); failed listeners (done afterwards, sections 17 and 18); no Content-Security-Policy or other security headers (GIF favourites were made per account afterwards, section 19).
+**Not done, in rough order of value (the memoised message list was done afterwards, section 14):** move presence out of `users` (read cost, above); failed listeners (done afterwards, sections 17 and 18); no Content-Security-Policy (the other security headers were added afterwards, section 20; GIF favourites were made per account afterwards, section 19).
 
 ## 12. iOS preparation (PR #12)
 
@@ -344,3 +348,29 @@ A newer push to the same branch cancels the older run. The macOS iOS build stays
 **Checked.** 13 tests (`tests/gif-favorites.test.mjs`); the mutation run killed every non-equivalent change (one survivor, dropping the `Array.isArray` check, is equivalent: the surrounding `try/catch` already turns a non-array into an empty list; and the run found a real gap, an old list being adopted while nobody is signed in, which got its own test). In a browser, the real `GifPanel` with the account and the network stubbed: with an old shared list in storage, the first account saw it in Favorites, a second account on the same browser saw none, and the first still had it afterwards.
 
 **NOT done.** Favourites are still per browser: they do not follow someone to another device or browser. Syncing them (a `users/{uid}` subcollection) needs a Firestore rules change, which is a deployment decision, so it was not started. Not checked in the signed-in app, and not with real Klipy results (the panel's trending and search were stubbed out; only the Favorites tab was exercised).
+
+## 20. Basic security headers (PR #24)
+
+**What was missing.** The live site sent only `Strict-Transport-Security`. It sent no protection against browsers guessing file types, against the app being framed by another site, or against leaking the page address to other sites, and it did not say which powerful browser features the app may use.
+
+**What it sends now, on every path** (`vercel.json`, and the same set in `public/_headers` for Cloudflare):
+- `X-Content-Type-Options: nosniff`.
+- `X-Frame-Options: DENY`: nothing needs to frame the app (the Google sign-in opens a popup, not a frame).
+- `Referrer-Policy: strict-origin-when-cross-origin`: **invite links carry a secret in the path** (`/invite/<token>`), so other sites must only ever be told the origin, never the path. This is the browser default, now stated explicitly so it cannot change under us.
+- `Permissions-Policy: camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()`: **camera, microphone and screen share stay allowed for this site**, because voice, video calls, background blur and screen share need them; taking `(self)` off any of the three would silently break calling. Location, payment and USB are never used, so they are off.
+
+**Left out on purpose.** A **Content-Security-Policy**: it has to name every place the app talks to or loads from (Firebase and Google sign-in, Firestore, the Workers, GIFs, custom emojis, profile photos, fonts, the blur model's WebAssembly and its worker), and a mistake blocks sign-in or calling. It needs a signed-in test before it is enforced, ideally first in report-only mode. A **Cross-Origin-Opener-Policy**: the Google sign-in popup would break.
+
+**Checked.** 8 tests (`tests/security-headers.test.mjs`) pin the four headers, that camera, microphone and screen capture stay `(self)`, that no Opener policy is set, that the one-day cache rule on `/assets/` is untouched and not overridden (the all-paths rule must not set `Cache-Control`, or `index.html` would stop revalidating), that the single-page-app rewrite is unchanged, and that the Cloudflare file sends exactly what Vercel does. Run through Vercel's own routing library, the config gives every path the four headers and only `/assets/` the cache header. **Checked on the live site after it deployed (2026-11-09):** the root page, an `/invite/...` page, a built file, a blur model file and a sound all carry the four headers, and only `/assets/` carries the one-day `Cache-Control` (the others still revalidate). In a real browser the login page loads with no console errors, and the page's own policy reports camera, microphone, screen capture, fullscreen and autoplay as allowed and location, payment and USB as blocked.
+
+**NOT checked.** In the signed-in app: that calling, voice, screen share and sign-in still work with the policy in place (the policy allows them and the browser agrees, but they have not been tried). The PR's own checks do not exercise the headers.
+
+## 21. Vercel stopped deploying, and the repository is now public (2026-11-09)
+
+**What happened.** PR #24's Vercel check failed with "Cannot deploy from a private GitHub organization repository on the Hobby plan", although every PR up to #23 had deployed. The repository's last-updated date was 2026-10-22, so a change to the repository or to Vercel's rules around then is possible, but the cause was not confirmed. Production was unaffected at the time (it was still serving the build from #22).
+
+**What was done.** The repository was set to **public** (by the user; it was private before). Pushing a new commit then deployed normally, and #24 went live. Nothing else changed. Upgrading the Vercel plan or moving the repository would also have worked; public was the user's choice.
+
+**Before it was relied on as public, the history was scanned** (all 195 commits): no private keys, no service-account files, no keystore or `key.properties`, and no tokens or secrets matching common patterns. What is public now and was checked: the Firebase web and Android API keys (public identifiers by design; the Firestore rules, now also public, are what protect the data), `.env.example` (blank Firebase values, the sign-in domain `punx.ai`, and one super-admin email address), the rules, the Workers' code and the docs. Not covered by that scan: anything that never reached git (the release keystore and `key.properties` stay on the other PC and are ignored), and the Worker secrets set in Cloudflare, which are not in the repository.
+
+**Worth knowing now that it is public.** Anyone can read the code, the rules and the notes in this file, including the lists of open weaknesses (sections 3 and 20). The rules are the real protection, and an open item such as the missing Content-Security-Policy is now visible to outsiders; that is a reason to work it down, not to hide it. Pull requests from outside the organisation are possible now, so CI can run on them: review any change to the workflow from someone you don't know before letting it run. If the repository goes back to private, the Hobby-plan block returns.
