@@ -18,3 +18,23 @@
 # checked) or to /sfx/ (those file names carry no hash).
 /assets/*
   Cache-Control: public, max-age=86400
+
+# Security headers, on every response. Vercel gets the same set from vercel.json
+# (tests/security-headers.test.mjs keeps the two identical).
+#
+# Permissions-Policy: camera, microphone and screen capture are allowed for this
+# site ONLY, because voice, video calls, blur and screen share need them. Taking
+# "(self)" off any of these silently breaks calling. Location, payment and USB are
+# never used, so they are off.
+#
+# Referrer-Policy: invite links carry a secret in the path (/invite/<token>). Other
+# sites must only ever be told the origin, never the path.
+#
+# Deliberately NOT here: Content-Security-Policy (needs a signed-in test of sign-in,
+# Firestore, GIFs, voice and blur before it can be enforced) and a
+# Cross-Origin-Opener-Policy (the Google sign-in popup would break).
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()
