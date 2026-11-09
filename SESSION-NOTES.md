@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24 and #26 are merged (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26 and #27 are merged (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#26)
+## 2. What shipped (PRs #1–#27)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -94,6 +94,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 **#25 — notes** (section 20 and 21).
 
 **#26 — drafts, and a message no longer follows you into another channel** (section 22).
+
+**#27 — unread count in the browser tab title** (section 23).
 
 Test counts on `main` at the end: **Flutter 238**, **Node 142** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
@@ -212,7 +214,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **The assistant's saved memory** (what it remembered between sessions) lives in the user profile on this machine, not in the repo. Everything in it that matters is in these notes; the essentials: Viber is dropped (section 4); the release keystore is on the other PC (section 6); **do not build the Android app on a machine without the keystore**, run `flutter analyze` and `flutter test` there, and list anything needing Gradle or a phone as a to-do.
 
 **Running the checks**
-- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `vite.config.js` copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run) on every build and dev start. Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs tests/gif-favorites.test.mjs tests/security-headers.test.mjs tests/drafts.test.mjs`.
+- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `vite.config.js` copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run) on every build and dev start. Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs tests/gif-favorites.test.mjs tests/security-headers.test.mjs tests/drafts.test.mjs tests/unread.test.mjs`.
 - Worker: `npm test` in `workers/`.
 - Firestore rules: see section 5 (needs Java, and the two test libraries installed together).
 - Flutter: in `android_app/`, `flutter analyze` and `flutter test`. The widget tests render at several screen sizes and fail on any overflow.
@@ -388,3 +390,15 @@ A newer push to the same branch cancels the older run. The macOS iOS build stays
 **Checked.** 18 tests (`tests/drafts.test.mjs`); the mutation run killed every change that matters (one survivor is equivalent, a guard whose absence returns the same empty string; it also found a real gap, that a cleared draft must stay cleared after a reload or a sent message would reappear, which got its own test). In a browser, on the real chat and message-box components with only the database and sign-in stubbed: B starts empty with no leftover reply; A's draft comes back, its reply does not; a message sent from B goes only to B with only B's text; sending clears that draft and keeps the others; a slow send finishing after switching to C does not wipe what was typed in C; a reload restores the draft; the typing marker is cleared for A when switching to B; the box height shrinks and regrows correctly.
 
 **NOT checked.** In the signed-in app against real Firestore, and in the real router (the harness re-renders the chat with a new path, which is what the route does, but it is not the router). Attachments and half-picked @mentions are deliberately not kept as drafts: switching conversation drops them. Not done: drafts do not follow someone to another browser or device.
+
+## 23. Unread count in the browser tab title (PR #27)
+
+**What.** The tab's title shows how many conversations have something new: "(3) Punx Messenger", up to "(99+)", and plain "Punx Messenger" when there is nothing. It is visible from another tab, in the window list and in the taskbar. It counts conversations (DMs and channels), not messages, because all a conversation records is when its last message arrived. Muted groups do not count (they do not badge in the sidebar either). A DM whose last message is your own, or that was only opened and never written in, does not count. The conversation you are looking at is left out.
+
+**The change that makes it useful.** The chat used to mark the open conversation as read whenever it was open, **even in a hidden tab**, so a message arriving in the channel you had left open in the background was "read" the instant it landed: no unread dot, no count. Now it is marked read only while the page is visible *and* focused (the same test the desktop notifications use, `src/lib/usePageActive.js`), and as soon as you come back. **This changes when unread dots clear:** with Punx visible on a second monitor and the keyboard elsewhere, messages stay unread until you click into it. And a switch back to a tab where nothing is new no longer writes to the database (`needsMarkRead`: it writes only when the newest message is newer than the last read), so tabbing back does not wake every other client's listener.
+
+**How.** `src/lib/unread.js` holds the counting and the title text with no Firebase in it (`isUnread`, `pathToReadKey` and `dmConvoId` moved there from `db.js`, which re-exports them). `src/lib/useUnreadCount.js` listens for your DMs, groups and channels the same way the side rail does (identical Firestore queries are shared by the client, so no extra reads); `src/components/TabTitleUnread.jsx` writes the title and restores it on sign-out.
+
+**Checked.** 13 tests (`tests/unread.test.mjs`); the mutation run killed every change tried. In a browser with the data layer stubbed, on the real hook, component and chat: the title reads "(3)" for one DM and two channels; the DM being read is left out only while the tab is active, and counts while it is hidden; a channel read elsewhere drops out; a muted group drops out; my own DM message drops out. A hidden tab marks nothing read and marks the conversation as soon as the tab becomes active; with a last-read time already past the newest message, switching back writes nothing, and with something newer or never read it writes once.
+
+**NOT checked.** The signed-in app against real Firestore. **Channels do not record who wrote last**, so a channel message you sent from another device counts as unread here until you open it (the sidebar behaves the same way). Not done: a favicon badge, a switch to turn the count off (planned with the preferences screen), and the Android app, which does not do any of this.
