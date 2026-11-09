@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import vm from 'node:vm'
 import {
   ACCENTS, CONTRASTS, DEFAULT_PREFS, DENSITIES, FONTS, GROUP_MINUTES, PALETTES, SEND_KEYS, TEXT_SIZES,
-  THEMES, TIME_FORMATS, applySnapshot, computeSnapshot, isDefault, newerPrefs, normalizePrefs, resolveLight,
+  THEMES, TIME_FORMATS, MANAGED_VARS, applySnapshot, computeSnapshot, isDefault, newerPrefs, normalizePrefs, resolveLight,
 } from '../src/lib/prefs.js'
 import { createPrefsStore, PREFS_KEY, SNAPSHOT_KEY } from '../src/lib/prefsStore.js'
 
@@ -456,6 +456,32 @@ test('the status of the account copy is announced when it changes, and only then
   off(); store.setSyncStatus('idle')
   assert.deepEqual(seen, ['saving', 'saved', 'error'])
 });
+
+test('everything the preferences can set is on the list of variables that get cleaned up', () => {
+  // If a new variable is ever added to a palette or accent and not to MANAGED_VARS,
+  // choosing the default would leave it behind. Compare against what is really produced.
+  const produced = new Set()
+  for (const background of PALETTES.map(p => p.id)) {
+    for (const accent of [null, '#e8552b']) {
+      for (const contrast of ['normal', 'high']) {
+        const snap = computeSnapshot({ background, accent, contrast, font: 'system' })
+        for (const mode of ['dark', 'light']) Object.keys(snap.vars[mode]).forEach(k => produced.add(k))
+        if (snap.fontStack) produced.add('--font-body')
+      }
+    }
+  }
+  for (const name of produced) assert.ok(MANAGED_VARS.includes(name), name + ' is not in MANAGED_VARS')
+})
+
+test('variables set by the start-up script (which the app did not set) are cleaned up too', () => {
+  const root = fakeRoot()
+  root.style.setProperty('--brand', '204 75 38')      // as the script in index.html would
+  root.style.setProperty('--bg-main', '14 33 37')
+  root.style.setProperty('--font-body', 'system-ui')
+  root.style.setProperty('--something-else', 'kept')  // not ours: left alone
+  applySnapshot(computeSnapshot(DEFAULT_PREFS), root)
+  assert.deepEqual(root.style.all(), { '--something-else': 'kept' })
+})
 
 test('going back to the default text size removes the size, it does not leave the last one behind', () => {
   const root = fakeRoot()
