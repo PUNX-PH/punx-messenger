@@ -21,6 +21,7 @@ import { AdminPanel } from './lib/lazyParts'
 import InviteAccept from './views/InviteAccept'
 import DataProblemsBanner from './components/DataProblemsBanner'
 import TabTitleUnread from './components/TabTitleUnread'
+import PrefsSync from './components/PrefsSync'
 
 export default function App() {
   return (
@@ -53,6 +54,7 @@ function Gate() {
     <>
     <DataProblemsBanner />
     {user && profile && <TabTitleUnread />}
+    {user && profile && <PrefsSync />}
     <Routes>
       {/* Outside the login wall on purpose. An invited outsider arrives with no
           account, and after signing in still has no profile — firestore.rules

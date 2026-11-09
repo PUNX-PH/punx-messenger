@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26 and #27 are merged (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26, #27 and #28 are merged (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#27)
+## 2. What shipped (PRs #1–#28)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -96,6 +96,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 **#26 — drafts, and a message no longer follows you into another channel** (section 22).
 
 **#27 — unread count in the browser tab title** (section 23).
+
+**#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
 Test counts on `main` at the end: **Flutter 238**, **Node 142** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
@@ -214,7 +216,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **The assistant's saved memory** (what it remembered between sessions) lives in the user profile on this machine, not in the repo. Everything in it that matters is in these notes; the essentials: Viber is dropped (section 4); the release keystore is on the other PC (section 6); **do not build the Android app on a machine without the keystore**, run `flutter analyze` and `flutter test` there, and list anything needing Gradle or a phone as a to-do.
 
 **Running the checks**
-- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `vite.config.js` copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run) on every build and dev start. Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs tests/gif-favorites.test.mjs tests/security-headers.test.mjs tests/drafts.test.mjs tests/unread.test.mjs`.
+- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `vite.config.js` copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run) on every build and dev start. Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs tests/gif-favorites.test.mjs tests/security-headers.test.mjs tests/drafts.test.mjs tests/unread.test.mjs tests/palettes.test.mjs tests/prefs.test.mjs tests/pref-behaviours.test.mjs`.
 - Worker: `npm test` in `workers/`.
 - Firestore rules: see section 5 (needs Java, and the two test libraries installed together).
 - Flutter: in `android_app/`, `flutter analyze` and `flutter test`. The widget tests render at several screen sizes and fail on any overflow.
@@ -401,4 +403,33 @@ A newer push to the same branch cancels the older run. The macOS iOS build stays
 
 **Checked.** 13 tests (`tests/unread.test.mjs`); the mutation run killed every change tried. In a browser with the data layer stubbed, on the real hook, component and chat: the title reads "(3)" for one DM and two channels; the DM being read is left out only while the tab is active, and counts while it is hidden; a channel read elsewhere drops out; a muted group drops out; my own DM message drops out. A hidden tab marks nothing read and marks the conversation as soon as the tab becomes active; with a last-read time already past the newest message, switching back writes nothing, and with something newer or never read it writes once.
 
-**NOT checked.** The signed-in app against real Firestore. **Channels do not record who wrote last**, so a channel message you sent from another device counts as unread here until you open it (the sidebar behaves the same way). Not done: a favicon badge, a switch to turn the count off (planned with the preferences screen), and the Android app, which does not do any of this.
+**NOT checked.** The signed-in app against real Firestore. **Channels do not record who wrote last**, so a channel message you sent from another device counts as unread here until you open it (the sidebar behaves the same way). Not done: a favicon badge, and the Android app (the switch to turn the count off is in the preferences, section 24), which does not do any of this.
+
+## 24. Appearance and preferences (PR #28)
+
+**What.** "Appearance & preferences" in the user menu (the gear in the bottom-left) opens one screen of personal choices. Every change applies the moment it is made (the whole app behind the dialog changes with it), there is no Save button, and a small live preview of a conversation sits at the top. Reset to defaults is at the bottom.
+- **Theme:** Auto (follows the device, live), Light, Dark.
+- **Background:** eight (Slate, Midnight, Ocean, Forest, Berry, Sunset, Grape, Charcoal), each with a dark and a light shade.
+- **Accent colour:** the original blue, nine presets (Ember, Amber, Green, Teal, Sky, Blue, Violet, Pink, Rose) and a custom colour picker.
+- **Text size:** Small, Default, Large, Extra large. **Spacing:** Comfortable or Compact. **Font:** Inter (default), System, or Readable (Atkinson Hyperlegible, fetched from Google Fonts only if chosen).
+- **Higher contrast** and **Reduce motion** (the second also stops smooth scrolling in the message list; it is on already if the device asks for less motion).
+- **Messages:** clock (automatic, 12-hour, 24-hour), send with Enter or Ctrl/Cmd+Enter (plain Enter is then a new line), and how close in time messages from one person are grouped under one name (never, 2, 5 or 15 minutes).
+- **Alerts:** the unread count in the tab title on or off, sound effects on or off (this one stays on this device, as before), and the desktop-notification permission.
+The defaults change nothing: the original background and blue accent add no variables at all, so someone who never opens it sees exactly what the app always looked like.
+
+**Colour can never make the app unreadable (the part worth knowing).** `src/lib/palettes.js` works every colour out from the original palette. Each background keeps the *brightness* of every original surface (equal lightness is not equal brightness: green at the same lightness is far brighter than blue), so text keeps its original contrast on it, within 2% (colour channels are whole numbers). The light theme's main surface is nudged off pure white to carry the tint, which makes dark text on it very slightly less contrasty (about 17.5:1 instead of 18:1). An accent is darkened until white text on it is at least 4.5:1 (so a yellow or amber becomes a deeper one), its hover shade is darker still, and the accent used as text is lightened (dark theme) or darkened (light theme) until it is at least 4.5:1 on every surface. Higher contrast takes the quiet text to at least 7:1. `tests/palettes.test.mjs` checks all of it for every background in both themes with every accent, and with 400 arbitrary colours plus the awkward extremes (pure yellow, white, black).
+
+**Where it is kept, and how it follows you.** On the device (`localStorage`) and in the account, as a `prefs` field on the person's own `users/{uid}` document. **The Firestore rules already allow that** (a person may update their own document except role, email, uid and a few protected fields), so no rules change and no deploy was needed. The copy changed last wins (each has an `updatedAt`); everything read from the device or the account goes through one validator that accepts only values on the lists, so a stale, hand-edited or newer-version copy cannot break the page or smuggle anything in. A different person signing in on the same browser starts from the defaults, not the last person's look (`punx.prefsOwner`). On first sign-in after this ships, choices already made on the device (including the old light/dark switch) are kept and saved to the account. The account write waits for a pause (a colour picker fires dozens of changes), and the screen says whether it is saving, saved, or saved on this device only.
+
+**No flash of the wrong colours.** The page's colours and settings are worked out once and stored on the device (`punx.prefsCss`); a small script in `index.html` applies them before the first paint. It is separate code (nothing can be imported that early), so `tests/prefs.test.mjs` runs that very script and holds it to the same result as the app's own for several sets of choices, with the device light and dark.
+
+**Checked.** 82 tests across `tests/palettes.test.mjs`, `tests/prefs.test.mjs` and `tests/pref-behaviours.test.mjs`. A mutation run of 44 deliberate breakages across the colour maths, palettes, validation, store and the three behaviours caught all but five, four of which are equivalent (a guard whose absence behaves the same; `hourCycle: 'h23'` against `hour12: false`, which this engine renders identically); the fifth was a real gap (going back to the default text size must remove the size), now tested. In a browser, on the real dialog and store: it renders in the app's own style; choosing Ocean, Ember, Light, Large and Compact changes the page at once and is stored on the device; a reload keeps the look; the live preview follows; Compact really tightens the message spacing (the first version did not: Tailwind's own spacing rule out-ranked mine, found by measuring, and fixed); text size scales the layout; higher contrast and reduce motion switch on and off and leave nothing behind; the status line shows saving, saved and error; "Auto" applies the device's current setting.
+
+**NOT checked.**
+- **Against real Firestore and in the signed-in app.** The write to `users/{uid}`, the adoption of the account's copy at sign-in, and the "different person on this browser" reset are covered by tests of the store and by reasoning from the rules, not exercised with a real account.
+- **Auto changing while the app is open.** The code that follows the device live is unit-tested with a stand-in; in the test browser even a plain listener of my own never received the device's change, so the real event was not observed.
+- **Small phones at Extra large text**, and every other screen at every combination. The preview and dialog were looked at; the whole app was not walked through at each size, background and accent.
+- **The Readable font** was not loaded and looked at (it needs the network).
+- **Compact** tightens the message list and the sidebars only.
+- **Android and iOS do not read these**: the apps keep their own theme setting. The `prefs` field is a new, ignored field on the user document as far as they are concerned.
+- The account copy is readable by other signed-in people (the user directory is), which is fine for appearance choices but is why nothing sensitive may ever be added to it.

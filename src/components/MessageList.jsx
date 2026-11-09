@@ -8,6 +8,9 @@ import { usePresence, useUsers } from '../lib/users'
 import { useEmojis } from '../lib/emojis'
 import { isOnlyEmojis, mentionsUid, renderMessage } from '../lib/markdown'
 import { computeStatus, useTickNow } from '../lib/presence'
+import { buildBlocks, toDate } from '../lib/messageBlocks'
+import * as tf from '../lib/timeFormat'
+import { usePrefs } from '../lib/usePrefs'
 
 export default function MessageList({
   messages, emptyTitle, emptyDesc,
@@ -38,6 +41,10 @@ export default function MessageList({
   const { byName: emojiByName } = useEmojis()
   const now = useTickNow()
   const presence = usePresence()
+  const [prefs] = usePrefs()
+  const { timeFormat, groupMinutes, reduceMotion } = prefs
+  // Smooth scrolling is motion: honour the "reduce motion" choice here too.
+  const scrollBehavior = reduceMotion ? 'auto' : 'smooth'
 
   // Distinguishing "a new message arrived" from "older ones were prepended" is
   // the whole job here: the first should follow the conversation down, the
@@ -147,19 +154,19 @@ export default function MessageList({
   const jumpToLatest = () => {
     stickToBottomRef.current = true
     setUnseen(0)
-    endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+    endRef.current?.scrollIntoView({ block: 'end', behavior: scrollBehavior })
   }
 
   useEffect(() => {
     if (!scrollToId) return
     const el = containerRef.current?.querySelector(`[data-msg-id="${scrollToId}"]`)
-    el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    el?.scrollIntoView({ block: 'center', behavior: scrollBehavior })
   }, [scrollToId])
 
   // Day dividers and author groups, in one pass. A new day always starts a new
   // group, so a run of messages never straddles a divider. Rebuilt only when the
   // messages change, not on every render of the list.
-  const blocks = useMemo(() => buildBlocks(messages), [messages])
+  const blocks = useMemo(() => buildBlocks(messages, groupMinutes), [messages, groupMinutes])
 
   if (!messages?.length) {
     return (
@@ -175,7 +182,7 @@ export default function MessageList({
   return (
     <div className="relative flex-1 min-h-0 flex flex-col">
       <div ref={containerRef} onScroll={onScroll} className="flex-1 overflow-y-auto scrollbar-thin">
-        <div className="py-4 px-4 space-y-4">
+        <div className="msg-flow py-4 px-4 space-y-4">
           {(hasMore || loadingMore) && (
             <div className="grid place-items-center py-2 text-xs text-ink-muted">
               {loadingMore ? 'Loading earlier messages…' : (
@@ -199,6 +206,7 @@ export default function MessageList({
               emojiByName={emojiByName}
               tickNow={now}
               presenceById={presence}
+              timeFormat={timeFormat}
               canDeleteAny={canDeleteAny}
               readOnly={readOnly}
               meUid={meUid}
@@ -233,40 +241,6 @@ export default function MessageList({
   )
 }
 
-function buildBlocks(messages) {
-  const blocks = []
-  let lastGroup = null
-  let lastDay = null
-  for (const m of messages || []) {
-    const ts = toDate(m.createdAt)
-    // A message still waiting for its server timestamp has no date yet. It
-    // belongs to the day already on screen, not to a new one.
-    const day = ts ? ts.toDateString() : lastDay
-    if (day && day !== lastDay) {
-      blocks.push({ type: 'day', key: `day-${day}`, date: ts })
-      lastDay = day
-      lastGroup = null
-    }
-    const lastTs = lastGroup && toDate(lastGroup.last)
-    const close = lastGroup && (!ts || !lastTs || (ts - lastTs) < 5 * 60 * 1000)
-    if (lastGroup && lastGroup.author?.uid === m.author?.uid && close) {
-      lastGroup.items.push(m); lastGroup.last = m.createdAt
-    } else {
-      lastGroup = {
-        type: 'group',
-        // The first message's id, not the array index: older pages are
-        // prepended, and an index key would remount — and so reset — every
-        // group on screen each time one loaded.
-        key: m.id,
-        author: m.author,
-        items: [m], first: m.createdAt, last: m.createdAt,
-      }
-      blocks.push(lastGroup)
-    }
-  }
-  return blocks
-}
-
 function DayDivider({ date }) {
   return (
     <div role="separator" aria-label={dayLabel(date)} className="flex items-center gap-3 select-none">
@@ -287,7 +261,7 @@ function ArrowDownIcon() {
 }
 
 const Group = memo(function Group({
-  group, onZoom, canPin, onTogglePin, highlightId, usersById, presenceById, emojiByName, tickNow,
+  group, timeFormat, onZoom, canPin, onTogglePin, highlightId, usersById, presenceById, emojiByName, tickNow,
   canDeleteAny, readOnly, meUid, editingId, setEditingId, onEdit, onDelete, onReact,
   onReply, onJumpToMessage,
 }) {
@@ -312,6 +286,7 @@ const Group = memo(function Group({
           // Only the first row of a group shows the author, so only it is told.
           author={idx === 0 ? author : null}
           firstTime={idx === 0 ? group.first : null}
+          timeFormat={timeFormat}
           onZoom={onZoom}
           canPin={canPin}
           onTogglePin={onTogglePin}
@@ -340,7 +315,7 @@ const Group = memo(function Group({
 // markdown of every message on screen used to be parsed again each time. A row
 // now renders again only when its own message, or something it shows, changes.
 const Row = memo(function Row({
-  message, showHeader, author, firstTime, onZoom, canPin, onTogglePin, highlighted,
+  message, showHeader, author, firstTime, timeFormat, onZoom, canPin, onTogglePin, highlighted,
   emojiByName, isAuthor, canDeleteAny, readOnly, editing, setEditingId, onEdit, onDelete,
   onReact, onReply, onJumpToMessage, meUid, usersById,
 }) {
@@ -380,9 +355,9 @@ const Row = memo(function Row({
           // the text beside it.
           <span
             className="block whitespace-nowrap text-right text-[10px] leading-6 text-ink-dim tabular-nums opacity-0 group-hover/msg:opacity-100 transition-opacity"
-            title={fullTime(message.createdAt)}
+            title={fullTime(message.createdAt, timeFormat)}
           >
-            {clockTime(message.createdAt)}
+            {clockTime(message.createdAt, timeFormat)}
           </span>
         )}
       </div>
@@ -410,7 +385,7 @@ const Row = memo(function Row({
           <div className="flex items-baseline gap-2 -mt-0.5 flex-wrap">
             <span className="font-semibold text-ink truncate">{author?.name || 'Unknown'}</span>
             <RoleBadge role={author?.role} size="xs" />
-            <span className="text-xs text-ink-dim" title={fullTime(firstTime)}>{formatTime(firstTime)}</span>
+            <span className="text-xs text-ink-dim" title={fullTime(firstTime, timeFormat)}>{formatTime(firstTime, timeFormat)}</span>
             {message.pinned && <PinnedBadge />}
           </div>
         )}
@@ -708,12 +683,6 @@ function TrashIcon() {
   )
 }
 
-function toDate(ts) {
-  if (!ts) return null
-  if (ts.toDate) return ts.toDate()
-  if (ts instanceof Date) return ts
-  return null
-}
 /** "Today", "Yesterday", "Tuesday, March 4" (plus the year when it is not this one). */
 function dayLabel(d) {
   if (!d) return ''
@@ -726,26 +695,8 @@ function dayLabel(d) {
     weekday: 'long', month: 'long', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }),
   })
 }
-// "9:01", not "9:01 AM": the gutter it sits in is the width of an avatar, and
-// the full time is on the tooltip. Built from parts rather than by cutting a
-// formatted string, so a locale that puts the day period first still works.
-const clockTime = (ts) => {
-  const d = toDate(ts)
-  if (!d) return ''
-  return new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
-    .formatToParts(d)
-    .filter(p => p.type !== 'dayPeriod')
-    .map(p => p.value)
-    .join('')
-    .trim()
-}
-const fullTime = (ts) => {
-  const d = toDate(ts)
-  return d ? d.toLocaleString([], { dateStyle: 'full', timeStyle: 'short' }) : ''
-}
-// Time only. The day is on the divider above, so repeating "Oct 13," on every
-// header just made each one longer to read; the tooltip still has the full date.
-function formatTime(ts) {
-  const d = toDate(ts)
-  return d ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''
-}
+// The three time helpers (the gutter time, the header time, the tooltip) are in
+// lib/timeFormat.js, which also honours the person's 12/24-hour choice.
+const clockTime = (ts, format) => tf.clockTime(toDate(ts), format)
+const fullTime = (ts, format) => tf.fullTime(toDate(ts), format)
+const formatTime = (ts, format) => tf.headerTime(toDate(ts), format)

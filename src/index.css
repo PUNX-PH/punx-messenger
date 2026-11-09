@@ -68,10 +68,33 @@
     --bad:        220 38 38;
   }
 
+/* Preferences that are plain attributes on <html> (see src/lib/prefs.js). Top-level,
+   like the tokens above and for the same reason: nothing here may be pruned. */
+
+/* Spacing: "Compact" tightens the message list and the sidebars.
+   The first rule is written to out-rank Tailwind's own space-y-4 selector
+   (`.space-y-4 > :not([hidden]) ~ :not([hidden])`, which is more specific than
+   a plain child selector would be): the same shape, plus the page-level attribute. */
+html[data-density="compact"] .msg-flow > :not([hidden]) ~ :not([hidden]) { margin-top: 0.5rem; }
+html[data-density="compact"] [data-msg-id] { padding-top: 0; padding-bottom: 0; }
+html[data-density="compact"] aside [class*="py-1.5"] { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+
+/* Reduce motion: the same as the device-level setting, for someone who wants it for
+   this app alone. */
+html[data-motion="reduced"] *,
+html[data-motion="reduced"] *::before,
+html[data-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
 @layer base {
   html, body, #root { height: 100%; }
   body {
-    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    /* --font-body is set only when someone picks another font. */
+    font-family: var(--font-body, 'Inter'), ui-sans-serif, system-ui, sans-serif;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
     -webkit-font-smoothing: antialiased;
   }

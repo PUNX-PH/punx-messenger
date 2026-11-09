@@ -6,6 +6,8 @@ import { useUsers } from '../lib/users'
 import { useAuth } from '../lib/auth'
 import { resolveMentions } from '../lib/markdown'
 import { drafts } from '../lib/drafts'
+import { usePrefs } from '../lib/usePrefs'
+import { shouldSend } from '../lib/sendKey'
 
 const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
 
@@ -18,6 +20,7 @@ export default function Composer({
   draftId = null,
 }) {
   const { profile } = useAuth()
+  const [{ sendKey }] = usePrefs()
   // Only active accounts — both for the @-picker and for resolving a typed
   // mention, so a removed teammate can't be pinged by name.
   const { activeUsers: users } = useUsers()
@@ -373,8 +376,9 @@ export default function Composer({
                   return
                 }
               }
-              // isComposing: Enter confirms a candidate in an IME and must not also send.
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit() }
+              // Which key sends is the person's choice (preferences); isComposing is
+              // handled inside, so Enter confirming an IME candidate never also sends.
+              if (shouldSend(e, sendKey)) { e.preventDefault(); submit() }
             }}
             rows={1}
             placeholder={sending ? 'Uploading…' : placeholder}
