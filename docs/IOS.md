@@ -4,8 +4,11 @@ Everything that can be done without a Mac is done and committed, **including the
 Firebase configuration** (the iOS app "Plexus" was already registered in the
 `punx-msg` Firebase project; its `GoogleService-Info.plist` is committed and wired
 into the Xcode project). The readiness check is **15 ok, 0 blocking, and one warning:
-the signing team**, which only a person in Xcode can set. **The iOS app has never been
-run on a device**; this page is the ordered list of what is left, and it can only be
+the signing team**, which only a person in Xcode can set. **The iOS app compiles**
+(an unsigned release build succeeded on a macOS runner on 2026-11-09, GitHub Actions
+run 42590203058, about 11 minutes, producing a 21 MB `Runner.app`; that proves the
+project, CocoaPods and every plugin, `flutter_webrtc` included, build for a device),
+**but it has never been run on one**; this page is the ordered list of what is left, and it can only be
 done on a Mac. The bundle id is **`com.punx.plexus`**, matching Android.
 
 **The short way, on the Mac:** `bash scripts/ios-first-build.sh`. It does steps 1, 3, 4

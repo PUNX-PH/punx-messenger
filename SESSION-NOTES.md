@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28 and #30 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30 and #31 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#30)
+## 2. What shipped (PRs #1–#31)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -98,6 +98,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 **#27 — unread count in the browser tab title** (section 23).
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
+
+**#31 — iOS ready to build** (section 26): the Firebase config is committed and wired, an unsigned iOS build passes in CI for the first time, and there is a one-command helper for the Mac.
 
 **#30 — quick switcher** (section 25): Ctrl/Cmd+K jumps to any person or channel by typing.
 
@@ -451,3 +453,17 @@ The defaults change nothing: the original background and blue accent add no vari
 **Checked.** 20 tests (`tests/quick-switch.test.mjs`); a mutation run of 22 breakages caught all that matter (two reported "missing" only because of how the mutation text was escaped; one survivor, that a name starting with the word must outrank a word inside it even against the alphabet, was a real gap and is now tested). In a browser, on the real component with the data stubbed: Ctrl+K opens it with the box focused; "mkt", "zoe" (accent), "general" (two groups) and "#" / "@" rank and filter as designed; ArrowDown moves the highlight; Enter navigates and closes; "qqqq" says nothing matches; Ctrl+K again closes. A cosmetic bug was found there ("My Notes" read "in Private to you") and fixed.
 
 **NOT checked.** In the signed-in app against real data. The shortcut was sent as a synthetic key event, not typed on a real keyboard, and Cmd+K on a Mac was not tried. In some browsers Ctrl+K belongs to the browser (Firefox focuses its search bar); the page takes it first, but if a browser or extension insists, the menu entry is the way in. Not done: highlighting the matched letters, remembering recent choices, and Alt+Up/Down to step through unread conversations.
+
+## 26. iOS: ready to build, and it compiles (PR #31)
+
+**Where it stands.** Section 12 left the iOS app prepared but with one blocking gap (no Firebase config) and never compiled. Both are now closed. The only thing left before it runs on an iPhone is a person with a Mac: pick the signing team in Xcode, plug in the phone, run the device checklist in `docs/IOS.md`.
+
+**The Firebase config.** The Firebase CLI login works again on this machine (it had expired). `firebase apps:list` showed an iOS app, "Plexus" (`1:781531419503:ios:d7c24f1f998a09dc13ce9a`), already registered in `punx-msg`, so nothing was created. Its `GoogleService-Info.plist` was fetched (read-only) and checked: bundle id `com.punx.plexus`, project `punx-msg`, and the Google sign-in client present. It is committed at `android_app/ios/Runner/`, and `node scripts/ios-setup.mjs --apply` registered Google's sign-in URL scheme in `Info.plist` and added the plist to the Runner target's resources. The readiness check is **15 ok, 0 blocking, 1 warning (the signing team)**. The plist holds identifiers Firebase treats as public, like the Android `google-services.json` already committed; the Firestore rules protect the data. The repository is public now, so it is good practice to restrict the iOS API key to the bundle id in the Google Cloud console. I could not check whether that has been done.
+
+**It compiles.** The "Build iOS (macOS runner)" workflow was run by hand on the pushed branch (compile-only, unsigned): readiness, `flutter analyze` and `flutter build ios --release --no-codesign` all succeeded on a macOS runner in about 11 minutes, producing a 21 MB `Runner.app` (run 42590203058). That proves the Xcode project, CocoaPods and every plugin, `flutter_webrtc` (the likeliest trouble) included, build for a device. Because the repository is public, macOS runner minutes are free, so it can be re-run any time. It does **not** prove the app runs.
+
+**For the Mac.** `bash scripts/ios-first-build.sh` does the machine check, the project check, `flutter pub get`, `pod install` and the unsigned compile, stops at the first problem with a plain message, refuses politely on anything that is not a Mac, and ends by listing what only a person can do. `.gitattributes` keeps `*.sh` on LF.
+
+**A test problem I caused, and fixed.** Committing the wired project broke 9 of the 30 iOS-setup tests, which expected the real project to be unwired; I had chained the commit after the test run and did not stop on the failure. The tests now start from committed copies of the two files as they were before the wiring (`tests/fixtures/ios`), and a new test fails if the real files ever differ from "fixture plus the script's two edits", so the fixtures cannot silently go stale (proved by tampering with the real `Info.plist`). Also new: the committed project is ready apart from signing, and `--apply` on it changes nothing. 33 tests.
+
+**NOT checked.** Anything at runtime: sign-in, the voice and call audio, notifications, the sound effects (section 9's iOS guards are reasoned, not heard), photo attach, background audio, and every line of the device checklist. The signed build and TestFlight (they need an Apple team and signing secrets). Sign in with Apple is still undecided (section 12). There is still no push notification on any platform. The web-only features of this session (preferences, the quick switcher, the tab-title count, drafts) are not in the Flutter app.
