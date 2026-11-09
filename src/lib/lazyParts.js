@@ -18,6 +18,7 @@ export const GroupSettingsModal = lazyWithPreload(() => import('../components/Gr
 export const ChannelAccessModal = lazyWithPreload(() => import('../components/ChannelAccessModal'))
 export const CreateGroupModal = lazyWithPreload(() => import('../components/CreateGroupModal'))
 export const PreferencesModal = lazyWithPreload(() => import('../components/PreferencesModal'))
+export const QuickSwitcher = lazyWithPreload(() => import('../components/QuickSwitcher'))
 
 /**
  * Warms up what nearly everyone ends up using, once the app is up. The admin panel
