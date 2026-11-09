@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17 and #19–#22 and #24 are merged (#10 was closed unmerged; #18 and #23 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24 and #26 are merged (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#24)
+## 2. What shipped (PRs #1–#26)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -90,6 +90,10 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 **#23 — notes** (the live-site check of the blur model).
 
 **#24 — security headers** (section 20): the site now sends nosniff, no-framing, a referrer policy and a permissions policy.
+
+**#25 — notes** (section 20 and 21).
+
+**#26 — drafts, and a message no longer follows you into another channel** (section 22).
 
 Test counts on `main` at the end: **Flutter 238**, **Node 142** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
@@ -208,7 +212,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **The assistant's saved memory** (what it remembered between sessions) lives in the user profile on this machine, not in the repo. Everything in it that matters is in these notes; the essentials: Viber is dropped (section 4); the release keystore is on the other PC (section 6); **do not build the Android app on a machine without the keystore**, run `flutter analyze` and `flutter test` there, and list anything needing Gradle or a phone as a to-do.
 
 **Running the checks**
-- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `vite.config.js` copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run) on every build and dev start. Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs tests/gif-favorites.test.mjs tests/security-headers.test.mjs`.
+- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `vite.config.js` copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run) on every build and dev start. Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs tests/gif-favorites.test.mjs tests/security-headers.test.mjs tests/drafts.test.mjs`.
 - Worker: `npm test` in `workers/`.
 - Firestore rules: see section 5 (needs Java, and the two test libraries installed together).
 - Flutter: in `android_app/`, `flutter analyze` and `flutter test`. The widget tests render at several screen sizes and fail on any overflow.
@@ -374,3 +378,13 @@ A newer push to the same branch cancels the older run. The macOS iOS build stays
 **Before it was relied on as public, the history was scanned** (all 195 commits): no private keys, no service-account files, no keystore or `key.properties`, and no tokens or secrets matching common patterns. What is public now and was checked: the Firebase web and Android API keys (public identifiers by design; the Firestore rules, now also public, are what protect the data), `.env.example` (blank Firebase values, the sign-in domain `punx.ai`, and one super-admin email address), the rules, the Workers' code and the docs. Not covered by that scan: anything that never reached git (the release keystore and `key.properties` stay on the other PC and are ignored), and the Worker secrets set in Cloudflare, which are not in the repository.
 
 **Worth knowing now that it is public.** Anyone can read the code, the rules and the notes in this file, including the lists of open weaknesses (sections 3 and 20). The rules are the real protection, and an open item such as the missing Content-Security-Policy is now visible to outsiders; that is a reason to work it down, not to hide it. Pull requests from outside the organisation are possible now, so CI can run on them: review any change to the workflow from someone you don't know before letting it run. If the repository goes back to private, the Hobby-plan block returns.
+
+## 22. A half-typed message no longer follows you into another channel (PR #26)
+
+**The bug.** The message box and the chat around it stay mounted while you move between channels and DMs (neither the route nor the chat component is keyed by conversation). So whatever was typed in one channel was still in the box in the next, and **pressing send posted it there**. A "replying to" chosen in one channel was still pending in the next, and the search and pinned panels stayed open. Reproduced on the real chat component first: text typed for channel A, switch to B, send: it was posted to B.
+
+**The fix, and a feature that comes with it.** Drafts are kept per conversation (`src/lib/drafts.js`): saved as you type, put back when you return to that conversation, and an empty box in one you have not typed in. They live in `sessionStorage` (so a reload keeps them, closing the tab drops them), are keyed by account as well as conversation, are capped (the 50 most recently touched, 20,000 characters each), are written after a short pause in typing and when the page is hidden, and are **wiped on sign-out** so a shared computer does not show one person's draft to the next. Also: the chat now drops the pending reply and closes search and pinned when the conversation changes; the "typing…" marker is cleared at once in the conversation you left (it used to wait for a five-second timer, and a send made in the new conversation within that time cleared the new conversation's marker instead of the old one's); a slow send finishing after you moved on no longer empties the box in the new conversation; and the box's height follows its content whenever the text changes, so a restored multi-line draft is the right size and a box emptied by moving away shrinks.
+
+**Checked.** 18 tests (`tests/drafts.test.mjs`); the mutation run killed every change that matters (one survivor is equivalent, a guard whose absence returns the same empty string; it also found a real gap, that a cleared draft must stay cleared after a reload or a sent message would reappear, which got its own test). In a browser, on the real chat and message-box components with only the database and sign-in stubbed: B starts empty with no leftover reply; A's draft comes back, its reply does not; a message sent from B goes only to B with only B's text; sending clears that draft and keeps the others; a slow send finishing after switching to C does not wipe what was typed in C; a reload restores the draft; the typing marker is cleared for A when switching to B; the box height shrinks and regrows correctly.
+
+**NOT checked.** In the signed-in app against real Firestore, and in the real router (the harness re-renders the chat with a new path, which is what the route does, but it is not the router). Attachments and half-picked @mentions are deliberately not kept as drafts: switching conversation drops them. Not done: drafts do not follow someone to another browser or device.

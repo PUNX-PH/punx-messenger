@@ -10,6 +10,7 @@ import {
   ALLOWED_DOMAIN, ALLOWED_EXTRA_EMAILS, SUPER_ADMINS, isEmailAllowed,
 } from './firebase'
 import { getPendingInvite } from './invites'
+import { drafts } from './drafts'
 
 const AuthCtx = createContext(null)
 
@@ -127,7 +128,8 @@ export function AuthProvider({ children }) {
     try { await signInWithPopup(auth, provider) }
     catch (e) { setAuthError(e.message) }
   }
-  const signOut = () => firebaseConfigured && fbSignOut(auth)
+  // Drafts are wiped first: the next person on this browser must not see them.
+  const signOut = () => { drafts.clearAll(); return firebaseConfigured && fbSignOut(auth) }
 
   return (
     <AuthCtx.Provider value={{ user, profile, loading, authError, signIn, signOut, firebaseConfigured }}>

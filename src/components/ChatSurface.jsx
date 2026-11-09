@@ -93,6 +93,16 @@ export default function ChatSurface({
 
   useEffect(() => { setLimit(MESSAGE_PAGE) }, [path])
 
+  // This component stays mounted as you move between conversations, so anything
+  // that belongs to one conversation has to be dropped on the way out. Without it a
+  // "replying to" chosen in one channel was still pending in the next.
+  useEffect(() => {
+    setReplyingTo(null)
+    setPinnedOpen(false)
+    setSearchOpen(false)
+    setJumpId(null)
+  }, [path])
+
   useEffect(() => {
     if (!path) return
     return listenMessages(path, (docs, meta) => {
@@ -319,6 +329,7 @@ export default function ChatSurface({
           placeholder={composerPlaceholder || `Message ${icon}${title}`}
           onSend={onSend}
           onTyping={onTyping}
+          draftId={path}
           replyingTo={replyingTo}
           onCancelReply={() => setReplyingTo(null)}
         />

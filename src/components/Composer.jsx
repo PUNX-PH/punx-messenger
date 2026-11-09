@@ -1,22 +1,31 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import LazySlot from './LazySlot'
 import { EmojiPicker } from '../lib/lazyParts'
 import Avatar from './Avatar'
 import { useUsers } from '../lib/users'
 import { useAuth } from '../lib/auth'
 import { resolveMentions } from '../lib/markdown'
+import { drafts } from '../lib/drafts'
 
 const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
 
 export default function Composer({
   placeholder = 'Message', onSend, disabled, onTyping,
   replyingTo = null, onCancelReply,
+  // Which conversation this box is for (its path). The box stays mounted as you
+  // move between conversations, so what is typed has to be kept per conversation,
+  // or it follows you into the next one and gets sent there.
+  draftId = null,
 }) {
   const { profile } = useAuth()
   // Only active accounts — both for the @-picker and for resolving a typed
   // mention, so a removed teammate can't be pinged by name.
   const { activeUsers: users } = useUsers()
-  const [text, setText] = useState('')
+  const draftKey = profile?.uid && draftId ? `${profile.uid}:${draftId}` : null
+  const keyRef = useRef(draftKey)
+  const [text, setText] = useState(() => drafts.get(draftKey))
+  // Every change to the text goes through here, so the draft is always current.
+  const updateText = (v) => { setText(v); drafts.set(keyRef.current, v) }
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
   const [error, setError] = useState(null)
@@ -35,6 +44,10 @@ export default function Composer({
 
   // Typing state — throttled writes + auto-clear
   const typingActiveRef = useRef(false)
+  // Where "I am typing" was last written. Remembered because the callback prop
+  // changes when you switch conversation, and clearing the marker must go to the
+  // conversation you were typing in, not the one you opened.
+  const typingSinkRef = useRef(null)
   const lastTypingWriteRef = useRef(0)
   const stopTimerRef = useRef(null)
 
@@ -44,6 +57,7 @@ export default function Composer({
     if (now - lastTypingWriteRef.current > 3000) {
       lastTypingWriteRef.current = now
       typingActiveRef.current = true
+      typingSinkRef.current = onTyping
       onTyping(true)
     }
     clearTimeout(stopTimerRef.current)
@@ -58,23 +72,48 @@ export default function Composer({
 
   const stopTypingNow = () => {
     clearTimeout(stopTimerRef.current)
-    if (typingActiveRef.current && onTyping) {
+    const sink = typingSinkRef.current
+    if (typingActiveRef.current && sink) {
       typingActiveRef.current = false
       lastTypingWriteRef.current = 0
-      onTyping(false)
+      sink(false)
     }
   }
+
+  // Moving to another conversation: stop "typing" in the one left, then show what
+  // was last typed in the new one (nothing, if nothing was), with no leftover
+  // attachment, error or half-picked mention from the old one.
+  useEffect(() => {
+    if (keyRef.current === draftKey) return
+    stopTypingNow()
+    keyRef.current = draftKey
+    setText(drafts.get(draftKey))
+    setFile(null)
+    setError(null)
+    setMention(null)
+    mentionHintsRef.current.clear()
+  }, [draftKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The box is as tall as what is in it (up to a limit). Done whenever the text
+  // changes, not only when someone types, so a draft put back, or a box emptied by
+  // moving to another conversation, is the right height too.
+  useLayoutEffect(() => {
+    const el = taRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+  }, [text])
 
   // Clean up typing on unmount (switch channels/DMs, sign out, etc.)
   useEffect(() => () => stopTypingNow(), []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const insertAtCursor = (token) => {
     const ta = taRef.current
-    if (!ta) { setText(t => t + token); return }
+    if (!ta) { updateText(text + token); return }
     const start = ta.selectionStart ?? text.length
     const end = ta.selectionEnd ?? text.length
     const next = text.slice(0, start) + token + text.slice(end)
-    setText(next)
+    updateText(next)
     requestAnimationFrame(() => {
       ta.focus()
       const pos = start + token.length
@@ -134,7 +173,7 @@ export default function Composer({
 
   const onTextChange = (e) => {
     const v = e.target.value
-    setText(v)
+    updateText(v)
     detectMention(v, e.target.selectionStart)
     if (v.trim().length > 0) pingTyping()
     else stopTypingNow()
@@ -150,7 +189,7 @@ export default function Composer({
     mentionHintsRef.current.set(chunk, user.id)
     const inserted = chunk + ' '
     const next = before + inserted + after
-    setText(next)
+    updateText(next)
     setMention(null)
     requestAnimationFrame(() => {
       const pos = before.length + inserted.length
@@ -180,9 +219,14 @@ export default function Composer({
     if (!text.trim() && !file) return
     setSending(true); setError(null)
     stopTypingNow()
+    // Which conversation this message is for. If you moved to another while it was
+    // sending, the box now belongs to that one and must not be emptied.
+    const sentKey = keyRef.current
     try {
       const resolved = resolveMentions(text.trim(), users, mentionHintsRef.current)
       await onSend({ text: resolved, imageFile: file })
+      drafts.clear(sentKey)
+      if (keyRef.current !== sentKey) return
       setText(''); setFile(null)
       // The box grows with what is typed and only ever shrinks on input, so
       // after a long message it stayed tall around an empty field.
