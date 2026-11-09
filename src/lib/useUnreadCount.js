@@ -1,15 +1,12 @@
 // How many conversations have something new, for the browser tab.
 //
-// Listens for the same things the side rail and the DM list do (your DMs, your
-// groups, each group's channels). Identical queries are shared by the Firestore
-// client, so this adds no reads, only a place to count them. What counts as unread
-// is in unread.js, where it is tested.
-import { useEffect, useMemo, useState } from 'react'
+// What counts as unread is in unread.js, where it is tested; the conversations
+// themselves come from useConversationData.
+import { useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
-import { useAuth, channelViewer } from './auth'
+import { useAuth } from './auth'
 import { useUsers } from './users'
-import { listenMyDmConvos } from './db'
-import { listenChannels, listenMyGroups } from './groups'
+import { useConversationData } from './useConversationData'
 import { countUnread, readKeyForRoute } from './unread'
 import { usePageActive } from './usePageActive'
 
@@ -20,37 +17,7 @@ export function useUnreadCount() {
   const active = usePageActive()
   const meId = profile?.id
   const meUid = profile?.uid
-
-  const [convosByOther, setConvosByOther] = useState({})
-  const [groups, setGroups] = useState([])
-  const [channelsByGroup, setChannelsByGroup] = useState({})
-
-  useEffect(() => {
-    if (!meId) return
-    return listenMyDmConvos(meId, setConvosByOther)
-  }, [meId])
-
-  useEffect(() => {
-    if (!meId) return
-    return listenMyGroups(meId, setGroups)
-  }, [meId])
-
-  // Channels of every group I am in. Guests and private channels need the viewer
-  // passed, or the query is denied outright (see the same note in ServerRail).
-  const groupIds = groups.map(g => g.id).join('|')
-  useEffect(() => {
-    if (groups.length === 0) { setChannelsByGroup({}); return }
-    const unsubs = groups.map(g =>
-      listenChannels(
-        g.id,
-        (chs) => setChannelsByGroup(prev => ({ ...prev, [g.id]: chs })),
-        undefined,
-        channelViewer(profile, g),
-      ),
-    )
-    return () => unsubs.forEach(u => u())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupIds])
+  const { convosByOther, channelsByGroup } = useConversationData()
 
   const me = byId[meId]
   const lastRead = me?.lastRead

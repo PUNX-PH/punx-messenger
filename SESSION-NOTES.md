@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26, #27 and #28 are merged (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28 and #30 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#28)
+## 2. What shipped (PRs #1–#30)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -96,6 +96,10 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 **#26 — drafts, and a message no longer follows you into another channel** (section 22).
 
 **#27 — unread count in the browser tab title** (section 23).
+
+**#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
+
+**#30 — quick switcher** (section 25): Ctrl/Cmd+K jumps to any person or channel by typing.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
@@ -216,7 +220,7 @@ Also on iOS (see `docs/IOS.md`): the sounds use the `ambient` audio category (re
 - **The assistant's saved memory** (what it remembered between sessions) lives in the user profile on this machine, not in the repo. Everything in it that matters is in these notes; the essentials: Viber is dropped (section 4); the release keystore is on the other PC (section 6); **do not build the Android app on a machine without the keystore**, run `flutter analyze` and `flutter test` there, and list anything needing Gradle or a phone as a to-do.
 
 **Running the checks**
-- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `vite.config.js` copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run) on every build and dev start. Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs tests/gif-favorites.test.mjs tests/security-headers.test.mjs tests/drafts.test.mjs tests/unread.test.mjs tests/palettes.test.mjs tests/prefs.test.mjs tests/pref-behaviours.test.mjs`.
+- **All of the below run in CI** (`.github/workflows/ci.yml`, section 16), so a PR's checks show them. Web: `vite.config.js` copies the blur model into `public/mediapipe/` (gitignored; needs `npm i` to have run) on every build and dev start. Node tests: `node --test tests/sfx.test.mjs tests/sfx-player.test.mjs tests/users-identity.test.mjs tests/lazy.test.mjs tests/ios-setup.test.mjs tests/chat-identity.test.mjs tests/camera.test.mjs tests/listen-error.test.mjs tests/data-health.test.mjs tests/gif-favorites.test.mjs tests/security-headers.test.mjs tests/drafts.test.mjs tests/unread.test.mjs tests/palettes.test.mjs tests/prefs.test.mjs tests/pref-behaviours.test.mjs tests/quick-switch.test.mjs`.
 - Worker: `npm test` in `workers/`.
 - Firestore rules: see section 5 (needs Java, and the two test libraries installed together).
 - Flutter: in `android_app/`, `flutter analyze` and `flutter test`. The widget tests render at several screen sizes and fail on any overflow.
@@ -435,3 +439,15 @@ The defaults change nothing: the original background and blue accent add no vari
 - **Compact** tightens the message list and the sidebars only.
 - **Android and iOS do not read these**: the apps keep their own theme setting. The `prefs` field is a new, ignored field on the user document as far as they are concerned.
 - The account copy is readable by other signed-in people (the user directory is), which is fine for appearance choices but is why nothing sensitive may ever be added to it.
+
+## 25. Quick switcher: Ctrl/Cmd+K (PR #30)
+
+**What.** Press Ctrl+K (Cmd+K on a Mac) anywhere, even while typing a message, and a small box opens: type part of a name and press Enter to go there. It lists your notes, every teammate, every channel (with the group it is in, so two "general" channels can be told apart) and voice rooms. Unread conversations come first and carry a dot; with nothing typed it shows what is unread, then what was most recently active. Arrow keys move, Enter opens, Escape closes; Ctrl+K again closes it. Typing `#` narrows to channels, `@` to people. It is also in the user menu ("Jump to a conversation"), for anyone without a keyboard handy.
+
+**How it ranks.** `src/lib/quickSwitch.js` (pure, tested). Every word typed must match. A name that starts with the word beats a word inside the name, which beats the middle of a word; then the group's name or a person's email; then letters in order starting at the beginning of a word ("mkt" finds "marketing"). Case and accents are ignored ("zoe" finds Zoë). Unread gets a lift, but a much better name still beats a weaker unread one. The first version let letters be picked from anywhere in a name, so "ana re" found "brand-assets"; matching now has to start at the beginning of a word.
+
+**Shared plumbing.** The listeners for your DMs, groups and channels moved into one hook (`src/lib/useConversationData.js`) used by both this and the tab-title counter (identical Firestore queries are shared by the client, so no extra reads). The box and its file load on first use (about 1.6 KB gzipped).
+
+**Checked.** 20 tests (`tests/quick-switch.test.mjs`); a mutation run of 22 breakages caught all that matter (two reported "missing" only because of how the mutation text was escaped; one survivor, that a name starting with the word must outrank a word inside it even against the alphabet, was a real gap and is now tested). In a browser, on the real component with the data stubbed: Ctrl+K opens it with the box focused; "mkt", "zoe" (accent), "general" (two groups) and "#" / "@" rank and filter as designed; ArrowDown moves the highlight; Enter navigates and closes; "qqqq" says nothing matches; Ctrl+K again closes. A cosmetic bug was found there ("My Notes" read "in Private to you") and fixed.
+
+**NOT checked.** In the signed-in app against real data. The shortcut was sent as a synthetic key event, not typed on a real keyboard, and Cmd+K on a Mac was not tried. In some browsers Ctrl+K belongs to the browser (Firefox focuses its search bar); the page takes it first, but if a browser or extension insists, the menu entry is the way in. Not done: highlighting the matched letters, remembering recent choices, and Alt+Up/Down to step through unread conversations.

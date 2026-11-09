@@ -22,6 +22,7 @@ import InviteAccept from './views/InviteAccept'
 import DataProblemsBanner from './components/DataProblemsBanner'
 import TabTitleUnread from './components/TabTitleUnread'
 import PrefsSync from './components/PrefsSync'
+import QuickSwitcherHost from './components/QuickSwitcherHost'
 
 export default function App() {
   return (
@@ -55,6 +56,7 @@ function Gate() {
     <DataProblemsBanner />
     {user && profile && <TabTitleUnread />}
     {user && profile && <PrefsSync />}
+    {user && profile && <QuickSwitcherHost />}
     <Routes>
       {/* Outside the login wall on purpose. An invited outsider arrives with no
           account, and after signing in still has no profile — firestore.rules
