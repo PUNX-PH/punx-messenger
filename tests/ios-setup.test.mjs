@@ -4,6 +4,7 @@
 //   node --test tests/ios-setup.test.mjs
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { cpSync, mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -15,6 +16,15 @@ import {
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const realIos = join(root, 'android_app', 'ios')
+// The project's Info.plist and project.pbxproj as they were BEFORE the Firebase config
+// was wired in (see tests/fixtures/ios/README.md). Every scenario below starts there.
+const fixtures = join(root, 'tests', 'fixtures', 'ios')
+const INFO = 'Runner/Info.plist'
+const PBX = 'Runner.xcodeproj/project.pbxproj'
+const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex')
+const realFiles = [join(realIos, INFO), join(realIos, PBX), join(realIos, 'Runner', 'GoogleService-Info.plist')]
+const shaBefore = realFiles.map(sha)
+const copyFilter = { recursive: true, filter: (src) => !/[\\/](Pods|\.symlinks|ephemeral)([\\/]|$)/.test(src) }
 
 const REVERSED = 'com.googleusercontent.apps.1234567890-abcdefghij'
 const plistFile = ({ bundle = BUNDLE_ID, project = 'punx-msg', google = true } = {}) => `<?xml version="1.0" encoding="UTF-8"?>
@@ -42,16 +52,52 @@ const plistFile = ({ bundle = BUNDLE_ID, project = 'punx-msg', google = true } =
 let ios
 beforeEach(() => {
   ios = mkdtempSync(join(tmpdir(), 'ios-copy-'))
-  cpSync(realIos, ios, { recursive: true, filter: (src) => !/[\\/](Pods|\.symlinks|ephemeral)([\\/]|$)/.test(src) })
+  cpSync(realIos, ios, copyFilter)
+  // Back to the unwired state: the fixture files, and no Firebase plist.
+  cpSync(join(fixtures, 'Info.plist'), join(ios, INFO))
+  cpSync(join(fixtures, 'project.pbxproj'), join(ios, PBX))
+  rmSync(join(ios, 'Runner', PLIST_NAME), { force: true })
 })
 const put = (rel, text) => writeFileSync(join(ios, rel), text)
 const get = (rel) => readFileSync(join(ios, rel), 'utf8')
 const status = (results, id) => results.find(r => r.id === id)?.status
 const withPlist = (opts) => put(`Runner/${PLIST_NAME}`, plistFile(opts))
 
-// ── the project as committed ──
-test('the committed project passes everything that does not need the Firebase file', () => {
+// ── the project as committed: wired, and ready apart from signing ──
+test('the committed project is ready to build: everything passes except the signing team', () => {
   const r = checkAll({ iosDir: realIos })
+  assert.deepEqual(r.filter(x => x.status === 'fail' || x.status === 'blocked').map(x => x.id), [])
+  assert.deepEqual(r.filter(x => x.status === 'warn').map(x => x.id), ['xcode.team'], 'signing is for a person on the Mac')
+})
+
+test('the committed project is exactly the unwired fixtures plus the script\'s two edits (so the fixtures cannot go stale)', () => {
+  const plist = readFileSync(join(realIos, 'Runner', PLIST_NAME), 'utf8')
+  const reversed = plistString(plist, 'REVERSED_CLIENT_ID')
+  assert.ok(reversed, 'the committed plist carries the Google client')
+  const wantInfo = withUrlScheme(readFileSync(join(fixtures, 'Info.plist'), 'utf8'), reversed)
+  const wantPbx = withPlistInResources(readFileSync(join(fixtures, 'project.pbxproj'), 'utf8'))
+  // Compared without line endings: a Windows checkout may have CRLF where the fixture has LF.
+  const lf = (t) => t.split('\r\n').join('\n')
+  assert.equal(lf(readFileSync(join(realIos, INFO), 'utf8')), lf(wantInfo),
+    'Info.plist differs from tests/fixtures/ios/Info.plist plus the URL scheme: apply the same change to the fixture')
+  assert.equal(lf(readFileSync(join(realIos, PBX), 'utf8')), lf(wantPbx),
+    'project.pbxproj differs from tests/fixtures/ios/project.pbxproj plus the plist entries: apply the same change to the fixture')
+})
+
+test('running --apply on the committed project changes nothing', () => {
+  const copy = mkdtempSync(join(tmpdir(), 'ios-real-'))
+  try {
+    cpSync(realIos, copy, copyFilter)
+    const before = [INFO, PBX].map(p => readFileSync(join(copy, p), 'utf8'))
+    const applied = applyFixes({ iosDir: copy })
+    assert.deepEqual([INFO, PBX].map(p => readFileSync(join(copy, p), 'utf8')), before)
+    assert.equal(applied.length, 0, 'nothing to apply')
+  } finally { rmSync(copy, { recursive: true, force: true }) }
+})
+
+// ── the project before the Firebase file is added ──
+test('before the Firebase file is added, it is the one thing missing', () => {
+  const r = checkAll({ iosDir: ios })
   const failing = r.filter(x => x.status === 'fail').map(x => x.id)
   assert.deepEqual(failing, ['plist.present'], 'the plist is the one thing still missing')
   assert.equal(status(r, 'info.urlscheme'), 'blocked')
@@ -60,7 +106,7 @@ test('the committed project passes everything that does not need the Firebase fi
 })
 
 test('the missing-plist message says how to get one', () => {
-  const r = checkAll({ iosDir: realIos }).find(x => x.id === 'plist.present')
+  const r = checkAll({ iosDir: ios }).find(x => x.id === 'plist.present')
   assert.match(r.fix, /apps:create IOS/)
   assert.match(r.fix, /apps:sdkconfig IOS/)
   assert.match(r.fix, new RegExp(BUNDLE_ID))
@@ -263,8 +309,8 @@ test('bundleIds lists every configuration', () => {
 })
 
 test('the real project was never modified by these tests', () => {
-  assert.equal(existsSync(join(realIos, 'Runner', PLIST_NAME)), false)
-  assert.equal(plistIsInResources(readFileSync(join(realIos, 'Runner.xcodeproj', 'project.pbxproj'), 'utf8')), false)
+  assert.deepEqual(realFiles.map(sha), shaBefore)
+  assert.equal(existsSync(join(realIos, 'Runner', PLIST_NAME)), true)
 })
 
 test.after(() => { try { rmSync(ios, { recursive: true, force: true }) } catch {} })
