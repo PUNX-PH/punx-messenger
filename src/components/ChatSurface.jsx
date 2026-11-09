@@ -9,6 +9,9 @@ import { useUsers } from '../lib/users'
 import { whoIsTyping } from '../lib/typing'
 import { sameMessages } from '../lib/messagesIdentity'
 import { describeListenError } from '../lib/listenError'
+import { usePageActive } from '../lib/usePageActive'
+import { needsMarkRead } from '../lib/unread'
+import { pathToReadKey } from '../lib/db'
 import ErrorBoundary from './ErrorBoundary'
 import MessageList, { PinIcon } from './MessageList'
 import Composer from './Composer'
@@ -139,15 +142,29 @@ export default function ChatSurface({
   // watching a busy channel live never re-marked it read, and it showed unread
   // the moment you left.
   const newestId = messages.length ? messages[messages.length - 1].id : null
+  // Only while the person is actually looking. Marking it read in a tab nobody is
+  // watching meant a message arriving in the channel you left open in the
+  // background was read the instant it landed: no unread dot, no count in the
+  // tab title. It is marked as soon as they come back to the tab.
+  const looking = usePageActive()
+  // Read through refs: what is read is the latest, and the effect must not re-run
+  // (and re-arm its timer) every time someone's presence changes the directory.
+  const usersByIdRef = useRef(usersById)
+  usersByIdRef.current = usersById
+  const newestCreatedAtRef = useRef(null)
+  newestCreatedAtRef.current = messages.length ? messages[messages.length - 1].createdAt : null
   useEffect(() => {
-    if (!profile?.uid || !path || readOnly) return
+    if (!profile?.uid || !path || readOnly || !looking) return
     if (path.startsWith('users/')) return
     const containerPath = path.replace(/\/messages$/, '')
+    // Nothing new since it was last read (the usual case on switching back to a tab).
+    const lastRead = usersByIdRef.current?.[profile.uid]?.lastRead?.[pathToReadKey(containerPath)]
+    if (!needsMarkRead(newestCreatedAtRef.current, lastRead)) return
     const t = setTimeout(() => {
       markRead(profile.uid, containerPath).catch(() => {})
     }, 400)
     return () => clearTimeout(t)
-  }, [profile?.uid, path, newestId, readOnly])
+  }, [profile?.uid, path, newestId, readOnly, looking])
 
   // close pinned dropdown on outside click
   useEffect(() => {

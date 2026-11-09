@@ -8,8 +8,10 @@ import { extractMentionedUids } from './markdown'
 import { shareMessages } from './messagesIdentity'
 import { watched } from './dataHealth'
 
-// Deterministic DM convo id from two uids
-export const dmConvoId = (a, b) => [a, b].sort().join('__')
+// The pure unread helpers live in unread.js (testable without Firebase); they are
+// re-exported here so existing imports keep working.
+import { dmConvoId, isUnread, pathToReadKey } from './unread'
+export { dmConvoId, isUnread, pathToReadKey }
 
 // Listen to all users (workspace directory)
 export function listenUsers(cb) {
@@ -92,10 +94,6 @@ export function listenMessages(path, cb, lim = MESSAGE_PAGE, onError) {
     cb(docs, { hasMore: snap.size >= lim })
   }, onError)
 }
-
-// Encode a container path into a safe Firestore map key.
-// "dms/xxx" -> "dms__xxx"; "groups/xxx/channels/yyy" -> "groups__xxx__channels__yyy"
-export const pathToReadKey = (containerPath) => containerPath.replace(/\//g, '__')
 
 // Mark a channel or DM convo as read by the current user.
 // `containerPath` is the path WITHOUT trailing /messages (e.g. "dms/abc", "groups/x/channels/y").
@@ -192,14 +190,6 @@ export async function sendMessage(path, { text, author, imageFile = null, imageU
   } catch (e) {
     console.warn('[sendMessage] parent metadata bump failed (non-fatal):', e.message)
   }
-}
-
-// Compare lastMessageAt with lastRead → unread? Either may be a Firestore Timestamp.
-export const isUnread = (lastMessageAt, lastReadAt) => {
-  if (!lastMessageAt) return false
-  const m = lastMessageAt.toMillis?.() ?? 0
-  const r = lastReadAt?.toMillis?.() ?? 0
-  return m > r
 }
 
 // Toggle the pinned flag on a single message
