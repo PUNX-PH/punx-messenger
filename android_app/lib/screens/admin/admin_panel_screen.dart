@@ -5,6 +5,7 @@ import '../../models/role.dart';
 import '../../models/user_profile.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/users_providers.dart';
+import '../../services/user_error.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
@@ -49,7 +50,9 @@ class _AdminPanelScreenState extends ConsumerState<AdminPanelScreen> {
     try {
       await ref.read(usersRepositoryProvider).setUserRole(u.id, role);
     } catch (e) {
-      setState(() => _error = '$e');
+      setState(
+        () => _error = describeError(e, action: "change that person's role"),
+      );
     } finally {
       if (mounted) setState(() => _busyUid = null);
     }
@@ -72,18 +75,19 @@ class _AdminPanelScreenState extends ConsumerState<AdminPanelScreen> {
     // here would make them invisible everywhere. They sink to the bottom
     // instead. Restoring one is web-only for now, so this is a label, not a
     // control.
-    final visible = (f.isEmpty
-        ? [...users]
-        : users
-              .where(
-                (u) =>
-                    u.name.toLowerCase().contains(f) ||
-                    u.email.toLowerCase().contains(f),
-              )
-              .toList())
-      ..sort(
-        (a, b) => (a.deactivated ? 1 : 0).compareTo(b.deactivated ? 1 : 0),
-      );
+    final visible =
+        (f.isEmpty
+              ? [...users]
+              : users
+                    .where(
+                      (u) =>
+                          u.name.toLowerCase().contains(f) ||
+                          u.email.toLowerCase().contains(f),
+                    )
+                    .toList())
+          ..sort(
+            (a, b) => (a.deactivated ? 1 : 0).compareTo(b.deactivated ? 1 : 0),
+          );
 
     return Scaffold(
       backgroundColor: Palette.bgMain,
@@ -96,9 +100,9 @@ class _AdminPanelScreenState extends ConsumerState<AdminPanelScreen> {
           IconButton(
             tooltip: 'Bots',
             icon: const Icon(Icons.smart_toy_outlined),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const BotsAdminScreen()),
-            ),
+            onPressed: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const BotsAdminScreen())),
           ),
         ],
       ),
@@ -189,8 +193,7 @@ class _AdminPanelScreenState extends ConsumerState<AdminPanelScreen> {
                                 overflow: TextOverflow.ellipsis,
                                 style: u.deactivated
                                     ? TextStyle(
-                                        decoration:
-                                            TextDecoration.lineThrough,
+                                        decoration: TextDecoration.lineThrough,
                                         color: Palette.inkDim,
                                       )
                                     : null,

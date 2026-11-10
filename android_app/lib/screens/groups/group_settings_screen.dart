@@ -11,6 +11,7 @@ import '../../providers/groups_providers.dart';
 import '../../providers/users_providers.dart';
 import '../../services/groups_repository.dart';
 import '../../services/image_service.dart';
+import '../../services/user_error.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
@@ -49,7 +50,7 @@ class _GroupSettingsScreenState extends ConsumerState<GroupSettingsScreen> {
     try {
       await action();
     } catch (e) {
-      setState(() => _error = '$e');
+      setState(() => _error = describeError(e, action: 'save that change'));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

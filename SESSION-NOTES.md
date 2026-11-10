@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30, #31 and #32 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#33 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#32)
+## 2. What shipped (PRs #1–#33)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#33 — plain-words errors across the Flutter app** (section 28): sending a message, changing a role, creating a group, creating or revoking an invite link, saving group settings and adding an emoji no longer print the raw Firestore error.
+
 **#32 — first findings from the iPhone** (section 27): a DM that cannot be opened now says which step failed and why, and the add-reaction button no longer sits under every message on the phone.
 
 **#31 — iOS ready to build** (section 26): the Firebase config is committed and wired, an unsigned iOS build passes in CI for the first time, and there is a one-command helper for the Mac.
@@ -107,7 +109,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 251**, **Node 317** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 268**, **Node 317** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -483,3 +485,15 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **2. The add-reaction button under every message.** In the channel screenshot each message had a boxed smiley permanently drawn beneath it. The web shows that button only once a message has reactions (otherwise on hover); a phone has no hover, so it was drawn always. `ReactionChips` now draws nothing for a message with no reactions (the long-press menu already offers "React"), and the button appears next to the chips once there is one (4 widget tests; two failed before the change). This is the one thing I could see in that screenshot; the rest of the screen was cropped, so **if something else looks wrong on the phone, send a full-screen shot**.
 
 **Checked.** Flutter analyzer clean; all 251 Flutter tests pass. **NOT checked:** on a device (nothing here can run the app on a phone), and the cause of the permission error, as above.
+
+## 28. Plain-words errors across the Flutter app (PR #33)
+
+**Why.** A second screenshot from the iPhone showed the raw error again, cropped, with no way to tell which screen or action it came from: `[cloud_firestore/permission-denied] The caller does not have permission to execute the specified operation.` Section 27 fixed that for opening a DM only. Six more places in the Flutter app printed `'$e'` straight to the person; they now go through one function.
+
+**What.** `lib/services/user_error.dart`, `describeError(error, action: ...)`: a sentence that names what they were trying to do and says what is likely wrong, with the short code last for whoever they report it to. For example, a refused send now reads "You don't have permission to send that message. If that is unexpected, your access may have changed: sign out and back in, or ask an admin. (permission-denied)". Signed out, no connection (unavailable, deadline-exceeded, network-request-failed, a socket error, a timeout), deleted underneath you, already exists and too many requests each have their own sentence; any other code is "Couldn't <action>." plus the code. The app's own readable messages (a `StateError`, an `Exception('...')`, a `FormatException`, an `ArgumentError` with text) are shown as written, without Dart's "Bad state:" prefix. Anything else (a platform error, a bug, even a `RangeError`) is just "Couldn't <action>." and never raw.
+
+**Where it is used (and the action it names):** the message box ("send that message"), the admin panel's role change ("change that person's role"), create group ("create the group"), the invite screen ("create the invite link", "revoke that link"), group settings ("save that change", which covers the name, avatar and banner), and the emoji upload snackbar ("add that emoji"). **Not changed:** the DM screen's own version from section 27, which knows more (the step and the conversation id); any message a screen writes itself ("Give the group a name.").
+
+**A portability point.** The first version recognised a network failure with `SocketException` from `dart:io`; nothing else in the app imports that library and the project has a `web/` target, where it does not exist. It is now recognised by type name, so no import is needed.
+
+**Checked.** 14 tests for the function and 3 widget tests on the real message box (a refused send shows the plain words and not the raw text; no connection says so and keeps the typed text so it can be retried; the app's own message is shown without "Bad state"). All 18 deliberate breakages of the function, and putting the raw error back in the composer, were caught. Flutter analyzer clean; all 268 Flutter tests pass. **NOT checked:** the five other screens individually (they use the same function; only the message box has a widget test), and on a device.

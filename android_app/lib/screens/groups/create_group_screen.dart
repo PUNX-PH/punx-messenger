@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/groups_providers.dart';
 import '../../router/route_paths.dart';
+import '../../services/user_error.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
@@ -71,7 +72,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         context.push(RoutePaths.channelPath(groupId, generalChannelId));
       }
     } catch (e) {
-      setState(() => _error = '$e');
+      setState(() => _error = describeError(e, action: 'create the group'));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

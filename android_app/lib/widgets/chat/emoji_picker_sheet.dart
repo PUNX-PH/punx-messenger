@@ -8,6 +8,7 @@ import '../../models/custom_emoji.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/emojis_providers.dart';
 import '../../services/image_service.dart';
+import '../../services/user_error.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
@@ -224,9 +225,9 @@ class _EmojiPickerSheetState extends ConsumerState<_EmojiPickerSheet> {
           .createEmoji(name: name, bytes: bytes, createdBy: createdBy);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(describeError(e, action: 'add that emoji'))),
+        );
       }
     } finally {
       if (mounted) setState(() => _uploading = false);
