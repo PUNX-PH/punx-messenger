@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30 and #31 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30, #31 and #32 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#31)
+## 2. What shipped (PRs #1–#32)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,13 +99,15 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#32 — first findings from the iPhone** (section 27): a DM that cannot be opened now says which step failed and why, and the add-reaction button no longer sits under every message on the phone.
+
 **#31 — iOS ready to build** (section 26): the Firebase config is committed and wired, an unsigned iOS build passes in CI for the first time, and there is a one-command helper for the Mac.
 
 **#30 — quick switcher** (section 25): Ctrl/Cmd+K jumps to any person or channel by typing.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 238**, **Node 142** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 251**, **Node 317** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -467,3 +469,17 @@ The defaults change nothing: the original background and blue accent add no vari
 **A test problem I caused, and fixed.** Committing the wired project broke 9 of the 30 iOS-setup tests, which expected the real project to be unwired; I had chained the commit after the test run and did not stop on the failure. The tests now start from committed copies of the two files as they were before the wiring (`tests/fixtures/ios`), and a new test fails if the real files ever differ from "fixture plus the script's two edits", so the fixtures cannot silently go stale (proved by tampering with the real `Info.plist`). Also new: the committed project is ready apart from signing, and `--apply` on it changes nothing. 33 tests.
 
 **NOT checked.** Anything at runtime: sign-in, the voice and call audio, notifications, the sound effects (section 9's iOS guards are reasoned, not heard), photo attach, background audio, and every line of the device checklist. The signed build and TestFlight (they need an Apple team and signing secrets). Sign in with Apple is still undecided (section 12). There is still no push notification on any platform. The web-only features of this session (preferences, the quick switcher, the tab-title count, drafts) are not in the Flutter app.
+
+## 27. First findings from the iPhone (PR #32)
+
+The first build went to TestFlight and was tried on a phone. Two things came back as screenshots. Both are in the Flutter app, which is shared with Android, so neither is iOS-specific.
+
+**1. A DM that would not open: `[cloud_firestore/permission-denied]` on a blank "Direct Message" screen. Cause NOT determined.** The screen is the error branch of the code that sets up a conversation, which makes three separate Firestore calls: read the other person's profile, look for the conversation document, create it if it is missing. The raw error did not say which one. What I did and found:
+- Replayed the Flutter app's exact calls (the same document shapes) against the real `firestore.rules` in the emulator, in seven situations. They all succeed for an ordinary employee opening a new or an existing DM, for a guest, and for ids that differ in case. They fail in exactly two: a **deactivated** account (the first read, the other person's profile, is refused) and a conversation document **already sitting at that pair's id that does not list you** (the "squatted" conversation the rules comment describes: reading it is refused). (The scratch test was not kept.)
+- The app already signs a removed account out with an explanation, so the deactivated case is the less likely. The rules file has not changed in behaviour since it was deployed (the last change only removed two unused helpers), so a deployed-rules mismatch is unlikely but was not checked directly: Firebase offers no command to read the deployed rules.
+- **What changed:** the error screen now says which step failed, what that usually means in plain words, the code, and (for the conversation steps) the document id, and has a **Try again** button (`lib/services/dm_open_error.dart`; 9 tests, 10 of 10 deliberate breakages caught). **The next screenshot of this screen will name the step.** If it says "looking for the conversation" the fix is data: an admin looks at `dms/<id>` in the Firebase console (members should be the two people) and fixes or deletes it.
+- **Needed from whoever saw it:** which Google account was signed in on the iPhone, which teammate was tapped, whether other teammates open fine, and whether the same pair opens on the web. I deliberately did not read production DM documents (their previews hold message text).
+
+**2. The add-reaction button under every message.** In the channel screenshot each message had a boxed smiley permanently drawn beneath it. The web shows that button only once a message has reactions (otherwise on hover); a phone has no hover, so it was drawn always. `ReactionChips` now draws nothing for a message with no reactions (the long-press menu already offers "React"), and the button appears next to the chips once there is one (4 widget tests; two failed before the change). This is the one thing I could see in that screenshot; the rest of the screen was cropped, so **if something else looks wrong on the phone, send a full-screen shot**.
+
+**Checked.** Flutter analyzer clean; all 251 Flutter tests pass. **NOT checked:** on a device (nothing here can run the app on a phone), and the cause of the permission error, as above.

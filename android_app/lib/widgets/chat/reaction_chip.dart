@@ -13,6 +13,11 @@ final _customEmojiTokenRe = RegExp(
 
 /// Reaction chips row under a message, plus an "add reaction" button — port
 /// of the reactions section in MessageList.jsx.
+///
+/// Shown only when the message HAS reactions. On the web the "add" button for an
+/// un-reacted message lives in a hover toolbar; a phone has no hover, and drawing
+/// it permanently put a boxed smiley under every single message (the row's
+/// long-press menu already offers "React").
 class ReactionChips extends StatelessWidget {
   const ReactionChips({
     super.key,
@@ -32,6 +37,7 @@ class ReactionChips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final entries = reactions.entries.where((e) => e.value.isNotEmpty).toList();
+    if (entries.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 2),
       child: Wrap(

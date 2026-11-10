@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/dm_convo.dart';
 import '../models/user_profile.dart';
+import '../services/dm_open_error.dart';
 import '../services/dm_repository.dart';
 import 'auth_providers.dart';
 
@@ -37,10 +38,15 @@ final dmChatContextProvider = FutureProvider.family<DmChatContext, String>((
   if (me == null) {
     throw StateError('Not signed in.');
   }
-  final otherDoc = await FirebaseFirestore.instance
-      .collection('users')
-      .doc(otherUid)
-      .get();
+  final DocumentSnapshot<Map<String, dynamic>> otherDoc;
+  try {
+    otherDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(otherUid)
+        .get();
+  } catch (e) {
+    throw DmOpenException(step: DmOpenStep.readProfile, cause: e);
+  }
   if (!otherDoc.exists) {
     throw StateError("That teammate doesn't exist.");
   }
