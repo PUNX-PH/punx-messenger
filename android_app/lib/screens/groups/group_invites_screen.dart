@@ -10,6 +10,7 @@ import '../../models/group_invite.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/groups_providers.dart';
 import '../../services/invites_repository.dart';
+import '../../services/user_error.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
@@ -80,7 +81,11 @@ class _GroupInvitesScreenState extends ConsumerState<GroupInvitesScreen> {
       await _copy(invite.token);
       if (mounted) setState(_picked.clear);
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) {
+        setState(
+          () => _error = describeError(e, action: 'create the invite link'),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -113,7 +118,9 @@ class _GroupInvitesScreenState extends ConsumerState<GroupInvitesScreen> {
     try {
       await ref.read(invitesRepositoryProvider).revokeInvite(invite.token);
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) {
+        setState(() => _error = describeError(e, action: 'revoke that link'));
+      }
     }
   }
 

@@ -10,6 +10,7 @@ import '../../models/user_profile.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
+import '../../services/user_error.dart';
 import '../../utils/constants.dart';
 import 'gif_picker_sheet.dart';
 import 'mention_autocomplete_overlay.dart';
@@ -237,7 +238,7 @@ class _ComposerState extends State<Composer> {
         _imageName = null;
       });
     } catch (e) {
-      setState(() => _error = '$e');
+      setState(() => _error = describeError(e, action: 'send that message'));
     } finally {
       if (mounted) setState(() => _sending = false);
     }
