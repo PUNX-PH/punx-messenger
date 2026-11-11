@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#34 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#35 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#34)
+## 2. What shipped (PRs #1–#35)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#35 — next unread with the keyboard** (section 30): Alt+Shift+Down / Up opens the next unread conversation, from anywhere in the web app.
+
 **#34 — drafts on the phone** (section 29): text typed in a chat and not sent is still there when you come back to that chat.
 
 **#33 — plain-words errors across the Flutter app** (section 28): sending a message, changing a role, creating a group, creating or revoking an invite link, saving group settings and adding an emoji no longer print the raw Firestore error.
@@ -111,7 +113,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 317** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 324** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -509,3 +511,13 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 25 new tests: the store (isolation by key, whitespace, the 50 cap with recency, the 20,000 cap, survives a restart, a sent message does not come back after a restart, wipe, writes wait for a pause, damaged storage), the real message box (restored after the chat is closed and reopened, another conversation and another account start empty, sent clears, failed send keeps, clearing clears, no store means old behaviour, cursor at the end, a cursor move is not an edit) and the sign-out wipe. 13 deliberate breakages: 10 caught at once; 3 survived, of which 2 were real gaps in the tests (clearing a draft not being written to storage was hidden by a `flush()` in the test; a cursor move counted as an edit), fixed and now caught; the third, dropping the "was signed in before" half of the wipe condition, is an equivalent change, because the listener only fires when the signed-in user changes. Flutter analyzer clean; all 293 Flutter tests pass.
 
 **NOT checked.** On a device (needs a new TestFlight / Android build: nothing here reaches the phone until then). The real `shared_preferences` plugin (tests use its in-memory test double), and the app-goes-to-background flush on a real phone (the lifecycle hook is not exercised by a test). Drafts are not synced between devices and not shared with the web app's drafts (by design: they are per device).
+
+## 30. Next unread with the keyboard (PR #35)
+
+**Why.** Working through what came in while you were elsewhere meant finding each bold name in the sidebar, or opening the switcher (Ctrl+K) each time. Discord's Alt+Shift+Up/Down does it in one key.
+
+**What.** Alt+Shift+Down opens the conversation that has waited longest for you; Alt+Shift+Up the newest one. The conversation on screen is never chosen, so pressing again moves on to the next. It works from inside a text box (Alt+Shift+arrow means nothing useful there), is ignored while an input method is composing, and does nothing when nothing is unread. "Unread" is exactly what the switcher and the sidebar already use (`buildTargets`): a muted group does not count, and a DM whose last message is your own does not. `pickUnread` and `unreadKeyDirection` in `src/lib/quickSwitch.js` are pure; `src/components/UnreadHotkeys.jsx` is the listener (mounted in `App.jsx` beside the tab-title counter, which shares its data, so no new reads). The switcher's footer mentions the shortcut (Option on a Mac).
+
+**Checked.** 7 new tests; 11 deliberate breakages (swapped direction, not skipping the current conversation, not filtering to unread, no tie-break, wrong order, each modifier key's condition, composing, the empty case) were all caught. The real component with stubbed data in the browser: from inside a text box, Down opened the DM that had waited longest, Down again the channel, Up went back, a plain Down arrow did nothing, and the typed text was untouched. All 324 Node tests pass and the build is clean.
+
+**NOT checked.** Signed in against the real app (the harness stubbed the data). A Mac keyboard: macOS Option+Shift+arrow normally extends a text selection, and the shortcut takes that over everywhere, including in the message box. Whether Alt+Shift+arrow collides with a browser, OS or screen-reader shortcut for anyone. No setting to turn it off.
