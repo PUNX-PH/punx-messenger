@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary'
 import './index.css'
+import './patterns.css'
 import { prefsStore } from './lib/prefsStore'
 
 // Put the saved look on the page before anything renders. (The script in index.html

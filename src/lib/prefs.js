@@ -11,6 +11,7 @@ import {
   ACCENTS, DEFAULT_ACCENT_HEX, DEFAULT_PALETTE, PALETTES, accentVars, backgroundVars, contrastVars,
 } from './palettes.js'
 import { hexToRgb, rgbToHex } from './colorMath.js'
+import { CHAT_PATTERNS, PATTERN_STRENGTHS } from './chatPatterns.js'
 
 export const THEMES = [
   { id: 'auto',  label: 'Auto',  hint: 'Follows your device' },
@@ -60,6 +61,8 @@ export const DEFAULT_PREFS = Object.freeze({
   density: 'comfortable',
   font: 'inter',
   contrast: 'normal',
+  pattern: 'none',               // the faint drawing behind the messages
+  patternStrength: 'normal',
   reduceMotion: false,
   timeFormat: 'auto',
   sendKey: 'enter',
@@ -91,6 +94,8 @@ export function normalizePrefs(raw) {
     density: oneOf(r.density, DENSITIES, d.density),
     font: oneOf(r.font, FONTS, d.font),
     contrast: oneOf(r.contrast, CONTRASTS, d.contrast),
+    pattern: oneOf(r.pattern, CHAT_PATTERNS, d.pattern),
+    patternStrength: oneOf(r.patternStrength, PATTERN_STRENGTHS, d.patternStrength),
     reduceMotion: r.reduceMotion === true,
     timeFormat: oneOf(r.timeFormat, TIME_FORMATS, d.timeFormat),
     sendKey: oneOf(r.sendKey, SEND_KEYS, d.sendKey),
@@ -137,9 +142,14 @@ export function computeSnapshot(prefs) {
     }
   }
   const font = FONTS.find(f => f.id === p.font)
+  // A pattern behind the text would lower the contrast that "Higher contrast" exists
+  // to raise, so that setting turns it off.
+  const pattern = p.pattern !== 'none' && p.contrast !== 'high' ? p.pattern : null
   return {
     theme: p.theme,
     vars,
+    pattern,
+    patternStrength: pattern && p.patternStrength !== 'normal' ? p.patternStrength : null,
     density: p.density === 'compact' ? 'compact' : null,
     motion: p.reduceMotion ? 'reduced' : null,
     fontSize: TEXT_SIZES.find(s => s.id === p.textSize)?.scale ?? null,
@@ -177,6 +187,8 @@ export function applySnapshot(snap, root, { systemLight = false } = {}) {
   else root.style.removeProperty('font-size')
 
   setAttr(root, 'density', snap.density)
+  setAttr(root, 'pattern', snap.pattern)
+  setAttr(root, 'patternStrength', snap.patternStrength)
   setAttr(root, 'motion', snap.motion)
   return light
 }

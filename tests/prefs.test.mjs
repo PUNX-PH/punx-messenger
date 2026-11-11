@@ -78,7 +78,7 @@ test('nothing, or nonsense, gives the defaults', () => {
 test('a valid set is kept as it is', () => {
   const p = {
     theme: 'light', background: 'ocean', accent: '#e8552b', textSize: 'large', density: 'compact', font: 'readable',
-    contrast: 'high', reduceMotion: true, timeFormat: '24h', sendKey: 'mod-enter', groupMinutes: 15, tabTitleCount: false, updatedAt: 1234,
+    contrast: 'high', pattern: 'punx-corner', patternStrength: 'strong', reduceMotion: true, timeFormat: '24h', sendKey: 'mod-enter', groupMinutes: 15, tabTitleCount: false, updatedAt: 1234,
   }
   assert.deepEqual(normalizePrefs(p), p)
 })
@@ -86,7 +86,7 @@ test('a valid set is kept as it is', () => {
 test('each field falls back on its own when its value is not on the list', () => {
   const n = normalizePrefs({
     theme: 'sepia', background: 'neon', accent: 'red', textSize: 'huge', density: 'tight', font: 'comic',
-    contrast: 'max', reduceMotion: 'yes', timeFormat: '48h', sendKey: 'tab', groupMinutes: 7, tabTitleCount: 'no', updatedAt: -3,
+    contrast: 'max', pattern: 'confetti', patternStrength: 'loud', reduceMotion: 'yes', timeFormat: '48h', sendKey: 'tab', groupMinutes: 7, tabTitleCount: 'no', updatedAt: -3,
   })
   assert.deepEqual(n, DEFAULT_PREFS)
   assert.equal(normalizePrefs({ theme: 'light', background: 'neon' }).theme, 'light', 'a bad field does not discard a good one')
@@ -400,6 +400,9 @@ const SAMPLES = [
   { theme: 'auto', accent: '#7c4ddb', background: 'grape', textSize: 'xlarge', density: 'compact', reduceMotion: true, font: 'system' },
   { theme: 'auto', contrast: 'high', background: 'forest' },
   { theme: 'dark', textSize: 'small', font: 'readable', accent: '#d98e04' },
+  { theme: 'light', pattern: 'punx-corner' },
+  { theme: 'dark', pattern: 'ailabs', patternStrength: 'subtle', density: 'compact' },
+  { theme: 'dark', pattern: 'dots', contrast: 'high' },
 ]
 
 test('the start-up script and the app put exactly the same things on the page', () => {
@@ -493,4 +496,46 @@ test('going back to the default text size removes the size, it does not leave th
   applySnapshot(computeSnapshot({}), root)
   assert.deepEqual(root.style.all(), {})
   assert.deepEqual(root.dataset, {}, 'spacing and motion attributes are removed too')
+})
+
+// ---------- the chat background ----------
+
+test('the chat background is off unless chosen, and an unknown one is ignored', () => {
+  assert.equal(DEFAULT_PREFS.pattern, 'none')
+  assert.equal(normalizePrefs({}).pattern, 'none')
+  assert.equal(normalizePrefs({ pattern: 'ailabs' }).pattern, 'ailabs')
+  assert.equal(normalizePrefs({ pattern: 'javascript:alert(1)' }).pattern, 'none')
+  assert.equal(normalizePrefs({ pattern: '"] body { display:none } x["' }).pattern, 'none', 'only names from the list ever reach a selector')
+  assert.equal(normalizePrefs({ pattern: 'dots', patternStrength: 'loud' }).patternStrength, 'normal')
+  assert.equal(isDefault({ pattern: 'dots' }), false)
+  assert.equal(isDefault({ patternStrength: 'strong' }), false)
+})
+
+test('a chosen pattern becomes two plain settings on the page; the usual strength sets nothing extra', () => {
+  const snap = computeSnapshot({ pattern: 'punx-corner' })
+  assert.equal(snap.pattern, 'punx-corner')
+  assert.equal(snap.patternStrength, null)
+  assert.equal(computeSnapshot({ pattern: 'punx-corner', patternStrength: 'strong' }).patternStrength, 'strong')
+  const root = fakeRoot()
+  applySnapshot(computeSnapshot({ pattern: 'grid', patternStrength: 'subtle' }), root)
+  assert.equal(root.dataset.pattern, 'grid')
+  assert.equal(root.dataset.patternStrength, 'subtle')
+})
+
+test('going back to no pattern removes the settings it put on the page', () => {
+  const root = fakeRoot()
+  applySnapshot(computeSnapshot({ pattern: 'grid', patternStrength: 'strong' }), root)
+  applySnapshot(computeSnapshot({}), root)
+  assert.deepEqual(root.dataset, {})
+  applySnapshot(computeSnapshot({ pattern: 'grid', patternStrength: 'strong' }), root)
+  applySnapshot(computeSnapshot({ pattern: 'none', patternStrength: 'strong' }), root)
+  assert.deepEqual(root.dataset, {}, 'a strength with no pattern is not left behind')
+})
+
+test('higher contrast turns the pattern off, and turning it back on brings it back', () => {
+  const high = computeSnapshot({ pattern: 'dots', contrast: 'high' })
+  assert.equal(high.pattern, null)
+  assert.equal(high.patternStrength, null)
+  assert.equal(computeSnapshot({ pattern: 'dots', contrast: 'normal' }).pattern, 'dots')
+  assert.equal(normalizePrefs({ pattern: 'dots', contrast: 'high' }).pattern, 'dots', 'the choice itself is kept')
 })
