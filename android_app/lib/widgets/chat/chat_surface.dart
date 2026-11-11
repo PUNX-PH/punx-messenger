@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/message.dart';
 import '../../providers/auth_providers.dart';
+import '../../providers/draft_providers.dart';
 import '../../providers/emojis_providers.dart';
 import '../../providers/messages_providers.dart';
 import '../../providers/users_providers.dart';
@@ -214,6 +215,10 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
                     'Message ${widget.icon}${widget.title}',
                 users: users,
                 meUid: meUid,
+                // Kept per account and conversation, so backing out of a chat
+                // does not lose what was typed.
+                drafts: ref.read(draftStoreProvider),
+                draftKey: meUid == null ? null : '$meUid:${widget.path}',
                 replyingTo: controllerState.replyingTo,
                 onCancelReply: () => controller.setReplyingTo(null),
                 onTyping: containerPath == null ? null : controller.setTyping,

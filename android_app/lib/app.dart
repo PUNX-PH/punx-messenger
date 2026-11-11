@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'providers/auth_providers.dart';
+import 'providers/draft_providers.dart';
 import 'providers/theme_providers.dart';
 import 'router/app_router.dart';
 import 'theme/app_theme.dart';
@@ -15,6 +16,7 @@ class PunxApp extends ConsumerWidget {
     // Watched, not read: this is what keeps the removal listener subscribed
     // for the app's lifetime. See removalWatcherProvider.
     ref.watch(removalWatcherProvider);
+    ref.watch(draftCleanerProvider);
     final mode = ref.watch(themeModeProvider);
     return MaterialApp.router(
       // Keyed on the mode, and this is REQUIRED rather than tidy.
