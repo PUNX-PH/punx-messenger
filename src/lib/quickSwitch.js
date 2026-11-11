@@ -103,3 +103,29 @@ export function rankTargets(targets, query = '', limit = 12) {
   scored.sort((a, b) => (b.score - a.score) || byRecency(a.t, b.t))
   return scored.slice(0, limit).map(x => x.t)
 }
+
+/**
+ * Where "next unread" goes. Down is the conversation that has been waiting longest,
+ * Up the newest one. The conversation on screen is never the answer (it is being
+ * read), so pressing the key again moves on, and nothing is returned when there
+ * is nothing to go to. Voice rooms and notes are never unread, so never chosen.
+ */
+export function pickUnread(targets, currentPath, direction) {
+  const waiting = targets
+    .filter(t => t.unread && t.path !== currentPath)
+    .sort((a, b) => (a.at - b.at) || a.label.localeCompare(b.label))
+  if (waiting.length === 0) return null
+  return direction === 'up' ? waiting[waiting.length - 1] : waiting[0]
+}
+
+/**
+ * Does this key press ask for the next/previous unread conversation? Alt+Shift with
+ * the Up or Down arrow (what Discord uses), and nothing else held. 'up' | 'down' | null.
+ */
+export function unreadKeyDirection(e) {
+  if (!e || !e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return null
+  if (e.isComposing) return null
+  if (e.key === 'ArrowUp') return 'up'
+  if (e.key === 'ArrowDown') return 'down'
+  return null
+}

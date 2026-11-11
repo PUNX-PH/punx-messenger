@@ -96,6 +96,7 @@ export default function QuickSwitcher({ onClose }) {
           <span>↑↓ to move · Enter to open · Esc to close</span>
           <span>Type # for channels, @ for people · {isMac ? '⌘' : 'Ctrl+'}K anywhere</span>
         </div>
+        <p className="mt-1 text-[11px] text-ink-dim">{isMac ? 'Option' : 'Alt'}+Shift+↑/↓ anywhere jumps to the next unread conversation.</p>
       </div>
     </Modal>
   )

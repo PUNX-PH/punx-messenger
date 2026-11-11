@@ -3,7 +3,7 @@
 //   node --test tests/quick-switch.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTargets, normalize, rankTargets } from '../src/lib/quickSwitch.js'
+import { buildTargets, normalize, pickUnread, rankTargets, unreadKeyDirection } from '../src/lib/quickSwitch.js'
 import { pathToReadKey } from '../src/lib/unread.js'
 
 const ts = (n) => ({ toMillis: () => n })
@@ -161,4 +161,65 @@ test('the same name in different groups stays two entries', () => {
 test('starting with the word wins even where the alphabet would put the other first', () => {
   const targets = [T('inword', 'a-brand'), T('starts', 'branding')]
   assert.deepEqual(ids(rankTargets(targets, 'bran')), ['starts', 'inword'])
+})
+
+// ---------- next / previous unread (Alt+Shift+Down / Up) ----------
+
+
+const U = (id, over = {}) => ({ id, kind: 'channel', label: id, hint: '', path: `/p/${id}`, unread: true, at: 0, ...over })
+
+test('Down goes to the conversation that has waited longest, Up to the newest', () => {
+  const ts3 = [U('new', { at: 300 }), U('old', { at: 100 }), U('mid', { at: 200 })]
+  assert.equal(pickUnread(ts3, '/somewhere', 'down').id, 'old')
+  assert.equal(pickUnread(ts3, '/somewhere', 'up').id, 'new')
+})
+
+test('only unread conversations are chosen', () => {
+  const ts3 = [U('read', { at: 1, unread: false }), U('unread', { at: 2 })]
+  assert.equal(pickUnread(ts3, '/x', 'down').id, 'unread')
+  assert.equal(pickUnread([U('a', { unread: false })], '/x', 'down'), null)
+})
+
+test('the conversation on screen is skipped, so pressing again moves on', () => {
+  const ts3 = [U('a', { at: 1 }), U('b', { at: 2 })]
+  assert.equal(pickUnread(ts3, '/p/a', 'down').id, 'b')
+  assert.equal(pickUnread(ts3, '/p/b', 'up').id, 'a')
+  assert.equal(pickUnread([U('a')], '/p/a', 'down'), null, 'nothing else to go to')
+})
+
+test('a tie in time is broken by name, the same way every time', () => {
+  const ts3 = [U('beta', { at: 5 }), U('alpha', { at: 5 })]
+  assert.equal(pickUnread(ts3, '/x', 'down').id, 'alpha')
+  assert.equal(pickUnread(ts3.slice().reverse(), '/x', 'down').id, 'alpha')
+})
+
+test('nothing on the list means nothing chosen, and the list is not reordered', () => {
+  assert.equal(pickUnread([], '/x', 'down'), null)
+  const input = [U('b', { at: 2 }), U('a', { at: 1 })]
+  pickUnread(input, '/x', 'down')
+  assert.deepEqual(input.map(t => t.id), ['b', 'a'])
+})
+
+test('works with what buildTargets produces: muted groups and your own last message are not unread', () => {
+  const lastRead = {}
+  const t = buildTargets({
+    meUid: 'me', users, groups, channelsByGroup, lastRead, mutedGroups: new Set(['g2']),
+    convosByOther: { ana: { id: 'ana__me', lastMessageAt: ts(400), lastMessageAuthorUid: 'me' } },
+  })
+  const picked = pickUnread(t, '/x', 'down')
+  assert.equal(picked.id, 'ch:g1:c1', 'oldest unread in the group that is not muted')
+  assert.equal(pickUnread(t, '/x', 'up').id, 'ch:g1:c2')
+})
+
+test('the shortcut is Alt+Shift with Up or Down and nothing else', () => {
+  const k = (o) => unreadKeyDirection({ key: 'ArrowDown', altKey: true, shiftKey: true, ctrlKey: false, metaKey: false, ...o })
+  assert.equal(k({}), 'down')
+  assert.equal(k({ key: 'ArrowUp' }), 'up')
+  assert.equal(k({ altKey: false }), null, 'Shift+Down alone selects text')
+  assert.equal(k({ shiftKey: false }), null, 'Alt+Down alone is left alone')
+  assert.equal(k({ ctrlKey: true }), null)
+  assert.equal(k({ metaKey: true }), null)
+  assert.equal(k({ key: 'ArrowLeft' }), null)
+  assert.equal(k({ isComposing: true }), null, 'not while an input method is composing')
+  assert.equal(unreadKeyDirection(null), null)
 })
