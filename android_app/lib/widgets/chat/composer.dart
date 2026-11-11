@@ -10,6 +10,7 @@ import '../../models/user_profile.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
+import '../../services/draft_store.dart';
 import '../../services/user_error.dart';
 import '../../utils/constants.dart';
 import 'gif_picker_sheet.dart';
@@ -50,6 +51,8 @@ class Composer extends StatefulWidget {
     this.onTyping,
     this.replyingTo,
     this.onCancelReply,
+    this.drafts,
+    this.draftKey,
   });
 
   final String placeholder;
@@ -59,6 +62,11 @@ class Composer extends StatefulWidget {
   final ValueChanged<bool>? onTyping;
   final ChatMessage? replyingTo;
   final VoidCallback? onCancelReply;
+
+  /// Where unsent text is kept, and the key for THIS conversation (account +
+  /// path). Both null means no drafts, which is how the composer worked before.
+  final DraftStore? drafts;
+  final String? draftKey;
 
   @override
   State<Composer> createState() => _ComposerState();
@@ -79,9 +87,37 @@ class _ComposerState extends State<Composer> {
   final Map<String, String> _mentionHints = {};
 
   @override
+  void initState() {
+    super.initState();
+    // Put back what was typed here last time. Before the listener below is added,
+    // so restoring a draft does not count as typing.
+    final saved = widget.drafts?.get(widget.draftKey) ?? '';
+    if (saved.isNotEmpty) {
+      _controller.value = TextEditingValue(
+        text: saved,
+        selection: TextSelection.collapsed(offset: saved.length),
+      );
+    }
+    _lastDraftText = saved;
+    // Every change to the box, typed or not (a picked @mention, an emoji, the box
+    // emptied after a send), keeps the draft current; an empty box clears it.
+    _controller.addListener(_saveDraft);
+  }
+
+  String _lastDraftText = '';
+
+  void _saveDraft() {
+    final text = _controller.text;
+    if (text == _lastDraftText) return; // a cursor move, not an edit
+    _lastDraftText = text;
+    widget.drafts?.set(widget.draftKey, text);
+  }
+
+  @override
   void dispose() {
     _stopTypingTimer?.cancel();
     _stopTypingNow();
+    _controller.removeListener(_saveDraft);
     _controller.dispose();
     super.dispose();
   }

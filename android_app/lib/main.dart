@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'config/emulators.dart';
 import 'firebase_options.dart';
+import 'providers/draft_providers.dart';
+import 'services/draft_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,5 +28,12 @@ Future<void> main() async {
     // this flag.
     SemanticsBinding.instance.ensureSemantics();
   }
-  runApp(const ProviderScope(child: PunxApp()));
+  // Loaded before anything is drawn, so a chat opened at once already finds its draft.
+  final drafts = await DraftStore.load();
+  runApp(
+    ProviderScope(
+      overrides: [draftStoreProvider.overrideWithValue(drafts)],
+      child: const PunxApp(),
+    ),
+  );
 }
