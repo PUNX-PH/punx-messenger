@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#35 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#36 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#35)
+## 2. What shipped (PRs #1–#36)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#36 — chat backgrounds** (section 31): a faint pattern behind the messages, chosen in Appearance & preferences: simple textures, the Punx wordmark (corner, centre, repeating) and one drawing per team.
+
 **#35 — next unread with the keyboard** (section 30): Alt+Shift+Down / Up opens the next unread conversation, from anywhere in the web app.
 
 **#34 — drafts on the phone** (section 29): text typed in a chat and not sent is still there when you come back to that chat.
@@ -113,7 +115,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 324** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 344** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -521,3 +523,20 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 7 new tests; 11 deliberate breakages (swapped direction, not skipping the current conversation, not filtering to unread, no tie-break, wrong order, each modifier key's condition, composing, the empty case) were all caught. The real component with stubbed data in the browser: from inside a text box, Down opened the DM that had waited longest, Down again the channel, Up went back, a plain Down arrow did nothing, and the typed text was untouched. All 324 Node tests pass and the build is clean.
 
 **NOT checked.** Signed in against the real app (the harness stubbed the data). A Mac keyboard: macOS Option+Shift+arrow normally extends a text selection, and the shortcut takes that over everywhere, including in the message box. Whether Alt+Shift+arrow collides with a browser, OS or screen-reader shortcut for anyone. No setting to turn it off.
+
+## 31. Chat backgrounds (PR #36)
+
+**Why.** A request for personal backgrounds "similar to Discord" that stay minimalist, including the Punx logo in the corner and designs for the company's teams. Discord's version is a paid cosmetics shop with illustrated art; this is the free, minimal part of that idea: one new preference, "Chat background". Frames around avatars and nameplates (the other Discord items) were discussed and are **not** built: others would have to see them, which means a field on the public user profile and every avatar drawn differently.
+
+**What.** Appearance & preferences has a new "Chat background" section: 17 choices in three groups, and a Subtle / Normal / Strong control. **Simple:** dots, grid, ruled, diagonal, crosses, contours. **Punx:** the wordmark in the bottom-right corner (above the message box), in the centre, or repeated. **Teams:** creatives (shapes), 2D artists (pen curves with handles), 3D artists (cubes), AI Labs (a node network), game dev (pixel hearts, diamonds, pads), HR (people, a speech bubble, hearts), engineering (`</>`, `{ }`, a prompt). The default is **None**, so nobody's app changes until they choose one.
+
+**How it works.**
+- Each pattern is a black-on-transparent SVG used as a CSS **mask** on a `::before` of the message area (`.chat-pattern`, on both the full and the empty chat in `MessageList.jsx`). The visible colour is `rgb(var(--ink) / alpha)`, the page's own text colour, so one drawing suits every theme and background and nothing is hard-coded. Opacity: Subtle 0.045, Normal 0.07, Strong 0.12; a single large mark is multiplied by 1.25.
+- The drawings live in `src/lib/chatPatterns.js` (one source of truth). `src/patterns.css` is **generated** from it by `node scripts/gen-patterns.mjs` and committed (the page needs it before first paint). A test fails if they differ, so after editing a pattern run the script.
+- It is a normal preference (`pattern`, `patternStrength` in `prefs.js`): validated by the same single door, stored on the device and in `users/{uid}.prefs`, newest wins, and applied before first paint by the script in `index.html` as two attributes on `<html>` (`data-pattern`, `data-pattern-strength`). Only names from the list ever reach a selector. Rules did not need to change (users already update their own document).
+- **Higher contrast switches the pattern off** (the choice is kept and comes back when it is turned off), because a pattern behind the text would lower the contrast that setting exists to raise. The dialog says so.
+- The Punx mark was redrawn as a vector from the logo (`public/logo-punx.png`): measured at 39 px tall, 9 px strokes, wide gaps. An earlier draft faded each letter shape separately, so overlapping strokes (N, X, the P) stacked into bright patches; the mark is now one set of solid shapes faded as a whole.
+
+**Checked.** 20 new tests (preference validation incl. hostile values, the snapshot, the attributes and their removal, high contrast, the start-up script and the app putting the same things on the page for three new samples, each drawing well formed / colourless / inside its tile, the generated stylesheet identical to its source, a rule for every pattern, `pointer-events: none` and sitting behind the text, both message-list branches carrying the class, the stylesheet being loaded, the logo's proportions, labels). 22 deliberate breakages, 21 caught at once; the survivor (a stray space in a label) was guarded with a test. In a real browser, with the real dialog, the real preference store and the real stylesheet (stubbed: only notifications): all 17 render in the chat in dark, several in light; a real click on a tile applied it; Strong set opacity 0.12; Higher contrast removed the pattern and showed the note; turning it off brought it back; None removed the strength control. All 344 Node tests and the build pass.
+
+**NOT checked.** Signed in against the real app and the real Firestore save of the new fields. Safari and Firefox (CSS masks are supported in current versions, with the `-webkit-` form included, but only Chromium was looked at). Phone-sized screens in the real app (only a 347 px wide page was seen, and the corner mark looked right there). Whether the patterns look right to the teams they are for: they are my drawings, not a designer's. Performance on a very long chat (a mask on one element, repainted only when the theme changes, but not measured). The Flutter app has no backgrounds yet. Not done: a background for the sidebars, avatar frames, nameplates, any per-group default.

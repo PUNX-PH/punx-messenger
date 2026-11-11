@@ -6,6 +6,7 @@ import {
   TEXT_SIZES, THEMES, TIME_FORMATS, isDefault,
 } from '../lib/prefs'
 import { accentVars, surfacesFor } from '../lib/palettes'
+import { CHAT_PATTERNS, PATTERN_GROUPS, PATTERN_STRENGTHS, dataUri, patternSvg } from '../lib/chatPatterns'
 import { rgbToHex } from '../lib/colorMath'
 import { headerTime } from '../lib/timeFormat'
 import { isEnabled as sfxEnabled, play as playSfx, setEnabled as setSfxEnabled, subscribe as sfxSubscribe } from '../lib/sfx'
@@ -72,6 +73,34 @@ export default function PreferencesModal({ open, onClose }) {
               )
             })}
           </div>
+        </Section>
+
+        <Section
+          title="Chat background"
+          note={prefs.contrast === 'high' ? 'Hidden while Higher contrast is on, so nothing sits behind the text.' : 'A faint drawing behind the messages, in your text colour so it suits every theme.'}
+        >
+          {PATTERN_GROUPS.map(group => (
+            <div key={group} className="mb-3">
+              <div className="text-[11px] text-ink-dim mb-1.5">{group}</div>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2" role="radiogroup" aria-label={'Chat background: ' + group}>
+                {CHAT_PATTERNS.filter(p => p.group === group).map(p => {
+                  const on = prefs.pattern === p.id
+                  return (
+                    <button
+                      key={p.id} type="button" role="radio" aria-checked={on} onClick={() => set({ pattern: p.id })}
+                      className={cardClass(on, 'p-1.5')}
+                    >
+                      <PatternThumb pattern={p} />
+                      <span className="block text-[11px] mt-1 text-left truncate">{on ? '✓ ' : ''}{p.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+          {prefs.pattern !== 'none' && (
+            <Segmented label="Pattern strength" value={prefs.patternStrength} options={PATTERN_STRENGTHS} onChange={(v) => set({ patternStrength: v })} />
+          )}
         </Section>
 
         <Section title="Accent colour" note="Buttons, links and highlights. Whatever you pick is adjusted just enough to stay readable.">
@@ -213,6 +242,30 @@ function Section({ title, note, children }) {
       {children}
       {note && <p className="text-xs text-ink-dim mt-2">{note}</p>}
     </section>
+  )
+}
+
+// A small sample of a pattern: the same drawing and the same mask as the chat, at a
+// strength that is easy to see at thumbnail size.
+function PatternThumb({ pattern: p }) {
+  const style = { backgroundColor: 'rgb(var(--ink) / 0.5)' }
+  if (p.body) {
+    const url = `url("${dataUri(patternSvg(p))}")`
+    style.WebkitMaskImage = url
+    style.maskImage = url
+    if (p.kind === 'tile') {
+      const k = p.w >= 100 ? 0.5 : 1
+      style.WebkitMaskSize = style.maskSize = `${Math.round(p.w * k)}px ${Math.round(p.h * k)}px`
+    } else {
+      style.WebkitMaskSize = style.maskSize = '62% auto'
+      style.WebkitMaskRepeat = style.maskRepeat = 'no-repeat'
+      style.WebkitMaskPosition = style.maskPosition = p.kind === 'corner' ? 'right 6px bottom 6px' : 'center'
+    }
+  }
+  return (
+    <span className="block h-14 rounded bg-bg-main border border-black/20 overflow-hidden relative" aria-hidden="true">
+      {p.body ? <span className="absolute inset-0" style={style} /> : <span className="absolute inset-0 grid place-items-center text-[11px] text-ink-dim">Off</span>}
+    </span>
   )
 }
 

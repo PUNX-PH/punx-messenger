@@ -32,6 +32,8 @@
         if (snap.fontStack) root.style.setProperty('--font-body', snap.fontStack)
         if (snap.fontSize) root.style.setProperty('font-size', snap.fontSize)
         if (snap.density) root.dataset.density = snap.density
+        if (snap.pattern) root.dataset.pattern = snap.pattern
+        if (snap.patternStrength) root.dataset.patternStrength = snap.patternStrength
         if (snap.motion) root.dataset.motion = snap.motion
       } else if (localStorage.getItem('themeMode') === 'light') {
         root.classList.add('light')

@@ -170,7 +170,7 @@ export default function MessageList({
 
   if (!messages?.length) {
     return (
-      <div className="flex-1 grid place-items-center px-6">
+      <div className="chat-pattern flex-1 grid place-items-center px-6">
         <div className="text-center max-w-md text-ink-muted">
           <div className="text-xl font-semibold text-ink mb-1">{emptyTitle}</div>
           <p className="text-sm">{emptyDesc}</p>
@@ -180,7 +180,7 @@ export default function MessageList({
   }
 
   return (
-    <div className="relative flex-1 min-h-0 flex flex-col">
+    <div className="chat-pattern relative flex-1 min-h-0 flex flex-col">
       <div ref={containerRef} onScroll={onScroll} className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="msg-flow py-4 px-4 space-y-4">
           {(hasMore || loadingMore) && (
