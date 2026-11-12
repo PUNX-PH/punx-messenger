@@ -169,3 +169,36 @@ the cutoff as reminded, or testing would cancel the real send.
 The trigger is gated on a shared secret rather than a signed-in user's token on
 purpose: it DMs the entire workspace, and should not be reachable by anyone who
 merely happens to be logged in.
+
+## The calendar widget
+
+The messenger's calendar popup (the **Calendar** tile in the toolbox, `src/components/CalendarPanel.jsx`)
+shows the DTR's company calendar: Philippine and company holidays, and everyone's
+approved leave and offsets. Same two-projects problem as above: a messenger client
+cannot read `punx-dtr`, so the Worker does, at `GET /dtr/calendar?month=2026-11`
+(`workers/src/routes/dtrCalendar.js`), with the DTR service account it already holds.
+
+| | |
+| --- | --- |
+| Route | `workers/src/routes/dtrCalendar.js`, wired in `workers/src/index.js` |
+| Reads (`punx-dtr`) | `holidays`, `calendarEvents`, `departments`. Nothing else: not `leaveRequests` (they hold the reasons), not `users` |
+| Reads (`punx-msg`) | `users/{uid}`, to check the caller's role |
+| Who may ask | a signed-in messenger user whose role is in `DTR_CALENDAR_ROLES` (`wrangler.toml`, default **developer** only). Checked on **every** request from `users/{uid}`, never from a token claim, so removing a role takes effect at once; a deactivated account is refused |
+| Cache | the month's response is kept in KV for 5 minutes (`dtrcal:v1:YYYY-MM`), so a month costs one read pass per 5 minutes however many people ask. The role check runs before the cache is read |
+| Client | `src/lib/dtrCalendar.js` (pure, tested), `src/lib/dtrCalendarApi.js` (the call) |
+
+**What leaves, and what does not.** Holidays are built by the DTR's own rules, and each leave is
+copied **field by field**: name, department, type, dates, offset hours. The DTR keeps reasons out of
+`calendarEvents` on purpose, and the route would not pass one on even if one were added (a test seeds a
+`reason` and checks it never appears).
+
+**The holiday rules are a copy.** `workers/src/lib/dtrHolidays.js` is the DTR's
+`src/services/holidays.js` (as of its commit `279ed7d3`) with only the import line replaced, so the
+messenger builds the calendar by the same rules (built-in Philippine holidays, HR's edits and hides,
+multi-day and repeating holidays). **Keep it in sync by hand** when the DTR's rules change: copy the file
+again and update the commit in its header. `workers/test/dtr-calendar.test.mjs` pins 2026's list.
+
+**Widening who sees it.** Two places, together: `APPS_VISIBLE_TO` in `src/lib/apps.js` (who is shown the
+toolbox and the calendar) and `DTR_CALENDAR_ROLES` in `workers/wrangler.toml` (who the Worker answers).
+The client one only hides the button; the Worker one is the check that holds. Note the DTR itself keeps
+its Department tab (the same calendar) to super admins while it is being tested (`canUseDepartment` there).

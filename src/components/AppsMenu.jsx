@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../lib/auth'
-import { canSeeApps, usableApps } from '../lib/apps'
+import { APP_ACTIONS, canSeeApps, usableApps } from '../lib/apps'
 
 /**
  * The toolbox in the chat header (shown to developers for now): a short menu of the company's other apps (the list
@@ -59,24 +59,38 @@ export default function AppsMenu() {
             <div className="text-xs text-ink-dim mt-0.5">Opens in a new tab. You may need to sign in there.</div>
           </div>
           <ul className="grid grid-cols-3 gap-1 p-2 max-h-80 overflow-y-auto scrollbar-thin">
-            {apps.map(a => (
-              <li key={a.id} role="none" className="min-w-0">
-                <a
-                  role="menuitem"
-                  href={a.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={a.description ? `${a.name}: ${a.description}` : a.name}
-                  onClick={() => setOpen(false)}
-                  className="flex flex-col items-center gap-1.5 px-1 py-3 rounded-lg text-center hover:bg-bg-hover focus-visible:bg-bg-hover"
-                >
+            {apps.map(a => {
+              const title = a.description ? `${a.name}: ${a.description}` : a.name
+              const tile = (
+                <>
                   <span className="w-11 h-11 rounded-xl bg-bg-deepest border border-line-subtle grid place-items-center text-brand-text">
                     <AppIcon name={a.icon} />
                   </span>
                   <span className="w-full text-xs font-medium leading-tight line-clamp-2 break-words">{a.name}</span>
-                </a>
-              </li>
-            ))}
+                </>
+              )
+              const tileClass = 'w-full flex flex-col items-center gap-1.5 px-1 py-3 rounded-lg text-center hover:bg-bg-hover focus-visible:bg-bg-hover'
+              return (
+                <li key={a.id} role="none" className="min-w-0">
+                  {a.url ? (
+                    <a
+                      role="menuitem" href={a.url} target="_blank" rel="noopener noreferrer"
+                      title={title} onClick={() => setOpen(false)} className={tileClass}
+                    >
+                      {tile}
+                    </a>
+                  ) : (
+                    // Something inside the messenger, not a link: ask its host to open it.
+                    <button
+                      type="button" role="menuitem" title={title} className={tileClass}
+                      onClick={() => { setOpen(false); window.dispatchEvent(new Event(APP_ACTIONS[a.action])) }}
+                    >
+                      {tile}
+                    </button>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}
@@ -104,6 +118,14 @@ function ToolboxIcon() {
 }
 
 function AppIcon({ name }) {
+  if (name === 'calendar') {
+    return (
+      <Svg size={20}>
+        <rect x="4" y="5" width="16" height="15" rx="2" />
+        <path d="M4 10h16M9 3v4M15 3v4" />
+      </Svg>
+    )
+  }
   if (name === 'clock') {
     return (
       <Svg size={20}>
