@@ -128,7 +128,18 @@ export function eventsForDate(ymd, { holidayIndex = {}, leaves = [] } = {}) {
   return { holidays: holidayIndex[ymd] || [], leaves: leavesOnDate(leaves, ymd) }
 }
 
-/** "Ana Reyes" plus a short tag: "Ana Reyes · SL", or "Ben · OFFSET 4h" when hours are known. */
+/**
+ * What a day cell shows for the people on leave: '' for none or one (a plain dot says it),
+ * the number for two to nine, "9+" beyond. The number is the number of rows the day's
+ * list shows, so the grid and the list always agree.
+ */
+export function leaveCountLabel(n) {
+  const count = Math.floor(Number(n))
+  if (!Number.isFinite(count) || count < 2) return ''
+  return count > 9 ? '9+' : String(count)
+}
+
+/** "Ana Reyes" plus a short tag:"Ana Reyes · SL", or "Ben · OFFSET 4h" when hours are known. */
 export function leaveLine(l) {
   const t = LEAVE_TYPES[l.type]
   const tag = t ? t.tag : String(l.type)

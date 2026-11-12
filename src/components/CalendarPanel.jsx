@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { calendarCache } from '../lib/dtrCalendarApi'
 import {
-  HOLIDAY_TYPES, WEEKDAY_LABELS, addMonths, dayLabel, eventsForDate, holidaysByDate, leaveLine,
+  HOLIDAY_TYPES, WEEKDAY_LABELS, addMonths, dayLabel, eventsForDate, holidaysByDate, leaveCountLabel, leaveLine,
   monthGrid, monthKeyOf, monthTitle, toYMD,
 } from '../lib/dtrCalendar'
 
@@ -100,9 +100,15 @@ export default function CalendarPanel({ pinned, onTogglePin, onClose }) {
                 ].join(' ')}
               >
                 <span>{c.day}</span>
-                <span className="flex gap-0.5 h-1.5 mt-0.5" aria-hidden="true">
+                <span className="flex items-center gap-0.5 h-3.5 mt-0.5" aria-hidden="true">
                   {ev.holidays.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-warn" />}
-                  {ev.leaves.length > 0 && <span className={['w-1.5 h-1.5 rounded-full', isSel ? 'bg-white' : 'bg-brand'].join(' ')} />}
+                  {ev.leaves.length > 0 && (leaveCountLabel(ev.leaves.length)
+                    ? (
+                      <span className={['min-w-[0.875rem] h-3.5 px-0.5 rounded-full flex items-center justify-center text-[10px] font-bold leading-none', isSel ? 'bg-white text-brand' : 'bg-brand text-white'].join(' ')}>
+                        {leaveCountLabel(ev.leaves.length)}
+                      </span>
+                    )
+                    : <span className={['w-1.5 h-1.5 rounded-full', isSel ? 'bg-white' : 'bg-brand'].join(' ')} />)}
                 </span>
               </button>
             )
