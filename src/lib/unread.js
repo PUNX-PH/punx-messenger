@@ -34,6 +34,28 @@ export function needsMarkRead(newestCreatedAt, lastReadAt) {
 }
 
 /**
+ * Where the "New" line goes when a conversation is opened: the id of the first message
+ * you have not read, or null when there is nowhere meaningful to put one.
+ *   - Never read before (no last-read time): null. A new member of a channel with years of
+ *     history is not told it is all "new".
+ *   - Your own messages are never "new" to you, so the line goes above the first unread
+ *     message from someone else.
+ *   - The very first loaded message is already unread: null. Older ones may be unread
+ *     too, so a line above this one would say "from here" when it is not.
+ *   - A message still waiting for its server time has no createdAt, and is skipped.
+ * `messages` are oldest first, as the list has them.
+ */
+export function firstUnreadId(messages, lastReadAt, meUid) {
+  const read = lastReadAt?.toMillis?.()
+  const list = messages || []
+  const i = list.findIndex(m => {
+    const at = m?.createdAt?.toMillis?.()
+    return at > read && m.author?.uid !== meUid
+  })
+  return i > 0 ? list[i].id : null
+}
+
+/**
  * The read key of the conversation a route shows, or null for a page that is not
  * one (the DM list, notes, settings). Same keys as pathToReadKey of the
  * conversation's container path.

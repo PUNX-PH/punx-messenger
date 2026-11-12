@@ -26,6 +26,7 @@ export default function MessageList({
   meUid,
   highlightId,
   scrollToId,
+  newFromId = null,       // the first message you had not read when you opened this chat
   // Suppresses every action affordance, including the ones a caller can't
   // switch off by withholding a handler: editing and deleting your OWN
   // messages are derived from meUid, and meUid still has to be passed so
@@ -166,7 +167,7 @@ export default function MessageList({
   // Day dividers and author groups, in one pass. A new day always starts a new
   // group, so a run of messages never straddles a divider. Rebuilt only when the
   // messages change, not on every render of the list.
-  const blocks = useMemo(() => buildBlocks(messages, groupMinutes), [messages, groupMinutes])
+  const blocks = useMemo(() => buildBlocks(messages, groupMinutes, newFromId), [messages, groupMinutes, newFromId])
 
   if (!messages?.length) {
     return (
@@ -194,6 +195,8 @@ export default function MessageList({
           )}
           {blocks.map(b => b.type === 'day' ? (
             <DayDivider key={b.key} date={b.date} />
+          ) : b.type === 'new' ? (
+            <NewDivider key={b.key} />
           ) : (
             <Group
               key={b.key}
@@ -247,6 +250,18 @@ function DayDivider({ date }) {
       <div className="h-px flex-1 bg-line-subtle" />
       <span className="text-xs font-medium text-ink-muted">{dayLabel(date)}</span>
       <div className="h-px flex-1 bg-line-subtle" />
+    </div>
+  )
+}
+
+// "Everything below this you had not read when you opened the chat." Stays where it
+// was put while you read, so you can see what was new after the unread dot is gone.
+function NewDivider() {
+  return (
+    <div role="separator" aria-label="New messages" className="flex items-center gap-3 select-none">
+      <div className="h-px flex-1 bg-bad/60" />
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-bad">New</span>
+      <div className="h-px flex-1 bg-bad/60" />
     </div>
   )
 }

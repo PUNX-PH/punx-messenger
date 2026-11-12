@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#42 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#43 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#42)
+## 2. What shipped (PRs #1–#43)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#43 — a "New" line in chats** (section 37): opening a conversation with unread messages draws a red "New" line above the first one you had not read, and leaves it there while you read.
+
 **#42 — leave count on busy days** (section 36): on the calendar grid a day with two or more people on leave shows the number ("9+" past nine) in place of the blue dot; one person keeps the plain dot.
 
 **#40 — the calendar says why it failed** (section 35): after #39 the first real load showed only "Couldn't load the calendar right now"; the Worker now names the step that failed and the panel shows that line, so the cause can be read off the screen.
@@ -125,7 +127,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 389** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 400** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -614,3 +616,15 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 2 new tests (the label's edges and non-numbers; the cell uses it and keeps the one-person dot), 7 deliberate breakages, all caught after one gap (the cell's use of the label) was closed. In a real browser with made-up data: 1 person = dot, 3 = "3", 12 = "9+" with 12 rows in the list, 2 beside a holiday = amber dot plus "2", 9 = "9"; selected busy day = white pill. All web tests and the build pass.
 
 **NOT checked.** Real leave data (still only holidays seen on the live app), a phone-width screen (the cell width is unchanged and the pill is 14 px, but it was not looked at), Safari and Firefox, and a person's two entries on one day being merged into one (they are not).
+
+## 37. A "New" line in chats (PR #43)
+
+**Why.** The unread dot and the tab-title count say a chat has something new, but once you open it they vanish and nothing shows where the new part starts. A "New" line (Discord's red line) answers that.
+
+**What.** When you open a conversation, the first batch of messages is compared with your last-read time for it (`firstUnreadId` in `src/lib/unread.js`), and a red "New" separator goes just above the first message you had not read (`buildBlocks` in `src/lib/messageBlocks.js` takes the id and starts a new group there; `MessageList.jsx` draws it). The decision is made **once per opening** (in `ChatSurface.jsx`, from the first batch, once your own read times have arrived) and kept: marking the chat read moves your last-read time 400 ms later, and that must not drag the line along. Leaving and coming back decides afresh, so a line from last time is gone unless something new arrived since.
+
+**Where it does not go (on purpose).** Never read before (a new member is not told years of history are "new"). Your own messages are skipped (the line sits above the first unread one from someone else). If the first loaded message is itself unread there is no honest place for a line, since older ones may be unread too. Not in a read-only look at a channel you are not in, nor in private notes. It does **not** scroll you to the line: the view still opens at the latest message, so with many unread the line is above the fold.
+
+**Checked.** 11 new tests (where the line goes and the cases above, the layout with and without it, a new day, and guards on the wiring), 15 deliberate breakages, all caught after three gaps were closed (one redundant guard removed, one loose wiring test tightened). In a real browser, the real message list with made-up messages: the "New" separator sits between the last read message and the first unread, and an unread author's run is split there; with no unread there is no separator. All web tests and the build pass.
+
+**NOT checked.** The decision inside ChatSurface against live Firestore (it is covered by source-shape tests, since the component needs the live listener; not exercised in a browser here). Sign-in, a phone, Safari/Firefox. A conversation reopened while the tab is in the background. The Flutter app has no such line.
