@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#40 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#42 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#40)
+## 2. What shipped (PRs #1–#42)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#42 — leave count on busy days** (section 36): on the calendar grid a day with two or more people on leave shows the number ("9+" past nine) in place of the blue dot; one person keeps the plain dot.
+
 **#40 — the calendar says why it failed** (section 35): after #39 the first real load showed only "Couldn't load the calendar right now"; the Worker now names the step that failed and the panel shows that line, so the cause can be read off the screen.
 
 **#39 — DTR calendar widget** (section 34): a Calendar tile in the toolbox opens a popup of the DTR company calendar (holidays and who is on leave), with a lock that keeps it open while you chat; developers only for now.
@@ -123,7 +125,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 387** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 389** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -602,3 +604,13 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Outcome.** The first load after this deployed showed `reading DTR calendarEvents: Firestore query failed (429)`: Firestore refusing the read for quota, not a permissions or document-shape problem (the code was not at fault). The DTR project (`punx-dtr`) was then upgraded to the Blaze plan by the user, and the calendar loaded (November 2026 with the 1 and 30 November holidays). The most likely cause was the free plan's 50,000-reads-a-day cap; that was not confirmed from the Usage tab before the upgrade, so it is an inference from the status and from the fix working.
 
 **NOT checked.** Whether the messenger's own project (`punx-msg`) is on Blaze or near its cap (it has the same exposure, and presence reads are its known cost). A budget alert on the DTR project is worth setting, since Blaze has no hard cap. A day with several people on leave (the panel lists each person; the grid shows one dot however many).
+
+## 36. Leave count on busy days (PR #42)
+
+**Why.** Asked after the calendar went live: the grid drew one blue dot on a day however many people were out, so a day with 12 away looked the same as a day with one. The request was a count on busy days.
+
+**What.** `leaveCountLabel(n)` in `src/lib/dtrCalendar.js`: nothing for none or one (the plain dot stays), the number for two to nine, "9+" beyond. `CalendarPanel.jsx` draws it as a small pill in the dot's place (white with the brand colour on the selected day), beside the amber holiday dot when there is one. The number is the number of rows the day's list shows, so the grid and the list agree; a person with two leave entries on one day counts twice, as they get two rows. The accessible label already said "N on leave".
+
+**Checked.** 2 new tests (the label's edges and non-numbers; the cell uses it and keeps the one-person dot), 7 deliberate breakages, all caught after one gap (the cell's use of the label) was closed. In a real browser with made-up data: 1 person = dot, 3 = "3", 12 = "9+" with 12 rows in the list, 2 beside a holiday = amber dot plus "2", 9 = "9"; selected busy day = white pill. All web tests and the build pass.
+
+**NOT checked.** Real leave data (still only holidays seen on the live app), a phone-width screen (the cell width is unchanged and the pill is 14 px, but it was not looked at), Safari and Firefox, and a person's two entries on one day being merged into one (they are not).

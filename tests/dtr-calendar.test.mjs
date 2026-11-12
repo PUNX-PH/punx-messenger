@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import {
   CALENDAR_CACHE_MS, LEAVE_TYPES, MAX_HOLIDAY_DAYS, OPEN_CALENDAR_EVENT, PINNED_KEY, addMonths, createCalendarCache,
-  dayLabel, describeCalendarFailure, eventsForDate, failureDetail, holidaysByDate, leaveLine, leavesOnDate, monthGrid, monthKey,
+  dayLabel, describeCalendarFailure, eventsForDate, failureDetail, holidaysByDate, leaveCountLabel, leaveLine, leavesOnDate, monthGrid, monthKey,
   monthKeyOf, monthTitle, parseMonthKey, parseYMD, readPinned, toYMD, upcomingHolidays, writePinned,
 } from '../src/lib/dtrCalendar.js'
 import { gridRange } from '../workers/src/routes/dtrCalendar.js'
@@ -203,6 +203,25 @@ test('only the exact stored value counts, and broken or missing storage never th
   assert.doesNotThrow(() => writePinned(throwing, false))
   assert.equal(readPinned(null), false)
   assert.doesNotThrow(() => writePinned(undefined, true))
+})
+
+test('a busy day shows how many are out: nothing extra for one, the number for two to nine, 9+ beyond', () => {
+  assert.equal(leaveCountLabel(0), '')
+  assert.equal(leaveCountLabel(1), '', 'a plain dot says one')
+  assert.equal(leaveCountLabel(2), '2')
+  assert.equal(leaveCountLabel(9), '9')
+  assert.equal(leaveCountLabel(10), '9+')
+  assert.equal(leaveCountLabel(250), '9+')
+  for (const bad of [undefined, null, NaN, 'x', -3, {}]) assert.equal(leaveCountLabel(bad), '', String(bad))
+  // The number is the number of rows the day's list shows.
+  const leaves = [1, 2, 3].map(i => ({ id: 'l' + i, userName: 'P' + i, type: 'vacation', startDate: '2026-11-10', endDate: '2026-11-10', hours: 0 }))
+  assert.equal(leaveCountLabel(eventsForDate('2026-11-10', { leaves }).leaves.length), '3')
+})
+
+test('the grid cell uses that label, and keeps the plain dot for one person', () => {
+  const panel = lf(fs.readFileSync('src/components/CalendarPanel.jsx', 'utf8'))
+  assert.match(panel, /\(leaveCountLabel\(ev\.leaves\.length\)\s*\?\s*\(/, 'the label decides which marker is drawn')
+  assert.ok(panel.includes("w-1.5 h-1.5 rounded-full', isSel ? 'bg-white' : 'bg-brand'"), 'the one-person dot is still there')
 })
 
 // ---------- failures ----------
