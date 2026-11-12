@@ -96,21 +96,35 @@ export function shapeCalendar({ month, storedHolidays = [], events = [], departm
   return { month, from, to, holidays, leaves, departments: deptNames }
 }
 
+/**
+ * One line saying what went wrong, for the caller. Only a developer gets this far (the
+ * role check is first), and what goes in it is our own wording and an HTTP status, never
+ * a key or a document, so it is safe to hand back. Without it the widget could only say
+ * "couldn't load" and the cause would sit in a log nobody has open.
+ */
+const reason = (err) => String(err instanceof AuthError ? err.message : `${err?.name || 'Error'}: ${err?.message || err}`).slice(0, 160)
+
+/** Runs one step of the load; if it fails, the failure says which step. */
+const step = (name, work) => Promise.resolve().then(work).catch((err) => {
+  console.error(`[dtr-calendar] ${name} failed:`, err)
+  throw new AuthError(`${name}: ${reason(err)}`, 502)
+})
+
 /** Reads the three DTR collections the calendar needs. */
 async function readDtr(env, from) {
   const dtrSa = loadServiceAccount(env, 'DTR_SERVICE_ACCOUNT')
   const project = env.DTR_PROJECT_ID
+  const read = (collection, query) => step(`reading DTR ${collection}`, () => firestoreQuery(env, dtrSa, { from: [{ collectionId: collection }], ...query }, project))
   const [storedHolidays, events, departments] = await Promise.all([
-    firestoreQuery(env, dtrSa, { from: [{ collectionId: 'holidays' }], limit: 1000 }, project),
+    read('holidays', { limit: 1000 }),
     // Dates are YYYY-MM-DD strings, so they compare as text. One range filter only (on
     // endDate); the other end of the overlap is checked in shapeCalendar.
-    firestoreQuery(env, dtrSa, {
-      from: [{ collectionId: 'calendarEvents' }],
+    read('calendarEvents', {
       where: { fieldFilter: { field: { fieldPath: 'endDate' }, op: 'GREATER_THAN_OR_EQUAL', value: { stringValue: from } } },
       orderBy: [{ field: { fieldPath: 'endDate' }, direction: 'ASCENDING' }],
       limit: 2000,
-    }, project),
-    firestoreQuery(env, dtrSa, { from: [{ collectionId: 'departments' }], limit: 500 }, project),
+    }),
+    read('departments', { limit: 500 }),
   ])
   return { storedHolidays, events, departments }
 }
@@ -130,11 +144,12 @@ export async function getCalendar(request, env) {
   }
 
   const key = `dtrcal:v1:${month}`
-  let body = await env.JWKS_CACHE.get(key)
+  let body = await step('reading the cache', () => env.JWKS_CACHE.get(key))
   if (!body) {
     const raw = await readDtr(env, gridRange(parsed).from)
-    body = JSON.stringify(shapeCalendar({ month, ...raw }))
-    await env.JWKS_CACHE.put(key, body, { expirationTtl: CACHE_SECONDS })
+    body = await step('shaping the month', () => JSON.stringify(shapeCalendar({ month, ...raw })))
+    // The cache is a convenience: if it cannot be written the month is still served.
+    try { await env.JWKS_CACHE.put(key, body, { expirationTtl: CACHE_SECONDS }) } catch (err) { console.error('[dtr-calendar] cache write failed:', err) }
   }
 
   return new Response(body, {

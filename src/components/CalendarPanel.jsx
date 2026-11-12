@@ -119,6 +119,7 @@ export default function CalendarPanel({ pinned, onTogglePin, onClose }) {
           {state.status === 'error' && (
             <div role="alert" className="text-sm">
               <div className="text-ink-muted">{state.error?.message || "Couldn't load the calendar."}</div>
+              {state.error?.detail && <div className="mt-1 text-xs text-ink-dim break-words">{state.error.detail}</div>}
               {state.error?.retryable !== false && (
                 <button type="button" onClick={() => setAttempt(a => a + 1)} className="mt-2 text-xs text-brand-text hover:underline">Try again</button>
               )}

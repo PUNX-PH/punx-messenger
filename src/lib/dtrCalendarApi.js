@@ -3,17 +3,18 @@
 // GIF picker and the TURN credentials do. The decisions (what a failure says, how long
 // a month is remembered) are in dtrCalendar.js, where they are tested.
 import { auth } from './firebase'
-import { createCalendarCache, describeCalendarFailure } from './dtrCalendar'
+import { createCalendarCache, describeCalendarFailure, failureDetail } from './dtrCalendar'
 
 const WORKER_API_URL = import.meta.env.VITE_GIFS_WORKER_URL || 'http://127.0.0.1:8787'
 
 /** A failed load, carrying the words to show and whether trying again can help. */
 export class CalendarLoadError extends Error {
-  constructor(status) {
+  constructor(status, body) {
     const { message, retryable } = describeCalendarFailure(status)
     super(message)
     this.status = status
     this.retryable = retryable
+    this.detail = failureDetail(status, body)
   }
 }
 
@@ -29,7 +30,7 @@ async function fetchMonth(key) {
   } catch {
     throw new CalendarLoadError(0) // offline, blocked, or the Worker is unreachable
   }
-  if (!res.ok) throw new CalendarLoadError(res.status)
+  if (!res.ok) throw new CalendarLoadError(res.status, await res.json().catch(() => null))
   try {
     return await res.json()
   } catch {

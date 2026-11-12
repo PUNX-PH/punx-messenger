@@ -177,6 +177,18 @@ export function describeCalendarFailure(status) {
   return { retryable: true, message: "Couldn't load the calendar right now. Try again in a moment." }
 }
 
+/**
+ * The Worker's own one-line reason for a server-side failure ("reading DTR holidays:
+ * Firestore query failed (403)"), shown small under the plain words so the cause can be
+ * read off the screen. Only for the "something broke on our side" answers: a refusal or a
+ * bad month already says everything. Clipped, and text only (it is rendered as text).
+ */
+export function failureDetail(status, body) {
+  if (status === 0 || status === 400 || status === 401 || status === 403) return ''
+  const text = body && typeof body.error === 'string' ? body.error.trim() : ''
+  return text.slice(0, 200)
+}
+
 // ---------- the months already fetched ----------
 
 export const CALENDAR_CACHE_MS = 5 * 60 * 1000
