@@ -10,7 +10,7 @@ import { whoIsTyping } from '../lib/typing'
 import { sameMessages } from '../lib/messagesIdentity'
 import { describeListenError } from '../lib/listenError'
 import { usePageActive } from '../lib/usePageActive'
-import { needsMarkRead } from '../lib/unread'
+import { firstUnreadId, needsMarkRead } from '../lib/unread'
 import { pathToReadKey } from '../lib/db'
 import ErrorBoundary from './ErrorBoundary'
 import MessageList, { PinIcon } from './MessageList'
@@ -57,6 +57,12 @@ export default function ChatSurface({
   const [nowTick, setNowTick] = useState(() => Date.now())
   const pinnedRef = useRef(null)
   const searchRef = useRef(null)
+  // Where the "New" line goes in the conversation you just opened: the first message you
+  // had not read at that moment. Decided once per opening, from the first batch of
+  // messages, and then left where it is while you read (marking the chat read moves
+  // your last-read time, which must not drag the line along).
+  const [newFrom, setNewFrom] = useState(null) // { path, id }
+  const newFromDecidedFor = useRef(null)
 
   // Container path for typing (drops the trailing /messages). Skip for private notes.
   const containerPath = path && !path.startsWith('users/')
@@ -105,6 +111,9 @@ export default function ChatSurface({
     setPinnedOpen(false)
     setSearchOpen(false)
     setJumpId(null)
+    // Opening a conversation (again) decides the "New" line afresh.
+    newFromDecidedFor.current = null
+    setNewFrom(null)
   }, [path])
 
   useEffect(() => {
@@ -113,6 +122,15 @@ export default function ChatSurface({
       setLoadError(null)
       // Same messages as the same objects: nothing to do (see messagesIdentity.js).
       setMessages(prev => (sameMessages(prev, docs) ? prev : docs))
+      // The first batch for this opening, once we know our own read times (they arrive
+      // with the user directory). Not for a read-only look at a channel you are not in,
+      // nor private notes: neither tracks what you have read.
+      const me = usersByIdRef.current?.[profile?.uid]
+      if (newFromDecidedFor.current !== path && me && docs.length && !readOnly && !path.startsWith('users/')) {
+        newFromDecidedFor.current = path
+        const lastRead = me.lastRead?.[pathToReadKey(path.replace(/\/messages$/, ''))]
+        setNewFrom({ path, id: firstUnreadId(docs, lastRead, profile.uid) })
+      }
       setHasMore(meta.hasMore)
       setLoadingMore(false)
     }, limit, (err) => {
@@ -314,6 +332,7 @@ export default function ChatSurface({
       <ErrorBoundary resetKey={path} title="This conversation can't be shown">
         <MessageList
           messages={messages}
+          newFromId={newFrom?.path === path ? newFrom.id : null}
           hasMore={hasMore}
           loadingMore={loadingMore}
           onLoadOlder={loadOlder}

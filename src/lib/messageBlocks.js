@@ -15,8 +15,10 @@ export function toDate(ts) {
  * @param {Array} messages oldest first
  * @param {number} groupMinutes messages by the same person this close together share
  *   a group; 0 means never group (every message shows its own name and photo)
+ * @param {string|null} newFromId the first unread message: a "new" marker goes just
+ *   above it, and it starts a group so the marker never cuts a run in two
  */
-export function buildBlocks(messages, groupMinutes = 5) {
+export function buildBlocks(messages, groupMinutes = 5, newFromId = null) {
   const windowMs = Math.max(0, groupMinutes) * 60 * 1000
   const blocks = []
   let lastGroup = null
@@ -29,6 +31,10 @@ export function buildBlocks(messages, groupMinutes = 5) {
     if (day && day !== lastDay) {
       blocks.push({ type: 'day', key: `day-${day}`, date: ts })
       lastDay = day
+      lastGroup = null
+    }
+    if (newFromId && m.id === newFromId) {
+      blocks.push({ type: 'new', key: `new-${m.id}` })
       lastGroup = null
     }
     const lastTs = lastGroup && toDate(lastGroup.last)
