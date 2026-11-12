@@ -9,6 +9,7 @@
 //   EmojiPicker         opens on a click; it also carries the GIF panel
 //   GroupSettingsModal, ChannelAccessModal, CreateGroupModal, PreferencesModal
 //                       dialogs, shown on demand
+//   CalendarPanel       the DTR calendar popup, opened from the toolbox
 import { lazyWithPreload, preloadWhenIdle } from './lazy'
 
 export const AdminPanel = lazyWithPreload(() => import('../views/AdminPanel'))
@@ -19,6 +20,7 @@ export const ChannelAccessModal = lazyWithPreload(() => import('../components/Ch
 export const CreateGroupModal = lazyWithPreload(() => import('../components/CreateGroupModal'))
 export const PreferencesModal = lazyWithPreload(() => import('../components/PreferencesModal'))
 export const QuickSwitcher = lazyWithPreload(() => import('../components/QuickSwitcher'))
+export const CalendarPanel = lazyWithPreload(() => import('../components/CalendarPanel'))
 
 /**
  * Warms up what nearly everyone ends up using, once the app is up. The admin panel

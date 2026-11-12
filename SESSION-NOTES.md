@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#38 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#39 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#38)
+## 2. What shipped (PRs #1–#39)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#39 — DTR calendar widget** (section 34): a Calendar tile in the toolbox opens a popup of the DTR company calendar (holidays and who is on leave), with a lock that keeps it open while you chat; developers only for now.
+
 **#38 — apps menu as a grid** (section 33): the toolbox menu shows app tiles (icon above the name, three to a row) instead of a list.
 
 **#37 — apps toolbox** (section 32): a toolbox icon in the chat header that lists the company's other apps, starting with the DTR tracker; visible to developers only for now.
@@ -119,7 +121,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 353** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 385** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -570,3 +572,19 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** One new test (grid, icon above the name, description still reachable, scrolls). Five deliberate breakages (back to a list, icon beside the name, description dropped, no scrolling, no new tab), all caught. Real browser with five stand-in apps (one with a very long name): three columns, two rows, tiles 87 px wide, the long name clamped to two lines (30 px tall) with the full name and description in the hover text; one cosmetic bug found and fixed there (a `block` class had cancelled the two-line limit). All 353 Node tests and the build pass.
 
 **NOT checked.** The real signed-in app; a narrow phone-width header (the menu is capped at the screen width minus a margin but not looked at there); the hover text on a touch screen (it is not shown there, so on a phone the description is not visible; the name is).
+
+## 34. DTR calendar widget (PR #39)
+
+**Why.** The DTR app has a company calendar (its Department Calendar: holidays and everyone's approved leave and offsets). The request was a calendar widget in the messenger that pops up, with an option to lock it, using that calendar. Chosen with the user: it lives in the messenger, "lock" means pin it open, and it shows holidays and approved leave.
+
+**What.** A **Calendar** tile in the toolbox (it is the first tile that runs something instead of opening a link: an entry in `src/lib/apps.js` is now a `url` or an `action`, never both). It opens a floating panel (top right, below the header): month grid with arrows and "Today"; an amber dot on holidays, a blue dot on days someone is on leave; click a day for its holidays and who is on leave ("Ana Reyes · SL", "Ben · OFFSET 4h", with their department). Rules are the DTR's: a multi-day holiday is on every day it covers; day-based leave skips weekends (a Friday-to-Monday sick leave does not paint the weekend); an offset claims its date.
+
+**The lock.** The padlock in the panel's header pins it. Unpinned it is a popup: it closes on Escape and on a click outside. Pinned it does neither and stays open as you move between chats; it is remembered on the device and is open when the app starts (`punx.calendarPinned` in localStorage). The × always closes it and unpins it.
+
+**How the data gets here.** The messenger cannot read the DTR's Firebase project (docs/DTR.md), so a new Worker route does: `GET /dtr/calendar?month=YYYY-MM` (`workers/src/routes/dtrCalendar.js`; details and the table in docs/DTR.md, "The calendar widget"). It verifies the caller's messenger ID token, reads `users/{uid}` and requires a role in `DTR_CALENDAR_ROLES` (default **developer**), reads only the DTR's `holidays`, `calendarEvents` and `departments`, caches the month for 5 minutes in KV, and returns each leave field by field (never a reason). The built-in Philippine holiday rules are a **vendored copy** of the DTR's `src/services/holidays.js` (commit 279ed7d3): keep it in sync by hand.
+
+**Visible to developers only, for now**, in two places that must be widened together: `APPS_VISIBLE_TO` (client) and `DTR_CALENDAR_ROLES` (Worker, `wrangler.toml`). The client one only hides the button; the Worker one holds. Worth knowing: the DTR itself shows its own Department tab to super admins only while testing, so this gives developers a view the DTR does not (the DTR's rules do let any active DTR user read the same data).
+
+**Checked.** 29 new client tests (month maths including a year-by-year check that the client grid and the Worker's date range agree for 2020-2036, the leave rules, wording, the pin, failure wording, the month cache, and guards on the wiring) and 25 new Worker tests with real RSA-signed tokens against an in-memory Firestore (who may ask, nothing of the DTR read for anyone refused, a demotion between two requests, only the three collections read, the range filter sent, the cache, malformed input, a seeded reason never appearing, the vendored holiday rules for 2026). 35 deliberate breakages, all caught. In a real browser (the real toolbox, host and panel; data from the Worker's own shaping code over made-up events): the Calendar tile opens it; grid, dots, day details, multi-day holiday, weekend rule, Sunday offset; month paging, one fetch per month and none when paging back; an offline failure with "Try again" and a 403 with no retry; unpinned popup closes on outside click and Escape; pinned stays through both and through a change of chat, survives a reload, and × unpins; fits a 375 px screen. All 385 web tests, 43 Worker tests and the build pass. The panel is its own 6.7 kB (2.6 kB gzipped) chunk, loaded on first use.
+
+**NOT checked.** **The Worker against the real DTR data** (it has only run against the in-memory test double, so the exact shape of real `calendarEvents` and `holidays` documents, the query's index needs and the service account's access are assumed from the DTR's code and rules). The route after deploy. The signed-in messenger. Safari and Firefox. Time zones: days are plain dates and the grid and "today" use the browser's local date, which is right for a team in the Philippines and could be a day off for someone far west. There is no department filter (the DTR's has one) and no way to refresh before the 5-minute cache runs out except "Try again" after a failure. The Flutter app has no calendar.

@@ -18,6 +18,7 @@
 import { AuthError, secretsMatch } from './auth.js'
 import * as bots from './routes/bots.js'
 import { assertDtrAdmin, getAutoSend, runDtrReminder, setAutoSend, setCutoffDeadline } from './routes/dtr.js'
+import { getCalendar } from './routes/dtrCalendar.js'
 import * as gifs from './routes/gifs.js'
 import * as turn from './routes/turn.js'
 
@@ -75,6 +76,12 @@ export default {
       // routes/turn.js for why this cannot be a build-time constant.
       if (url.pathname === '/turn/credentials' && request.method === 'GET') {
         return withCors(await turn.issueIceServers(request, env), cors)
+      }
+      // The DTR company calendar (holidays and approved leave) for the messenger's
+      // calendar widget. A messenger user's own ID token, plus a role check inside:
+      // see routes/dtrCalendar.js.
+      if (url.pathname === '/dtr/calendar' && request.method === 'GET') {
+        return withCors(await getCalendar(request, env), cors)
       }
       // Bots call this server-to-server, so CORS is irrelevant to them — but
       // it's echoed anyway so the endpoint stays testable from a browser.

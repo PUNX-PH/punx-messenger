@@ -22,6 +22,7 @@ import InviteAccept from './views/InviteAccept'
 import DataProblemsBanner from './components/DataProblemsBanner'
 import TabTitleUnread from './components/TabTitleUnread'
 import UnreadHotkeys from './components/UnreadHotkeys'
+import CalendarHost from './components/CalendarHost'
 import PrefsSync from './components/PrefsSync'
 import QuickSwitcherHost from './components/QuickSwitcherHost'
 
@@ -57,6 +58,7 @@ function Gate() {
     <DataProblemsBanner />
     {user && profile && <TabTitleUnread />}
     {user && profile && <UnreadHotkeys />}
+    {user && profile && <CalendarHost />}
     {user && profile && <PrefsSync />}
     {user && profile && <QuickSwitcherHost />}
     <Routes>

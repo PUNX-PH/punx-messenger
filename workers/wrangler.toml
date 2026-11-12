@@ -29,6 +29,10 @@ FIREBASE_PROJECT_ID = "punx-msg"
 # project's JSON. Sharing punx-msg's would not work — the credential is scoped
 # to one project.
 DTR_PROJECT_ID = "punx-dtr"
+# Who may load the calendar widget's data (GET /dtr/calendar): messenger roles, comma
+# separated. Developers only for now, like the toolbox that opens it in the client
+# (src/lib/apps.js); widen BOTH together. Unset means developers only.
+DTR_CALENDAR_ROLES = "developer"
 # The bot the reminder posts as. Register it in the admin panel with the
 # `dm:write` scope and paste its uid here; without the scope every DM is denied
 # by firestore.rules, which is the intended behaviour, not a bug to work around.
