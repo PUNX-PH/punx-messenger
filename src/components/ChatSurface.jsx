@@ -17,6 +17,7 @@ import MessageList, { PinIcon } from './MessageList'
 import Composer from './Composer'
 import TypingIndicator from './TypingIndicator'
 import SearchDropdown from './SearchDropdown'
+import AppsMenu from './AppsMenu'
 import { MenuButton } from './AppShell'
 
 /**
@@ -284,6 +285,8 @@ export default function ChatSurface({
             />
           )}
         </div>
+
+        <AppsMenu />
 
         {headerExtras}
       </header>

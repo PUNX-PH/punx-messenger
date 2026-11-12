@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#36 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#37 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#36)
+## 2. What shipped (PRs #1–#37)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#37 — apps toolbox** (section 32): a toolbox icon in the chat header that lists the company's other apps, starting with the DTR tracker; visible to developers only for now.
+
 **#36 — chat backgrounds** (section 31): a faint pattern behind the messages, chosen in Appearance & preferences: simple textures, the Punx wordmark (corner, centre, repeating) and one drawing per team.
 
 **#35 — next unread with the keyboard** (section 30): Alt+Shift+Down / Up opens the next unread conversation, from anywhere in the web app.
@@ -115,7 +117,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 344** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 352** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -540,3 +542,19 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 20 new tests (preference validation incl. hostile values, the snapshot, the attributes and their removal, high contrast, the start-up script and the app putting the same things on the page for three new samples, each drawing well formed / colourless / inside its tile, the generated stylesheet identical to its source, a rule for every pattern, `pointer-events: none` and sitting behind the text, both message-list branches carrying the class, the stylesheet being loaded, the logo's proportions, labels). 22 deliberate breakages, 21 caught at once; the survivor (a stray space in a label) was guarded with a test. In a real browser, with the real dialog, the real preference store and the real stylesheet (stubbed: only notifications): all 17 render in the chat in dark, several in light; a real click on a tile applied it; Strong set opacity 0.12; Higher contrast removed the pattern and showed the note; turning it off brought it back; None removed the strength control. All 344 Node tests and the build pass.
 
 **NOT checked.** Signed in against the real app and the real Firestore save of the new fields. Safari and Firefox (CSS masks are supported in current versions, with the `-webkit-` form included, but only Chromium was looked at). Phone-sized screens in the real app (only a 347 px wide page was seen, and the corner mark looked right there). Whether the patterns look right to the teams they are for: they are my drawings, not a designer's. Performance on a very long chat (a mask on one element, repainted only when the theme changes, but not measured). The Flutter app has no backgrounds yet. Not done: a background for the sidebars, avatar frames, nameplates, any per-group default.
+
+## 32. Apps toolbox (PR #37)
+
+**Why.** The messenger is meant to be the hub, and more company apps are coming, starting with the DTR tracker (https://dtr.punxai.online/). A toolbox icon in the chat header gives them one place to be reached from.
+
+**What.** A toolbox icon in every chat header (channels, DMs and notes: it is in `ChatSurface`), between the pinned-messages icon and the per-screen buttons (the members icon in a channel, the call buttons in a DM). It opens a small menu; each entry opens its app in a new tab (`target="_blank"`, `rel="noopener noreferrer"`). Escape and a click outside close it. Today the list has one entry, "DTR tracker".
+
+**Visible to developers only, for now.** `APPS_VISIBLE_TO = ['developer']` in `src/lib/apps.js` (the `developer` role of docs/ROLES.md). Super admins, admins, employees and guests do not see the icon, and neither does anyone before their profile has loaded. To open it up, add roles to that list. **This only decides whether the icon is drawn; it is not access control**: the DTR site is a public URL with its own sign-in, and anyone who has the address can open it.
+
+**To add an app:** add one entry to `WORKSPACE_APPS` in `src/lib/apps.js` (id, name, description, https url, icon `clock` or `app`). A malformed entry (not https, no name, a repeated id) is left out instead of breaking the menu. A new icon means a new case in `AppIcon` in `src/components/AppsMenu.jsx` and its name in `APP_ICONS`.
+
+**Not shared with the DTR app.** The DTR tracker is a separate Firebase project (`punx-dtr`) with its own sign-in (docs/DTR.md), so people may be asked to sign in there; nothing from the messenger session is passed along. A single sign-in across the two would be a separate piece of work (the only key between the directories is the email address).
+
+**Checked.** 8 new tests (the DTR entry and its exact address; the list is complete and unique; only plain https links pass, including rejecting http, javascript:, data:, file:, relative and protocol-relative links, embedded credentials and bare hosts; a malformed entry is dropped; only the `developer` role passes, not `Developer`, a padded value, no role or a not-yet-loaded profile; the role matches the app's own `isDeveloper`; the header carries the menu; the link opens safely). 16 deliberate breakages, 15 caught at once; the survivor (no empty button when the list is empty) now has a guard. In a real browser with the real menu in a header like the real one: as a developer the toolbox sits between the pin and members icons, the menu shows the DTR tracker with the right address, new-tab and no-opener settings, and Escape and an outside click close it; as a super admin, an employee and with no profile there is no toolbox. The DTR site answers (HTTP 200). All 352 Node tests and the build pass.
+
+**NOT checked.** In the real signed-in app (the browser check used the real menu in a stand-in header, with the role supplied by a stub), so the exact fit in each real header, and in a very narrow phone-width channel header, is unseen. Signing in on the DTR site from here. The Flutter app has no toolbox. Keyboard arrow-key movement inside the menu (it is Tab and Enter).
