@@ -52,6 +52,7 @@ const env = (over = {}) => ({
 
 let docs      // `${project}|${path}` -> REST fields
 let reads     // [{ project, kind: 'get'|'query', target }]
+let failing   // `${project}|${collection}` -> HTTP status that query answers with
 const seed = (project, path, obj) => { docs.set(`${project}|${path}`, encodeFields(obj)) }
 
 globalThis.fetch = async (input, init = {}) => {
@@ -67,6 +68,9 @@ globalThis.fetch = async (input, init = {}) => {
     const sq = JSON.parse(init.body).structuredQuery
     const collection = sq.from[0].collectionId
     reads.push({ project, kind: 'query', target: collection, where: sq.where, limit: sq.limit })
+    // A string means the connection itself fails with that message, not an HTTP status.
+    if (typeof failing.get(`${project}|${collection}`) === 'string') throw new TypeError(failing.get(`${project}|${collection}`))
+    if (failing.has(`${project}|${collection}`)) return json({ error: { message: 'secret detail from Google' } }, failing.get(`${project}|${collection}`))
     const rows = [...docs.entries()]
       .filter(([k]) => k.startsWith(`${project}|${collection}/`) && k.split('/').length === 2)
       .map(([k, fields]) => ({ document: { name: `x/${k.split('/').pop()}`, fields } }))
@@ -84,7 +88,7 @@ globalThis.fetch = async (input, init = {}) => {
 }
 
 beforeEach(() => {
-  docs = new Map(); reads = []; kv = new Map(); kvPuts = []
+  docs = new Map(); reads = []; kv = new Map(); kvPuts = []; failing = new Map()
   seed(MSG, 'users/u1', { name: 'Dev', role: 'developer' })
   seed(MSG, 'users/emp', { name: 'Emp', role: 'employee' })
   seed(MSG, 'users/sa', { name: 'Super', role: 'super_admin' })
@@ -343,6 +347,49 @@ describe('GET /dtr/calendar', () => {
     assert.equal(put.opts.expirationTtl, 300)
     await get('/dtr/calendar?month=2026-12')
     assert.equal(dtrReads().length, first * 2, 'another month is another read')
+  })
+
+  test('when a DTR read fails, the answer says which one and with what status, and nothing else of Google leaks', async () => {
+    failing.set(`${DTR}|calendarEvents`, 403)
+    const res = await get('/dtr/calendar?month=2026-11')
+    assert.equal(res.status, 502)
+    const { error } = await res.json()
+    assert.equal(error, 'reading DTR calendarEvents: Firestore query failed (403)')
+    assert.ok(!error.includes('secret detail'), "Google's own error body is not passed on")
+    assert.equal(kvPuts.filter(p => p.k.startsWith('dtrcal:')).length, 0, 'a failed month is not cached')
+    assert.equal(res.headers.get('Access-Control-Allow-Origin'), 'https://plexus.punxai.online', 'the app can still read the reason')
+
+    failing.clear()
+    failing.set(`${DTR}|holidays`, 500)
+    assert.equal((await (await get('/dtr/calendar?month=2026-11')).json()).error, 'reading DTR holidays: Firestore query failed (500)')
+  })
+
+  test('a dropped connection is named by kind, and a very long message is cut short', async () => {
+    failing.set(`${DTR}|departments`, 'fetch failed')
+    const res = await get('/dtr/calendar?month=2026-11')
+    assert.equal(res.status, 502)
+    assert.equal((await res.json()).error, 'reading DTR departments: TypeError: fetch failed')
+
+    failing.set(`${DTR}|departments`, 'x'.repeat(500))
+    const { error } = await (await get('/dtr/calendar?month=2026-11')).json()
+    assert.equal(error.length, 'reading DTR departments: '.length + 160)
+  })
+
+  test('a missing DTR service account is named, and still only for an allowed role', async () => {
+    const res = await get('/dtr/calendar?month=2026-11', { over: { DTR_SERVICE_ACCOUNT: '' } })
+    assert.equal(res.status, 503)
+    assert.match((await res.json()).error, /DTR_SERVICE_ACCOUNT is unset/)
+    const refused = await get('/dtr/calendar?month=2026-11', { auth: `Bearer ${token({ uid: 'emp' })}`, over: { DTR_SERVICE_ACCOUNT: '' } })
+    assert.equal(refused.status, 403, 'an employee is told nothing about the configuration')
+    assert.equal((await refused.json()).error, 'The calendar is not available to this account')
+  })
+
+  test('a cache that cannot be written does not stop the month being served', async () => {
+    // The same KV also holds Google's sign-in keys, so only the calendar's own write fails.
+    const flaky = { get: async () => null, put: async (k) => { if (k.startsWith('dtrcal:')) throw new Error('KV down') } }
+    const res = await get('/dtr/calendar?month=2026-11', { over: { JWKS_CACHE: flaky } })
+    assert.equal(res.status, 200)
+    assert.equal((await res.json()).month, '2026-11')
   })
 
   test('other methods are not served', async () => {

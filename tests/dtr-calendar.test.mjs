@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import {
   CALENDAR_CACHE_MS, LEAVE_TYPES, MAX_HOLIDAY_DAYS, OPEN_CALENDAR_EVENT, PINNED_KEY, addMonths, createCalendarCache,
-  dayLabel, describeCalendarFailure, eventsForDate, holidaysByDate, leaveLine, leavesOnDate, monthGrid, monthKey,
+  dayLabel, describeCalendarFailure, eventsForDate, failureDetail, holidaysByDate, leaveLine, leavesOnDate, monthGrid, monthKey,
   monthKeyOf, monthTitle, parseMonthKey, parseYMD, readPinned, toYMD, upcomingHolidays, writePinned,
 } from '../src/lib/dtrCalendar.js'
 import { gridRange } from '../workers/src/routes/dtrCalendar.js'
@@ -220,6 +220,26 @@ test('a failed load says what is wrong in plain words, and whether retrying can 
     const { message } = describeCalendarFailure(s)
     assert.doesNotMatch(message, /\d{3}|Firestore|permission-denied|worker/i, 'no raw codes or internals in what a person reads')
   }
+})
+
+test('a server-side failure shows the Worker\'s one-line reason; a refusal or a bad month does not', () => {
+  const body = { error: 'reading DTR holidays: Firestore query failed (403)' }
+  assert.equal(failureDetail(502, body), 'reading DTR holidays: Firestore query failed (403)')
+  assert.equal(failureDetail(500, { error: 'Internal error' }), 'Internal error')
+  assert.equal(failureDetail(503, { error: 'Not configured on this Worker (DTR_SERVICE_ACCOUNT is unset)' }).includes('DTR_SERVICE_ACCOUNT'), true)
+  for (const s of [0, 400, 401, 403]) assert.equal(failureDetail(s, body), '', 'status ' + s + ' already says all there is to say')
+  for (const b of [null, undefined, {}, { error: 5 }, { error: {} }, 'text', []]) assert.equal(failureDetail(502, b), '', JSON.stringify(b))
+  assert.equal(failureDetail(502, { error: 'x'.repeat(1000) }).length, 200, 'clipped')
+  assert.equal(failureDetail(502, { error: '  spaced  ' }), 'spaced')
+})
+
+test('the panel shows that reason as plain text under the message, and the load error carries it', () => {
+  const panel = lf(fs.readFileSync('src/components/CalendarPanel.jsx', 'utf8'))
+  assert.ok(panel.includes('{state.error?.detail && <div'), 'shown when there is one')
+  assert.ok(!panel.includes('dangerouslySetInnerHTML'), 'as text, never as markup')
+  const api = lf(fs.readFileSync('src/lib/dtrCalendarApi.js', 'utf8'))
+  assert.ok(api.includes('throw new CalendarLoadError(res.status, await res.json().catch(() => null))'), 'the response body is read')
+  assert.ok(api.includes('this.detail = failureDetail(status, body)'))
 })
 
 // ---------- the cache of fetched months ----------

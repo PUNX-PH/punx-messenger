@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#39 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#40 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#39)
+## 2. What shipped (PRs #1–#40)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#40 — the calendar says why it failed** (section 35): after #39 the first real load showed only "Couldn't load the calendar right now"; the Worker now names the step that failed and the panel shows that line, so the cause can be read off the screen.
+
 **#39 — DTR calendar widget** (section 34): a Calendar tile in the toolbox opens a popup of the DTR company calendar (holidays and who is on leave), with a lock that keeps it open while you chat; developers only for now.
 
 **#38 — apps menu as a grid** (section 33): the toolbox menu shows app tiles (icon above the name, three to a row) instead of a list.
@@ -121,7 +123,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 385** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 387** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -588,3 +590,13 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 29 new client tests (month maths including a year-by-year check that the client grid and the Worker's date range agree for 2020-2036, the leave rules, wording, the pin, failure wording, the month cache, and guards on the wiring) and 25 new Worker tests with real RSA-signed tokens against an in-memory Firestore (who may ask, nothing of the DTR read for anyone refused, a demotion between two requests, only the three collections read, the range filter sent, the cache, malformed input, a seeded reason never appearing, the vendored holiday rules for 2026). 35 deliberate breakages, all caught. In a real browser (the real toolbox, host and panel; data from the Worker's own shaping code over made-up events): the Calendar tile opens it; grid, dots, day details, multi-day holiday, weekend rule, Sunday offset; month paging, one fetch per month and none when paging back; an offline failure with "Try again" and a 403 with no retry; unpinned popup closes on outside click and Escape; pinned stays through both and through a change of chat, survives a reload, and × unpins; fits a 375 px screen. All 385 web tests, 43 Worker tests and the build pass. The panel is its own 6.7 kB (2.6 kB gzipped) chunk, loaded on first use.
 
 **NOT checked.** **The Worker against the real DTR data** (it has only run against the in-memory test double, so the exact shape of real `calendarEvents` and `holidays` documents, the query's index needs and the service account's access are assumed from the DTR's code and rules). The route after deploy. The signed-in messenger. Safari and Firefox. Time zones: days are plain dates and the grid and "today" use the browser's local date, which is right for a team in the Philippines and could be a day off for someone far west. There is no department filter (the DTR's has one) and no way to refresh before the 5-minute cache runs out except "Try again" after a failure. The Flutter app has no calendar.
+
+## 35. The calendar says why it failed (PR #40)
+
+**Why.** Right after #39 shipped, a developer opened the Calendar tile on the live app and got "Couldn't load the calendar right now. Try again in a moment." That is the catch-all for a 5xx from the Worker (not a refusal, which has its own words, and not "no connection"), so the role check had passed and the failure was in reading or shaping the DTR data. The Worker already sent a reason in the response body, and the client threw it away; Worker logs could not be read from here (wrangler is not logged in, and logging in to the Cloudflare account is not something to do unasked).
+
+**What.** The Worker (`workers/src/routes/dtrCalendar.js`) wraps each step so a failure says which one: `reading DTR holidays`, `reading DTR calendarEvents`, `reading DTR departments`, `shaping the month`, `reading the cache`, each followed by the cause ("Firestore query failed (403)", "TypeError: fetch failed"), clipped to 160 characters. Google's own error body is never passed on, and the message goes only to a caller who already passed the role check. A cache that cannot be written no longer fails the request (the month is just not cached). The client (`failureDetail` in `src/lib/dtrCalendar.js`) shows that line, small, under the plain words, for server-side failures only; a refusal, a bad month and "no connection" show nothing extra. It is rendered as text.
+
+**Checked.** 2 new client tests and 4 new Worker tests (which collection failed and with what status, a dropped connection, a very long message, a missing `DTR_SERVICE_ACCOUNT` named for an allowed role while an employee still learns nothing, and a cache that fails to write). 10 deliberate breakages, all caught after two gaps were closed. 387 web tests, 47 Worker tests and the build pass.
+
+**NOT checked.** The cause of the failure itself: this PR only makes it readable. Nothing has run against the real DTR data yet; the first load after this deploys is what shows it.
