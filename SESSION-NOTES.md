@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#37 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#38 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#37)
+## 2. What shipped (PRs #1–#38)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#38 — apps menu as a grid** (section 33): the toolbox menu shows app tiles (icon above the name, three to a row) instead of a list.
+
 **#37 — apps toolbox** (section 32): a toolbox icon in the chat header that lists the company's other apps, starting with the DTR tracker; visible to developers only for now.
 
 **#36 — chat backgrounds** (section 31): a faint pattern behind the messages, chosen in Appearance & preferences: simple textures, the Punx wordmark (corner, centre, repeating) and one drawing per team.
@@ -117,7 +119,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 352** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 353** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 18, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -558,3 +560,13 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 8 new tests (the DTR entry and its exact address; the list is complete and unique; only plain https links pass, including rejecting http, javascript:, data:, file:, relative and protocol-relative links, embedded credentials and bare hosts; a malformed entry is dropped; only the `developer` role passes, not `Developer`, a padded value, no role or a not-yet-loaded profile; the role matches the app's own `isDeveloper`; the header carries the menu; the link opens safely). 16 deliberate breakages, 15 caught at once; the survivor (no empty button when the list is empty) now has a guard. In a real browser with the real menu in a header like the real one: as a developer the toolbox sits between the pin and members icons, the menu shows the DTR tracker with the right address, new-tab and no-opener settings, and Escape and an outside click close it; as a super admin, an employee and with no profile there is no toolbox. The DTR site answers (HTTP 200). All 352 Node tests and the build pass.
 
 **NOT checked.** In the real signed-in app (the browser check used the real menu in a stand-in header, with the role supplied by a stub), so the exact fit in each real header, and in a very narrow phone-width channel header, is unseen. Signing in on the DTR site from here. The Flutter app has no toolbox. Keyboard arrow-key movement inside the menu (it is Tab and Enter).
+
+## 33. Apps menu as a grid (PR #38)
+
+**Why.** The toolbox menu (section 32) was a list; more apps are coming and a grid, like an app launcher, holds more in less space and reads faster.
+
+**What.** The menu is three tiles to a row: a rounded icon tile with the app's name under it (up to two lines, then an ellipsis), the one-line description moved to the hover text (`title`), and the small "open in new tab" arrow removed (the menu header already says it opens in a new tab). More than about nine apps scroll (`max-h-80`). Nothing else changed: same list in `src/lib/apps.js`, same developer-only visibility, same safe-link rules.
+
+**Checked.** One new test (grid, icon above the name, description still reachable, scrolls). Five deliberate breakages (back to a list, icon beside the name, description dropped, no scrolling, no new tab), all caught. Real browser with five stand-in apps (one with a very long name): three columns, two rows, tiles 87 px wide, the long name clamped to two lines (30 px tall) with the full name and description in the hover text; one cosmetic bug found and fixed there (a `block` class had cancelled the two-line limit). All 353 Node tests and the build pass.
+
+**NOT checked.** The real signed-in app; a narrow phone-width header (the menu is capped at the screen width minus a margin but not looked at there); the hover text on a touch screen (it is not shown there, so on a phone the description is not visible; the name is).

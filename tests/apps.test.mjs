@@ -77,3 +77,11 @@ test('the header carries the toolbox, and the menu opens links safely in a new t
   assert.match(menu, /rel="noopener noreferrer"/, 'a new tab must not get a handle back to the messenger')
   assert.match(menu, /usableApps\(\)/, 'only vetted links are rendered')
 })
+
+test('the menu is a grid of tiles, each with its name and a full description on hover', () => {
+  const menu = fs.readFileSync('src/components/AppsMenu.jsx', 'utf8')
+  assert.ok(menu.includes('grid grid-cols-3'), 'tiles in a grid')
+  assert.ok(menu.includes('flex-col'), 'icon above the name')
+  assert.ok(menu.includes('title={a.description ?'), 'the one-line description is still reachable')
+  assert.ok(menu.includes('overflow-y-auto'), 'many apps scroll instead of running off the screen')
+})

@@ -58,25 +58,22 @@ export default function AppsMenu() {
             <div className="font-semibold text-sm">Apps</div>
             <div className="text-xs text-ink-dim mt-0.5">Opens in a new tab. You may need to sign in there.</div>
           </div>
-          <ul className="py-1">
+          <ul className="grid grid-cols-3 gap-1 p-2 max-h-80 overflow-y-auto scrollbar-thin">
             {apps.map(a => (
-              <li key={a.id} role="none">
+              <li key={a.id} role="none" className="min-w-0">
                 <a
                   role="menuitem"
                   href={a.url}
                   target="_blank"
                   rel="noopener noreferrer"
+                  title={a.description ? `${a.name}: ${a.description}` : a.name}
                   onClick={() => setOpen(false)}
-                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-bg-hover focus-visible:bg-bg-hover"
+                  className="flex flex-col items-center gap-1.5 px-1 py-3 rounded-lg text-center hover:bg-bg-hover focus-visible:bg-bg-hover"
                 >
-                  <span className="shrink-0 w-9 h-9 rounded-lg bg-bg-deepest border border-line-subtle grid place-items-center text-brand-text">
+                  <span className="w-11 h-11 rounded-xl bg-bg-deepest border border-line-subtle grid place-items-center text-brand-text">
                     <AppIcon name={a.icon} />
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium truncate">{a.name}</span>
-                    {a.description && <span className="block text-xs text-ink-dim truncate">{a.description}</span>}
-                  </span>
-                  <span className="shrink-0 text-ink-dim"><ExternalIcon /></span>
+                  <span className="w-full text-xs font-medium leading-tight line-clamp-2 break-words">{a.name}</span>
                 </a>
               </li>
             ))}
@@ -102,16 +99,6 @@ function ToolboxIcon() {
       <rect x="3" y="7" width="18" height="13" rx="2" />
       <path d="M3 13h18" />
       <path d="M10 11v4h4v-4" />
-    </Svg>
-  )
-}
-
-function ExternalIcon() {
-  return (
-    <Svg size={14}>
-      <path d="M14 4h6v6" />
-      <path d="M20 4l-9 9" />
-      <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
     </Svg>
   )
 }
