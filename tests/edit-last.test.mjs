@@ -83,7 +83,7 @@ test('the box asks for it only when there is a handler, and keeps the key for it
   const c = read('src/components/Composer.jsx')
   assert.ok(c.includes("import { shouldEditLast } from '../lib/editLast'"))
   assert.ok(c.includes('onEditLast = null'))
-  assert.ok(c.includes('if (onEditLast && shouldEditLast(e, { text, hasFile: !!file, mentionOpen: !!(mention && mentionCandidates.length > 0) }))'))
+  assert.ok(c.includes('if (onEditLast && shouldEditLast(e, { text, hasFile: !!file, mentionOpen: !!(mention && mentionCandidates.length > 0) || suggestOpen }))'))
   // The key is only swallowed when a message was found.
   assert.ok(c.includes('if (onEditLast()) e.preventDefault()'))
   // It is checked after the @ list's own keys, before sending.

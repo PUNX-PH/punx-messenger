@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#62 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#63 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#62)
+## 2. What shipped (PRs #1–#63)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -98,6 +98,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 **#27 — unread count in the browser tab title** (section 23).
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
+
+**#63 — :emoji: suggestions in the message box** (section 56): type a colon and two letters.
 
 **#62 — a visible Group settings button on the phone app's group screen** (section 55).
 
@@ -165,7 +167,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 362**, **Node 601** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 362**, **Node 634** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -902,3 +904,17 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** 4 new Flutter tests (a plain member sees it, the owner sees it beside Add member, tapping opens the settings of *that* group, not before the group is known) and 6 deliberate breakages: 4 caught; 2 survived and are not worth a test (a different gear glyph; a commented-out blank line, which is no change). `flutter analyze` clean, 362 Flutter tests pass. A first run of the tap test failed because the settings screen reads the groups repository and the test had no Firebase; it now gives it a fake.
 
 **NOT checked.** On a phone or emulator (no Android build here; no iPhone). How the two icons fit on a narrow screen with a long group name (the title truncates; not seen).
+
+## 56. :emoji: suggestions in the message box (PR #63)
+
+**Why.** Last of four small changes asked for together (the up arrow, section 51; Copy text, 52; link to a message, 53). Adding an emoji meant opening the picker with the mouse; the workspace's custom emojis could only be typed from memory.
+
+**What.** In the message box, type a colon and at least two letters (`:fi`): a list of up to eight matches appears above the box ("Emoji matching :fi"). **Up/Down** move, **Enter or Tab** pick, **Esc** closes it, a click picks too (the cursor stays in the box). Picking replaces what was typed with the emoji and a space and puts the cursor after it. Two kinds are offered, best match first (exact, then starts-with, then contains; the workspace's own before the everyday ones at the same match): the **workspace's custom emojis** (written as their `:name:` token, which messages already turn into the picture, shown with a "custom" tag and their image) and **134 everyday emoji** by their usual names and the other names people type (`+1`, `lol`, `thanks`, `done`, `party`...). While the list is open Enter picks and does not send; with no matches (or Esc) Enter sends as always.
+
+**When a colon counts** (`detectEmojiQuery`, `src/lib/emojiSuggest.js`): at the start of the text or after a space, a name starting with a letter (or `+`/`-`) and two or more name characters, at the caret. Times (`10:30`, `at :30`), links (`http://`), smileys (`:)`, `:3`), a lone `:o` and a finished `:fire:` are not taken. The list is cleared on sending and on moving to another conversation; the up-arrow-to-edit shortcut (section 51) still never fires while it is open.
+
+**Safe by construction.** Nothing is written anywhere and nothing goes over the network: the everyday list is a table in the file (no invisible characters in the source: the picture-form marker is written by its code, and a test fails if one appears raw), the custom ones are the list the app already holds. A custom emoji entry that is malformed is skipped. No rules change.
+
+**Checked.** 33 new tests and 57 deliberate breakages, all caught (12 first survived: ties broken by name, the best of an emoji's several names, a negative limit, the highlight staying inside the list, picking by mouse keeping the cursor, and four more wiring lines; each closed with a test, and one test I had written wrong was fixed before re-running so the second run was against a green baseline). In a real browser (the real message box, the custom emojis stubbed): `:fi` listed the custom `fire_dance` (tagged, with its picture) above 🔥 fire, 👊 fist, 🤞 crossed fingers; Down moved the highlight and Enter inserted 🔥 with a space, the cursor after it, nothing sent and the text kept; `:partyp` then Tab inserted `:partyparrot: `; `:smi` then Esc closed it and kept the text; `10:30` and `:zzqq` showed no list and Enter then sent (the box emptied); `:roc` then a mouse click inserted 🚀 and left the cursor in the box. 634 web tests and the build pass.
+
+**NOT checked.** An input method (IME) composing: the list ignores Enter during composition (in the code, and pinned by a test), not tried with a real one. Safari, Firefox, a phone keyboard. Very long custom emoji lists (it shows eight). The list's look on a narrow screen. The phone app does not have it. A fully typed `:fire:` for an everyday emoji is not converted on send (only picked ones are), as before.
