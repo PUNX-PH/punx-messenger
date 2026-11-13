@@ -11,6 +11,8 @@ import {
 } from './firebase'
 import { getPendingInvite } from './invites'
 import { drafts } from './drafts'
+import { shouldJoinDefaultGroup } from './onboarding'
+import { requestDefaultGroup } from './onboardingApi'
 
 const AuthCtx = createContext(null)
 
@@ -97,6 +99,13 @@ export function AuthProvider({ children }) {
         const fresh = await getDoc(ref)
         setUser(u)
         setProfile({ id: u.uid, ...fresh.data() })
+        // A new company account is put into the default group (PUNX TEAM) by the Worker,
+        // which is the only one allowed to: people cannot add themselves to a group. Not
+        // waited for and never fatal: a missed attempt is retried at the next sign-in for
+        // a week (shouldJoinDefaultGroup), and the Worker checks all of it again.
+        if (shouldJoinDefaultGroup({ profile: fresh.data(), email, domain: ALLOWED_DOMAIN, justCreated: !known })) {
+          requestDefaultGroup().catch((e) => console.warn('[onboarding] could not join the default group:', e))
+        }
       } catch (e) {
         console.error('[auth] profile sync failed:', e)
         await fbSignOut(auth)

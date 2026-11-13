@@ -55,6 +55,12 @@ TURN_KEY_ID = "c722358fa67855ac30e5792bb385fe81"
 ALLOWED_EMAIL_DOMAIN = "punx.ai"
 ALLOWED_EXTRA_EMAILS = "perezjohnrey43@gmail.com"
 
+# ── New accounts join this group automatically (routes/onboarding.js) ──
+# Company (@punx.ai) accounts created in the last 7 days. The group is found by this
+# name, ignoring case, and only if exactly one group has it and a workspace admin owns
+# it. To pin it to one exact group instead, add: DEFAULT_GROUP_ID = "<the group's id>".
+DEFAULT_GROUP_NAME = "PUNX TEAM"
+
 # ── CORS allowlist — add any new deploy origin (custom domain, etc.) here ──
 ALLOWED_ORIGINS = "http://localhost:5173,https://punx-messenger.vercel.app,https://punx-messenger.rey-433.workers.dev,http://plexus.punxai.online,https://plexus.punxai.online,https://dtr.punxai.online"
 

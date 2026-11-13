@@ -19,6 +19,7 @@ import { AuthError, secretsMatch } from './auth.js'
 import * as bots from './routes/bots.js'
 import { assertDtrAdmin, getAutoSend, runDtrReminder, setAutoSend, setCutoffDeadline } from './routes/dtr.js'
 import { getCalendar } from './routes/dtrCalendar.js'
+import { joinDefaultGroup } from './routes/onboarding.js'
 import * as gifs from './routes/gifs.js'
 import * as turn from './routes/turn.js'
 
@@ -82,6 +83,12 @@ export default {
       // see routes/dtrCalendar.js.
       if (url.pathname === '/dtr/calendar' && request.method === 'GET') {
         return withCors(await getCalendar(request, env), cors)
+      }
+      // A new @punx.ai account is put into the default group (PUNX TEAM). A person cannot
+      // add themselves to a group, so the Worker does it, for the caller only, after
+      // checking who they are: see routes/onboarding.js.
+      if (url.pathname === '/onboarding/join-default-group' && request.method === 'POST') {
+        return withCors(await joinDefaultGroup(request, env), cors)
       }
       // Bots call this server-to-server, so CORS is irrelevant to them — but
       // it's echoed anyway so the endpoint stays testable from a browser.
