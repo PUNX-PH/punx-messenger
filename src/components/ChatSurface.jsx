@@ -20,6 +20,9 @@ import SearchDropdown from './SearchDropdown'
 import AppsMenu from './AppsMenu'
 import { MenuButton } from './AppShell'
 
+// One shared empty list, so "no messages yet" is the same object every render.
+const NO_MESSAGES = []
+
 /**
  * Generic chat surface used for DMs, channels, and notes.
  * Props:
@@ -48,7 +51,14 @@ export default function ChatSurface({
 }) {
   const { profile } = useAuth()
   const { byId: usersById } = useUsers()
-  const [messages, setMessages] = useState([])
+  // The messages come tagged with the conversation they belong to. This component stays
+  // mounted as you switch conversations, so a plain list would show the PREVIOUS
+  // conversation's messages under the new one's title until the new ones arrive (and the
+  // mark-read effect below would run on them). Reading them back through the path means
+  // nothing from another conversation is ever shown, and `loaded` says when these are ours.
+  const [batch, setBatch] = useState({ path: null, docs: NO_MESSAGES })
+  const loaded = batch.path === path
+  const messages = loaded ? batch.docs : NO_MESSAGES
   const [pinnedOpen, setPinnedOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [jumpId, setJumpId] = useState(null)
@@ -129,7 +139,7 @@ export default function ChatSurface({
     return listenMessages(path, (docs, meta) => {
       setLoadError(null)
       // Same messages as the same objects: nothing to do (see messagesIdentity.js).
-      setMessages(prev => (sameMessages(prev, docs) ? prev : docs))
+      setBatch(prev => (prev.path === path && sameMessages(prev.docs, docs) ? prev : { path, docs }))
       // The first batch for this opening, once we know our own read times (they arrive
       // with the user directory). Not for a read-only look at a channel you are not in,
       // nor private notes: neither tracks what you have read.
@@ -149,7 +159,7 @@ export default function ChatSurface({
       console.error('[chat] could not load messages for', path, err)
       // Not the previous conversation's messages, and not a bare empty list that
       // reads as "nothing here yet".
-      setMessages([])
+      setBatch({ path, docs: NO_MESSAGES })
       setLoadingMore(false)
       setLoadError(describeListenError(err))
     })
@@ -185,7 +195,10 @@ export default function ChatSurface({
   const newestCreatedAtRef = useRef(null)
   newestCreatedAtRef.current = messages.length ? messages[messages.length - 1].createdAt : null
   useEffect(() => {
-    if (!profile?.uid || !path || readOnly || !looking) return
+    // Not before this conversation's own messages are in: until then there is nothing
+    // here to have read, and (before this check) the previous conversation's messages
+    // stood in for them, so a chat could be marked read before anything of it was shown.
+    if (!profile?.uid || !path || readOnly || !looking || !loaded) return
     if (path.startsWith('users/')) return
     const containerPath = path.replace(/\/messages$/, '')
     // Nothing new since it was last read (the usual case on switching back to a tab).
@@ -195,7 +208,7 @@ export default function ChatSurface({
       markRead(profile.uid, containerPath).catch(() => {})
     }, 400)
     return () => clearTimeout(t)
-  }, [profile?.uid, path, newestId, readOnly, looking])
+  }, [profile?.uid, path, newestId, readOnly, looking, loaded])
 
   // close pinned dropdown on outside click
   useEffect(() => {
@@ -345,6 +358,7 @@ export default function ChatSurface({
         <MessageList
           messages={messages}
           newFromId={newFrom?.path === path ? newFrom.id : null}
+          loading={!loaded}
           hasMore={hasMore}
           loadingMore={loadingMore}
           onLoadOlder={loadOlder}

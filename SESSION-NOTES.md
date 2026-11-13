@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#44 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#45 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#44)
+## 2. What shipped (PRs #1–#45)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#45 — switching chats shows nothing of the previous one** (section 38): a conversation no longer shows the previous one's messages, or is marked read, before its own messages have loaded.
+
 **#44 — the "New" line takes your read time when you open the chat** (section 37): fixes the line going missing on a slow connection.
 
 **#43 — a "New" line in chats** (section 37): opening a conversation with unread messages draws a red "New" line above the first one you had not read, and leaves it there while you read.
@@ -129,7 +131,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 401** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 406** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -632,3 +634,13 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **NOT checked.** The decision inside ChatSurface against live Firestore (it is covered by source-shape tests, since the component needs the live listener; not exercised in a browser here). Sign-in, a phone, Safari/Firefox. A conversation reopened while the tab is in the background. The Flutter app has no such line.
 
 **Fix in #44 (found on a second look the day after).** #43 read your last-read time when the first batch of messages arrived. But a chat is marked read 400 ms after you open it whether or not its messages have loaded (the mark-read effect runs on the previous conversation's messages until the new ones arrive), so on any connection where the first batch takes longer than that, the time read was already "just now" and the line silently never appeared. The time is now taken at the moment of opening (the per-conversation reset effect in `ChatSurface.jsx`, which runs before the mark-read effect) and used when the batch arrives; if the user directory had not loaded by then, the current time is used as a fallback (only ever later, so the line can be late but never early). 1 new test (the capture is set up before the mark-read effect and the captured time wins), 5 breakages all caught. Still **not exercised against live Firestore.**
+
+## 38. Switching chats: nothing of the previous one (PR #45)
+
+**Why.** Found by reading the chat view with a second pair of eyes. `ChatSurface` stays mounted as you move between conversations (no `key` on the path in `Channel.jsx`, `DMConvo.jsx`, `MyNotes.jsx`) and kept one list of messages, replaced only when the new listener's first batch arrived. So for as long as that took (a fraction of a second from the cache, longer on a slow connection) you saw the **previous conversation's messages under the new one's title**, and the mark-read effect ran on them, marking the new conversation read after 400 ms before any of it was shown. (That second part is what made #44 necessary.)
+
+**What.** The messages are now stored with the path they belong to (`batch = { path, docs }`) and read back through the current path: another conversation's messages read back as none, and `loaded` says when the ones shown are this conversation's. While not loaded, `MessageList` shows a blank pane (`role="status"`, `aria-busy`) rather than "This is the start of the conversation", and the mark-read effect waits for `loaded`. An empty conversation is `loaded` with no messages, so it still shows its empty state. A failed listener leaves this conversation with none (as before, and its error is shown as before).
+
+**Checked.** 5 new tests, which are source-shape tests (the component needs the live listener), 10 deliberate breakages, all caught. In a real browser, the real message list with made-up messages swapped the way ChatSurface now feeds it: loading shows only the blank status pane (no old messages, no "start of the conversation"); after it, the right conversation's newest message is in view and the loading pane is gone; the resting position is the same as before this change (a direct swap of two chats lands the same 15 px, the list's bottom padding, above the end).
+
+**NOT checked.** ChatSurface itself against live Firestore (listener timing, a really slow connection), sign-in, a phone, Safari/Firefox. The list's own scroll behaviour was only exercised through its props, not through a real conversation switch with a composer and images.
