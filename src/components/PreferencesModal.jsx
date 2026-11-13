@@ -11,6 +11,7 @@ import { rgbToHex } from '../lib/colorMath'
 import { headerTime } from '../lib/timeFormat'
 import { isEnabled as sfxEnabled, play as playSfx, setEnabled as setSfxEnabled, subscribe as sfxSubscribe } from '../lib/sfx'
 import { useNotifications } from '../lib/notifications'
+import { OPEN_SHORTCUTS_EVENT } from '../lib/shortcuts'
 
 /**
  * Appearance and preferences. Every change applies the moment it is made (the whole
@@ -174,6 +175,13 @@ export default function PreferencesModal({ open, onClose }) {
         </div>
         <Section title="Send a message with" note={SEND_KEYS.find(k => k.id === prefs.sendKey)?.hint}>
           <Segmented label="Send with" value={prefs.sendKey} options={SEND_KEYS} onChange={(v) => set({ sendKey: v })} />
+          <button
+            type="button"
+            onClick={() => { onClose?.(); window.dispatchEvent(new Event(OPEN_SHORTCUTS_EVENT)) }}
+            className="mt-3 text-xs text-brand-text hover:underline"
+          >
+            See all keyboard shortcuts
+          </button>
         </Section>
 
         <h3 className="mt-8 mb-1 text-base font-semibold">Alerts</h3>

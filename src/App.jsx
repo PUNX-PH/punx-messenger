@@ -26,6 +26,7 @@ import UnreadHotkeys from './components/UnreadHotkeys'
 import CalendarHost from './components/CalendarHost'
 import PrefsSync from './components/PrefsSync'
 import QuickSwitcherHost from './components/QuickSwitcherHost'
+import ShortcutsHelpHost from './components/ShortcutsHelpHost'
 
 export default function App() {
   return (
@@ -63,6 +64,7 @@ function Gate() {
     {user && profile && <CalendarHost />}
     {user && profile && <PrefsSync />}
     {user && profile && <QuickSwitcherHost />}
+    {user && profile && <ShortcutsHelpHost />}
     <Routes>
       {/* Outside the login wall on purpose. An invited outsider arrives with no
           account, and after signing in still has no profile — firestore.rules
