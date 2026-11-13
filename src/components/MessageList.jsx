@@ -10,6 +10,8 @@ import { isOnlyEmojis, mentionsUid, renderMessage } from '../lib/markdown'
 import { computeStatus, useTickNow } from '../lib/presence'
 import { buildBlocks, toDate } from '../lib/messageBlocks'
 import { newLineIsAbove } from '../lib/unread'
+import { copyableText, hasCopyableText } from '../lib/copyText'
+import { copyToClipboard } from '../lib/clipboard'
 import * as tf from '../lib/timeFormat'
 import { usePrefs } from '../lib/usePrefs'
 
@@ -412,6 +414,19 @@ const Row = memo(function Row({
   const [reactOpen, setReactOpen] = useState(false)
   const reactBtnRef = useRef(null)
 
+  // "Copy text": anyone who can see the message may copy it (it is local, nothing is written),
+  // so this is not tied to canEdit or readOnly. A picture on its own has no text to copy.
+  const canCopy = hasCopyableText(message)
+  const [copied, setCopied] = useState(false)
+  const copiedTimer = useRef(null)
+  useEffect(() => () => clearTimeout(copiedTimer.current), [])
+  const copyText = async () => {
+    if (!(await copyToClipboard(copyableText(message, usersById)))) return
+    setCopied(true)
+    clearTimeout(copiedTimer.current)
+    copiedTimer.current = setTimeout(() => setCopied(false), 1500)
+  }
+
   return (
     <div
       data-msg-id={message.id}
@@ -521,7 +536,7 @@ const Row = memo(function Row({
       </div>
 
       {/* Hover toolbar */}
-      {!editing && (onReact || onReply || canPin || canEdit || canDelete) && (
+      {!editing && (onReact || onReply || canCopy || canPin || canEdit || canDelete) && (
         <div className="absolute -top-3 right-3 opacity-0 group-hover/msg:opacity-100 group-focus-within/msg:opacity-100 transition-opacity bg-bg-raised border border-line-subtle rounded-md shadow-elev1 flex">
           {onReact && (
             <div className="relative">
@@ -557,6 +572,16 @@ const Row = memo(function Row({
               aria-label="Reply"
             >
               <ReplyIcon />
+            </button>
+          )}
+          {canCopy && (
+            <button
+              onClick={copyText}
+              className="p-1.5 text-ink-muted hover:text-ink hover:bg-bg-hover rounded transition-colors"
+              title={copied ? 'Copied' : 'Copy text'}
+              aria-label={copied ? 'Copied' : 'Copy text'}
+            >
+              {copied ? <CheckIcon /> : <CopyIcon />}
             </button>
           )}
           {canEdit && message.text && (
@@ -630,6 +655,23 @@ function ReactionChip({ emojiKey, uids, meUid, emojiByName, usersById, onToggle 
       )}
       <span className="font-semibold tabular-nums">{uids.length}</span>
     </button>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="9" width="12" height="12" rx="2"/>
+      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>
+    </svg>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg>
   )
 }
 

@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#58 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#59 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#58)
+## 2. What shipped (PRs #1–#59)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#59 — a Copy text button on every message** (section 52).
+
 **#58 — edit your last message with the up arrow** (section 51).
 
 **#57 — a custom status** (section 50): a short line next to your name ("On leave"), with a choice of how long it stays.
@@ -157,7 +159,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 339**, **Node 567** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 339**, **Node 585** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -842,3 +844,17 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** 15 new tests (the key under every modifier and state, which message, wiring in the three components, the shortcuts entry pinned to the code) and 32 deliberate breakages: 31 caught at once, 1 survived (the `!meUid` guard, which a test then closed: with nobody signed in, a message without an author must not match "undefined is undefined"), and re-run, caught. In a real browser with the real chat, list and box (Firestore stubbed): Up opened the last message of mine (not the other person's last) with the cursor in it; Esc closed it and put the cursor back in the box; Up, typing and Enter saved exactly the edited text through the edit path (one write, to that message) and put the cursor back in the box, with nothing leaking into the box's own text; Up with text in the box did nothing; an edit opened with the pencil on an earlier message ended with Esc and left the cursor where it was. 567 web tests and the build pass.
 
 **NOT checked.** Against real Firestore (the write is the existing edit; the rules already allow it). Safari, Firefox, a phone keyboard (there is no Up key on most; the pencil stays). An IME while composing (checked in the test, not with a real input method). The phone app does not have it. A message that is deleted by someone else while its edit is open from the key: the cursor is not returned to the box in that case.
+
+## 52. Copy a message's text (PR #59)
+
+**Why.** Copying a message meant selecting it by hand, which is awkward for a long one, a code block, or on a touch screen. Second of four small changes asked for together (after the up arrow in section 51; link to a message and :emoji: suggestions follow).
+
+**What.** Every message that has text gets a **Copy text** button in its hover toolbar (after Reply). Click it and the icon becomes a tick with the label **Copied** for 1.5 seconds. Anyone who can see a message can copy it: it is not tied to being the author or to read-only views, because nothing is written anywhere. A picture on its own has no text, so no button.
+
+**What is copied** (`copyableText`, `src/lib/copyText.js`): the text as written, so `**bold**`, `code` and code blocks still work when pasted into a message, with each mention turned from its stored `<@uid>` into **@Name**, the name the reader sees. Someone not in the directory is written **@Unknown**, exactly as the message itself shows it (a test pins the two together). The result is trimmed.
+
+**The clipboard** (`copyToClipboard`, `src/lib/clipboard.js`, written to be reused by "Copy link"): the modern call first; if it is refused or missing (insecure page, an embedded frame, some in-app browsers), a hidden read-only text box and the old copy command, which cleans up after itself and gives the cursor back. It never throws and says whether it worked, and the button only shows "Copied" when it did. Nothing is written to Firestore. No rules change.
+
+**Checked.** 18 new tests and 36 deliberate breakages, all caught after the gaps were closed (seven first survived: a null directory, the old way touching nothing without the copy command, the read-only attribute that stops a phone raising its keyboard, restarting the 1.5 seconds on a second click, the tick icon and the aria label; one more was a redundant `?.` inside a try, which was deleted instead). The tests also found a real bug in the first draft: the old way could throw before its try block when the page refused to create a text box. In a real browser (the real chat and message list, Firestore and the clipboard stubbed): the button is on every message with text, in other people's messages as well as mine, and not on a picture-only message; clicking wrote exactly the expected text (formatting and the line break intact, the unknown mention as written), the label read "Copied" and went back to "Copy text" after about 1.5 seconds. 585 web tests and the build pass.
+
+**NOT checked.** The real clipboard (the pane's clipboard was stubbed, so the real permission prompt and the old fallback were tested with fakes, not a browser that refuses). Safari, Firefox, a phone. The button on a touch screen: the toolbar shows on hover or focus, so a tap on a message reveals it only where the browser treats a tap as hover (the same as Reply and Edit today). The phone app does not have it.
