@@ -27,6 +27,7 @@ export default function MessageList({
   highlightId,
   scrollToId,
   newFromId = null,       // the first message you had not read when you opened this chat
+  loading = false,        // this conversation's messages have not arrived yet: not "empty"
   // Suppresses every action affordance, including the ones a caller can't
   // switch off by withholding a handler: editing and deleting your OWN
   // messages are derived from meUid, and meUid still has to be passed so
@@ -170,6 +171,8 @@ export default function MessageList({
   const blocks = useMemo(() => buildBlocks(messages, groupMinutes, newFromId), [messages, groupMinutes, newFromId])
 
   if (!messages?.length) {
+    // Still waiting for them: a blank pane, not "This is the start of the conversation".
+    if (loading) return <div className="chat-pattern flex-1" role="status" aria-busy="true" aria-label="Loading messages" />
     return (
       <div className="chat-pattern flex-1 grid place-items-center px-6">
         <div className="text-center max-w-md text-ink-muted">

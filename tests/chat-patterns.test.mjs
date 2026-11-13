@@ -131,9 +131,12 @@ test('strengths are faint: none is bold enough to matter for reading', () => {
   for (const p of CHAT_PATTERNS) assert.ok(!p.strength || p.strength * PATTERN_STRENGTHS.at(-1).alpha < 0.2, p.id)
 })
 
-test('the message area carries the class the stylesheet draws on, for both the full and the empty chat', () => {
+test('the message area carries the class the stylesheet draws on, for the full chat, the empty one and the loading pane', () => {
   const src = lf(fs.readFileSync('src/components/MessageList.jsx', 'utf8'))
-  assert.equal((src.match(/className="chat-pattern /g) || []).length, 2)
+  // Three places: full, empty, and the blank pane shown while a conversation loads (the
+  // background must not flash off while switching chats).
+  assert.equal((src.match(/className="chat-pattern /g) || []).length, 3)
+  assert.ok(src.includes('<div className="chat-pattern flex-1" role="status" aria-busy="true"'), 'the loading pane has it')
 })
 
 test('the stylesheet is loaded by the app', () => {
