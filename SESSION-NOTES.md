@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#51 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#52 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#51)
+## 2. What shipped (PRs #1–#52)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#52 — the admin page no longer says super admins can read channels unseen** (section 45).
+
 **#51 — new @punx.ai accounts join PUNX TEAM automatically** (section 44; `docs/ONBOARDING.md`): the Worker adds a new company account to the team group at first sign-in.
 
 **#50 — the "New" line and "Jump to first unread" in the phone app** (section 43): the Flutter chat gets what the web got in #43, #44 and #46.
@@ -143,7 +145,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 339**, **Node 462** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 83, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 339**, **Node 463** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 83, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -724,3 +726,15 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 36 Worker tests (every "no" and its reason, the atomic commit, who is added and who is not, both ways to find the group, failures leaving nothing half done and nothing stamped, a profile removed between the check and the write failing the whole commit), 18 web tests (the client rule, and that the web rule and the Worker's share staff roles, the one-week window and the address check), 16 phone tests (the same rule, plus reading the Worker's file to pin its constants to the phone's). Deliberate breakages: 35 on the Worker and web, 17 on the phone, **all caught** after two gaps were closed (an empty domain matching an address that ends at the `@`, and the no-signed-in-user guard on the phone). All suites and builds pass.
 
 **NOT checked.** **Against the real thing.** Nothing here has run on the live Worker with real Firestore: (1) that the Worker's service account is **allowed to write** to punx-msg's Firestore (it has been used for reads and for minting bot tokens; this is its first direct write), (2) that the group is **found**, i.e. that it is named PUNX TEAM and owned by a developer, super admin or admin (otherwise nothing is joined and the Worker's log says so; `DEFAULT_GROUP_ID` is the fix), and (3) the whole path from a real new sign-in. Do this once after the deploy: sign in with a brand-new `@punx.ai` account and look for PUNX TEAM in its sidebar. Also not checked: the phone app on a device, and the existing members (deliberately left alone: a backfill is a separate one-off job).
+
+## 45. The admin page no longer says super admins can read channels unseen (PR #52)
+
+**Why.** After #49 (section 42) the role summary on the admin page still said that super admins "can read every other channel without joining — invisibly, since they stay out of the member list until they're actually added". That tells every admin who opens the page that oversight exists and that it leaves no trace. Asked not to tell people that anyone can oversee them.
+
+**What.** The summary now reads: "Developers have dev tools. Super admins manage the workspace and other admins. Admins can pin in any channel and manage any group. Employees join groups by invitation. Guests are invited to individual channels and see nothing else — not even the names of the other channels in the group." (`src/views/AdminPanel.jsx`.) `tests/admin-hierarchy.test.mjs` now also refuses a list of phrases (`without joining`, `invisibly`, `read every`, `every other channel`, `member list`, `oversee`, `oversight`, and others) in that paragraph.
+
+**What was deliberately left.** The behaviour is unchanged (the rules, `canOversee`, who can read what). The labels that the overseeing super admin or developer sees on their OWN screen are unchanged too, because only they see them: the "Overseeing." note in `ChannelSidebar.jsx`, the oversight section of the server rail, and "You're overseeing this group as a super admin" in the voice room. `docs/ROLES.md` and code comments are internal. Nothing in the phone app says any of this.
+
+**Checked.** The new test fails against the previous wording and against five oversight phrases added back one at a time (first attempt was a no-op: the paragraph wraps across lines and my edit did not match; redone against the real line). 463 web tests and the build pass.
+
+**NOT checked.** The page in a browser (an admin sign-in is needed; it is a static paragraph of JSX and the build compiles it).

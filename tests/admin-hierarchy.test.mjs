@@ -27,8 +27,24 @@ test('it does not describe what the developer role can see, hide or grant', () =
   ]) assert.ok(!paragraph.includes(leak), `must not say: ${leak}`)
 })
 
+test('it does not say that anyone can read, watch or oversee other people\'s channels or groups', () => {
+  for (const leak of [
+    'without joining',
+    'invisibly',
+    'read every',
+    'every other channel',
+    'member list',
+    'stay out of',
+    'oversee',
+    'oversight',
+    'overseeing',
+    'unseen',
+    'secretly',
+  ]) assert.ok(!paragraph.toLowerCase().includes(leak), `must not say: ${leak}`)
+})
+
 test('the rest of the summary is still there', () => {
-  for (const kept of ['Super admins', 'manage the workspace and other admins', 'Admins can pin in any channel', 'Employees join groups by invitation', 'Guests are invited to individual channels']) {
+  for (const kept of ['Super admins manage the workspace and other admins.', 'Admins can pin in any channel', 'Employees join groups by invitation', 'Guests are invited to individual channels']) {
     assert.ok(paragraph.replace(/\s+/g, ' ').includes(kept.replace(/\s+/g, ' ')), `still says: ${kept}`)
   }
 })
