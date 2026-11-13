@@ -23,9 +23,11 @@ const VOLATILE = ['presence', 'lastSeen']
 /**
  * `lastRead` changes whenever its owner opens a channel. For everybody else it
  * is noise; for the signed-in person it drives their own unread badges, so it
- * must stay live for them and only them.
+ * must stay live for them and only them. `mutedChats` (the conversations they have
+ * muted) is the same kind of thing: personal, drives only their own badges and dots,
+ * and nobody else's screen has any use for it or any reason to redraw when it changes.
  */
-const OWN_ONLY = ['lastRead']
+const OWN_ONLY = ['lastRead', 'mutedChats']
 
 /** A person without the fields that change on their own. */
 export function identityOf(user, isMe = false) {

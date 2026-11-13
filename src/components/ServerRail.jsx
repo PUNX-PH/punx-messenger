@@ -11,6 +11,7 @@ import LazySlot from './LazySlot'
 import { CreateGroupModal } from '../lib/lazyParts'
 import GroupContextMenu from './GroupContextMenu'
 import { useMarkAllRead } from '../lib/useMarkAllRead'
+import { mutedChatsOf } from '../lib/muted'
 
 export default function ServerRail() {
   const { profile } = useAuth()
@@ -27,6 +28,7 @@ export default function ServerRail() {
   const me = usersById[profile?.id]
   const lastRead = me?.lastRead || {}
   const mutedGroups = useMemo(() => new Set(me?.mutedGroups || []), [me?.mutedGroups])
+  const mutedChats = useMemo(() => mutedChatsOf(me), [me?.mutedChats])
 
   const meUid = profile?.id
   // The top tier can read every group in the workspace (firestore.rules'
@@ -83,9 +85,11 @@ export default function ServerRail() {
   const groupHasUnread = (g) => {
     if (mutedGroups.has(g.id)) return false
     const channels = channelsByGroup[g.id] || []
-    return channels.some(c =>
-      isUnread(c.lastMessageAt, lastRead[pathToReadKey(`groups/${g.id}/channels/${c.id}`)])
-    )
+    return channels.some(c => {
+      const key = pathToReadKey(`groups/${g.id}/channels/${c.id}`)
+      // A muted channel does not light up its group.
+      return !mutedChats.has(key) && isUnread(c.lastMessageAt, lastRead[key])
+    })
   }
 
   const openMenu = (e, group) => {

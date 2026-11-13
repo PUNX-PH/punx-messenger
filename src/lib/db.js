@@ -1,5 +1,5 @@
 import {
-  addDoc, collection, deleteDoc, deleteField, doc, getDoc, limit as fbLimit,
+  addDoc, arrayRemove, arrayUnion, collection, deleteDoc, deleteField, doc, getDoc, limit as fbLimit,
   onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where,
 } from 'firebase/firestore'
 import { db } from './firebase'
@@ -115,6 +115,14 @@ export async function markManyRead(uid, keys) {
     for (const key of piece) fields[`lastRead.${key}`] = serverTimestamp()
     await updateDoc(doc(db, 'users', uid), fields)
   }
+}
+
+// Mute or unmute ONE conversation (a DM or a channel) for the current user. `key` is the read key
+// (pathToReadKey). A list on the person's own profile, changed by union and removal, so two
+// devices muting different chats at once do not overwrite each other. See lib/muted.js.
+export async function toggleMuteChat(uid, key, mute) {
+  if (!uid || !key) return
+  await updateDoc(doc(db, 'users', uid), { mutedChats: mute ? arrayUnion(key) : arrayRemove(key) })
 }
 
 // Listen to all DM convos the current user is in.

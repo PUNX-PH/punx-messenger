@@ -95,7 +95,9 @@ test('a bad size falls back to the default rather than looping or dropping keys'
 
 test('the write touches only lastRead.<key> on the person\'s own profile, one update per piece', () => {
   const db = read('src/lib/db.js')
-  const fn = db.slice(db.indexOf('export async function markManyRead'), db.indexOf('// Listen to all DM convos'))
+  // Just this function: up to the next one in the file.
+  const start = db.indexOf('export async function markManyRead')
+  const fn = db.slice(start, db.indexOf('\nexport ', start + 10))
   assert.ok(fn.includes('if (!uid) return\n'), 'nobody signed in: nothing to write')
   assert.ok(fn.includes('for (const piece of chunkKeys(keys)) {'), 'in pieces, not all at once')
   assert.ok(fn.includes('fields[`lastRead.${key}`] = serverTimestamp()'))
@@ -139,7 +141,7 @@ test('the hook shares the conversation data the tab title uses, and only the per
 
 test('the DM list offers "Mark all read" only when there is a DM to clear', () => {
   const dms = read('src/components/DMsSidebar.jsx')
-  assert.ok(dms.includes('() => unreadKeys({ dmConvos: Object.values(convosByOther), lastRead }).dms,'))
+  assert.ok(dms.includes('() => unreadKeys({ dmConvos: Object.values(convosByOther), lastRead }).dms'), 'built from the unread rule')
   assert.ok(dms.includes('{unreadDmKeys.length > 0 && ('))
   assert.ok(dms.includes('markManyRead(profile.id, unreadDmKeys)'))
   assert.ok(dms.includes('aria-label="Mark all direct messages as read"'))

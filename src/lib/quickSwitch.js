@@ -16,15 +16,17 @@ const ms = (ts) => ts?.toMillis?.() ?? 0
  * @returns {Array<{id, kind: 'notes'|'dm'|'channel'|'voice', label, hint, path, unread, at, user?}>}
  */
 export function buildTargets({
-  meUid, users = [], convosByOther = {}, groups = [], channelsByGroup = {}, lastRead = {}, mutedGroups = new Set(),
+  meUid, users = [], convosByOther = {}, groups = [], channelsByGroup = {}, lastRead = {}, mutedGroups = new Set(), mutedChats = new Set(),
 }) {
   const out = [{ id: 'notes', kind: 'notes', label: 'My Notes', hint: 'Private to you', path: '/me/notes', unread: false, at: 0 }]
 
   for (const u of users) {
     if (!u || u.id === meUid) continue
     const convo = convosByOther[u.id]
+    const dmKey = convo ? pathToReadKey(`dms/${convo.id}`) : null
     const unread = !!convo && !!convo.lastMessageAuthorUid && convo.lastMessageAuthorUid !== meUid
-      && isUnread(convo.lastMessageAt, lastRead[pathToReadKey(`dms/${convo.id}`)])
+      && !mutedChats.has(dmKey)
+      && isUnread(convo.lastMessageAt, lastRead[dmKey])
     out.push({
       id: `dm:${u.id}`, kind: 'dm', label: u.name || u.email || 'Unknown', hint: u.email || '',
       path: `/dms/${u.id}`, unread, at: ms(convo?.lastMessageAt), user: u,
@@ -33,8 +35,10 @@ export function buildTargets({
 
   for (const g of groups) {
     for (const c of channelsByGroup[g.id] || []) {
+      const chKey = pathToReadKey(`groups/${g.id}/channels/${c.id}`)
       const unread = !mutedGroups.has(g.id)
-        && isUnread(c.lastMessageAt, lastRead[pathToReadKey(`groups/${g.id}/channels/${c.id}`)])
+        && !mutedChats.has(chKey)
+        && isUnread(c.lastMessageAt, lastRead[chKey])
       out.push({
         id: `ch:${g.id}:${c.id}`, kind: c.type === 'voice' ? 'voice' : 'channel', label: c.name || 'channel', hint: g.name || '',
         path: `/g/${g.id}/c/${c.id}`, unread, at: ms(c.lastMessageAt),

@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#55 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#56 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#55)
+## 2. What shipped (PRs #1–#56)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#56 — mute one channel or DM** (section 49): right-click it; it stops counting and stops dotting, and a muted DM stops pinging.
+
 **#55 — mark as read, for one DM, all DMs, or everything** (section 48).
 
 **#54 — a keyboard shortcuts sheet** (section 47): press `?` to see them.
@@ -151,7 +153,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 339**, **Node 507** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 339**, **Node 525** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -783,3 +785,24 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 15 new tests (what counts as unread in DMs and channels; muted groups and own-last-message DMs cleared; a property check that the badge is never wider than "mark all"; nothing left to mark afterwards; odd input; batching; the write touching only lastRead; each entry point wired) and 34 deliberate breakages, all caught after four gaps were closed (an unused return value deleted, and three source checks that were too loose). In a real browser with the real rail and DM list and stubbed data: right-click Ana's DM then Mark as read wrote exactly her conversation and closed the menu; Ben's (read) item was disabled and writing nothing when clicked; the Home menu said "3 unread" and its click wrote exactly the unread DM, the unread channel and the muted group's unread channel, leaving the read DM and read channel out; the header link wrote the unread DM. 507 web tests and the build pass.
 
 **NOT checked.** Against real Firestore (the write itself, and that the rules accept a many-key update of your own profile: they accept the same single-key update that `markRead` makes, and nothing in the rules looks at how many keys); a very large number of unread conversations; the menus on a touch device; Safari and Firefox.
+
+## 49. Mute one channel or DM (PR #56)
+
+**Why.** Muting existed only for a whole group. One noisy channel, or one chatty DM, could only be left, not quietened. Third of four quality-of-life changes asked for together.
+
+**What.** Right-click a channel (text channels only) for **Mute channel** / **Unmute channel**, or a DM for **Mute conversation** / **Unmute conversation**. A muted conversation is **quiet, not hidden or blocked**:
+- it stops counting towards the tab-title number, the tab-icon badge, "next unread" (Alt+Shift+Down/Up) and the quick switcher's unread boost;
+- its row is dimmed, with no unread dot and no bold, and its group's rail icon no longer lights up for it alone;
+- a muted DM stops pinging and stops showing OS notifications;
+- it still opens normally and can still be found in the quick switcher, **a channel @mention still notifies** (as it does in a muted group), and **"Mark as read" still clears it** (section 48's rule is deliberately wider than the badge).
+For channels the right-click menu is now open to every member on a text channel (before, only managers had a channel menu); "Manage access" and "Delete channel" are added only for managers, and a voice channel still has a menu for managers only (a voice channel has no unread to mute).
+
+**How it is stored.** `mutedChats` on the person's own profile: a list of the same read keys `lastRead` uses (`dms__<id>`, `groups__<g>__channels__<c>`), changed by array union and removal (`toggleMuteChat` in `src/lib/db.js`) so two devices muting different things do not overwrite each other. **No rules change:** the rules let a person change any field of their own profile except role, email, uid, createdAt and the removal flags, and a test reads the real rules to prove `mutedChats` is not on that list. Like `lastRead` it is treated as personal in `usersIdentity.js` (live for you, dropped from everyone else's view of a person), so a toggle redraws only your own screen.
+
+**One thing to know.** Like `lastRead` and `mutedGroups` today, the list sits on the profile document, which any signed-in client can read; the app never shows other people's. A DM key is `dms__<id>` and a DM's id is made from both people's ids, so someone inspecting the raw data could see that you muted a particular conversation. Keeping it truly private would mean a new owner-only document and a rules change; say if that matters.
+
+**Not done.** Touch: a DM row and a channel row have no long-press menu, so on a phone-width screen there is no way to mute yet. The phone app has no mute for a single chat (it does have the group mute).
+
+**Checked.** 18 new tests and 43 deliberate breakages, all caught on the first run. In a real browser with the real channel list and DM list and a live stubbed profile: an ordinary member right-clicking a text channel gets exactly "Mute channel"; clicking wrote the right key, and the row dimmed with no dot or bold and the title "(muted)"; the menu then said "Unmute channel" and unmuting brought the dot and bold back; a member has no menu on a voice channel; a DM's menu offered "Mark as read" and "Mute conversation", muting dimmed it and removed its dot, and the header's "Mark all read" disappeared because nothing dotted was left; as a group manager a text channel's menu was Mute, Manage access, Delete, and a voice channel's was Manage access and Delete only. 525 web tests and the build pass.
+
+**NOT checked.** Against real Firestore (the write, and that the rules accept it: they do on a reading of them, tested). That a muted DM really stays silent in a browser with notifications granted. The menus on a touch device. Safari and Firefox.

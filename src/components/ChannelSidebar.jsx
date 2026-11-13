@@ -12,7 +12,9 @@ import {
   listenCategories, listenChannels, listenGroup, renameCategory,
   reorderCategories, reorderChannelsInCategory,
 } from '../lib/groups'
-import { isUnread, pathToReadKey } from '../lib/db'
+import { isUnread, pathToReadKey, toggleMuteChat } from '../lib/db'
+import { mutedChatsOf, muteLabel } from '../lib/muted'
+import { BellOffIcon, BellOnIcon } from './BellIcons'
 import { useVoiceChannel } from '../lib/useVoiceChannel'
 import UserPanel from './UserPanel'
 import LazySlot from './LazySlot'
@@ -105,6 +107,7 @@ export default function ChannelSidebar() {
 
   const me = usersById[profile?.id]
   const lastRead = me?.lastRead || {}
+  const mutedChats = useMemo(() => mutedChatsOf(me), [me?.mutedChats])
   // Super-admin oversight: this group is readable but you were never added to
   // it. Everything that writes has to be off, because writing is what would
   // reveal you — creating or deleting a channel, dragging one to a new spot,
@@ -166,6 +169,27 @@ export default function ChannelSidebar() {
 
   const openOverviewSettings = () => { setSettingsInitialTab('overview'); setSettingsOpen(true) }
   const openMembersSettings = () => { setSettingsInitialTab('members'); setSettingsOpen(true) }
+
+  // The channel menu. Muting is for everyone and only on a text channel (a voice channel has no
+  // unread to silence); managing access and deleting are for managers only.
+  const chKey = chMenu.channel ? pathToReadKey(`groups/${groupId}/channels/${chMenu.channel.id}`) : null
+  const chMuted = !!chKey && mutedChats.has(chKey)
+  const muteItems = chMenu.channel && chMenu.channel.type !== 'voice' ? [{
+    label: muteLabel(chMuted, 'channel'),
+    icon: chMuted ? <BellOnIcon /> : <BellOffIcon />,
+    onClick: () => toggleMuteChat(profile.id, chKey, !chMuted).catch((e) => console.warn('[mute] could not change it:', e)),
+  }] : []
+  const adminItems = chMenu.channel && canManage ? [
+    { label: 'Manage access', icon: <LockIcon />, onClick: () => setAccessFor(chMenu.channel) },
+    { separator: true },
+    {
+      label: `Delete ${chMenu.channel.type === 'voice' ? 'voice ' : ''}channel`,
+      icon: <TrashIcon />,
+      danger: true,
+      onClick: () => removeChannel(chMenu.channel),
+    },
+  ] : []
+  const channelMenuItems = [...muteItems, ...(muteItems.length && adminItems.length ? [{ separator: true }] : []), ...adminItems]
 
   const openAddMenu = (e) => setAddMenu({ open: true, x: e.clientX, y: e.clientY })
   const openCategoryMenu = (e, category) => {
@@ -316,6 +340,7 @@ export default function ChannelSidebar() {
             activeChannelId={activeChannelId}
             groupId={groupId}
             lastRead={lastRead}
+            mutedChats={mutedChats}
             canManage={canManage}
             canJoinVoice={!ghost}
             onChannelContextMenu={openChannelMenu}
@@ -347,6 +372,7 @@ export default function ChannelSidebar() {
                   activeChannelId={activeChannelId}
                   groupId={groupId}
                   lastRead={lastRead}
+                  mutedChats={mutedChats}
                   canManage={canManage}
                   canJoinVoice={!ghost}
                   onChannelContextMenu={openChannelMenu}
@@ -458,28 +484,15 @@ export default function ChannelSidebar() {
         ] : []}
       />
 
-      {/* Channel right-click menu. Only ever opened when canManage is true
-          (see ChannelListBody), matching firestore.rules' channel delete
-          rule — group admin or workspace admin. */}
+      {/* Channel right-click menu. Anyone can open it on a text channel, to mute it. The
+          admin items below are only added for managers (group admin or workspace
+          admin), matching firestore.rules' channel delete rule. */}
       <GroupContextMenu
         open={chMenu.open}
         x={chMenu.x}
         y={chMenu.y}
         onClose={() => setChMenu(m => ({ ...m, open: false }))}
-        items={chMenu.channel ? [
-          {
-            label: 'Manage access',
-            icon: <LockIcon />,
-            onClick: () => setAccessFor(chMenu.channel),
-          },
-          { separator: true },
-          {
-            label: `Delete ${chMenu.channel.type === 'voice' ? 'voice ' : ''}channel`,
-            icon: <TrashIcon />,
-            danger: true,
-            onClick: () => removeChannel(chMenu.channel),
-          },
-        ] : []}
+        items={channelMenuItems}
       />
     </aside>
   )
@@ -532,7 +545,7 @@ function CategorySection({ category, collapsed, onToggleCollapse, onContextMenu,
 }
 
 function ChannelListBody({
-  categoryId, channels, activeChannelId, groupId, lastRead, canManage, canJoinVoice = true,
+  categoryId, channels, activeChannelId, groupId, lastRead, mutedChats, canManage, canJoinVoice = true,
   onChannelContextMenu,
   creating, newName, setNewName, newType, setNewType, newPrivate, setNewPrivate,
   onSubmitNew, onCancelNew,
@@ -541,20 +554,26 @@ function ChannelListBody({
   return (
     <div ref={target.setNodeRef} className={['space-y-0.5 rounded-sm', target.isOver ? 'bg-bg-raised/50' : ''].join(' ')}>
       <SortableContext items={channels.map(c => c.id)} strategy={verticalListSortingStrategy}>
-        {channels.map(c => (
+        {channels.map(c => {
+          const key = pathToReadKey(`groups/${groupId}/channels/${c.id}`)
+          const muted = mutedChats.has(key)
+          return (
           <div key={c.id}>
             <SortableChannelRow
               channel={c}
               groupId={groupId}
               active={c.id === activeChannelId}
-              unread={c.id !== activeChannelId && isUnread(c.lastMessageAt, lastRead[pathToReadKey(`groups/${groupId}/channels/${c.id}`)])}
+              muted={muted}
+              unread={!muted && c.id !== activeChannelId && isUnread(c.lastMessageAt, lastRead[key])}
               canManage={canManage}
               canJoinVoice={canJoinVoice}
-              onContextMenu={canManage ? (e) => onChannelContextMenu(e, c) : undefined}
+              // Everyone can mute a text channel from its menu; the admin items are only for managers.
+              onContextMenu={canManage || c.type !== 'voice' ? (e) => onChannelContextMenu(e, c) : undefined}
             />
             {c.type === 'voice' && <VoiceParticipants groupId={groupId} channelId={c.id} />}
           </div>
-        ))}
+          )
+        })}
       </SortableContext>
 
       {creating && (
@@ -596,7 +615,7 @@ function TypePill({ active, onClick, children }) {
 }
 
 function SortableChannelRow({
-  channel, groupId, active, unread, onContextMenu, canManage = false, canJoinVoice = true,
+  channel, groupId, active, unread, muted = false, onContextMenu, canManage = false, canJoinVoice = true,
 }) {
   const sortable = useSortable({ id: channel.id, data: { type: 'channel', channel }, disabled: !canManage })
   const { activeChannel, join } = useVoiceChannel()
@@ -650,6 +669,7 @@ function SortableChannelRow({
       {...sortable.listeners}
       onContextMenu={onContextMenu}
       to={`/g/${groupId}/c/${channel.id}`}
+      title={muted ? `${channel.name} (muted)` : undefined}
       className={[
         'w-full text-left px-2 py-1.5 rounded-sm text-sm flex items-center gap-2 transition-colors duration-150',
         active
@@ -657,6 +677,7 @@ function SortableChannelRow({
           : unread
             ? 'text-ink font-semibold hover:bg-bg-raised'
             : 'text-ink-muted hover:bg-bg-raised hover:text-ink',
+        muted && !active ? 'opacity-60 hover:opacity-100' : '',
       ].join(' ')}
     >
       <span className="text-ink-dim">#</span>

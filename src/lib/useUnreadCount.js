@@ -9,6 +9,7 @@ import { useUsers } from './users'
 import { useConversationData } from './useConversationData'
 import { countUnread, readKeyForRoute } from './unread'
 import { usePageActive } from './usePageActive'
+import { mutedChatsOf } from './muted'
 
 export function useUnreadCount() {
   const { profile } = useAuth()
@@ -22,14 +23,16 @@ export function useUnreadCount() {
   const me = byId[meId]
   const lastRead = me?.lastRead
   const mutedList = me?.mutedGroups
+  const mutedChatList = me?.mutedChats
 
   return useMemo(() => countUnread({
     dmConvos: Object.values(convosByOther),
     channelsByGroup,
     lastRead: lastRead || {},
     mutedGroups: new Set(mutedList || []),
+    mutedChats: mutedChatsOf({ mutedChats: mutedChatList }),
     meUid,
     // Only a conversation being looked at right now is "being read".
     lookingAt: active ? readKeyForRoute(pathname, meUid) : null,
-  }), [convosByOther, channelsByGroup, lastRead, mutedList, meUid, active, pathname])
+  }), [convosByOther, channelsByGroup, lastRead, mutedList, mutedChatList, meUid, active, pathname])
 }

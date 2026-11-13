@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { NavLink, useParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { usePresence, useUsers } from '../lib/users'
-import { isUnread, listenMyDmConvos, markManyRead, pathToReadKey } from '../lib/db'
+import { isUnread, listenMyDmConvos, markManyRead, pathToReadKey, toggleMuteChat } from '../lib/db'
+import { mutedChatsOf, muteLabel } from '../lib/muted'
+import { BellOffIcon, BellOnIcon } from './BellIcons'
 import { unreadKeys } from '../lib/unread'
 import GroupContextMenu from './GroupContextMenu'
 import { computeStatus, useTickNow } from '../lib/presence'
@@ -31,21 +33,28 @@ export default function DMsSidebar() {
 
   const me = usersById[profile?.id]
   const lastRead = me?.lastRead || {}
+  const mutedChats = useMemo(() => mutedChatsOf(me), [me?.mutedChats])
 
   // Which direct messages have something new, so "Mark all read" is only offered when it would do something.
   const unreadDmKeys = useMemo(
-    () => unreadKeys({ dmConvos: Object.values(convosByOther), lastRead }).dms,
-    [convosByOther, lastRead],
+    // Muted ones are quiet: they show no dot, so they are not what "Mark all read" is offered for.
+    () => unreadKeys({ dmConvos: Object.values(convosByOther), lastRead }).dms.filter(k => !mutedChats.has(k)),
+    [convosByOther, lastRead, mutedChats],
   )
 
   const menuKey = menu.convo ? pathToReadKey(`dms/${menu.convo.id}`) : null
   const menuUnread = !!menu.convo && isUnread(menu.convo.lastMessageAt, lastRead[menuKey])
+  const menuMuted = mutedChats.has(menuKey)
   const menuItems = menu.convo ? [{
     label: 'Mark as read',
     icon: <CheckIcon />,
     onClick: () => markManyRead(profile.id, [menuKey]).catch((e) => console.warn('[unread] could not mark as read:', e)),
     disabled: !menuUnread,
     trailing: menuUnread ? undefined : 'already read',
+  }, {
+    label: muteLabel(menuMuted, 'conversation'),
+    icon: menuMuted ? <BellOnIcon /> : <BellOffIcon />,
+    onClick: () => toggleMuteChat(profile.id, menuKey, !menuMuted).catch((e) => console.warn('[mute] could not change it:', e)),
   }] : []
 
   const visible = useMemo(() => {
@@ -97,13 +106,16 @@ export default function DMsSidebar() {
         {visible.map(u => {
           const convo = convosByOther[u.id]
           const isActive = u.id === activeOtherUid
-          const unread = !isActive && convo
+          const muted = !!convo && mutedChats.has(pathToReadKey(`dms/${convo.id}`))
+          // A muted conversation is quiet: no dot, no bold, dimmed. It still opens as usual.
+          const unread = !muted && !isActive && convo
             && isUnread(convo.lastMessageAt, lastRead[pathToReadKey(`dms/${convo.id}`)])
 
           return (
             <NavLink
               key={u.id}
               to={`/dms/${u.id}`}
+              title={muted ? `${u.name} (muted)` : undefined}
               onContextMenu={convo ? (e) => { e.preventDefault(); setMenu({ open: true, x: e.clientX, y: e.clientY, convo }) } : undefined}
               className={({ isActive }) => [
                 'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm transition-colors duration-150',
@@ -112,6 +124,7 @@ export default function DMsSidebar() {
                   : unread
                     ? 'text-ink font-semibold hover:bg-bg-raised'
                     : 'text-ink-muted hover:bg-bg-raised hover:text-ink',
+                muted && !isActive ? 'opacity-60 hover:opacity-100' : '',
               ].join(' ')}
             >
               <Avatar name={u.name} src={u.photoURL} size={28} status={computeStatus(presence[u.id], now)} />

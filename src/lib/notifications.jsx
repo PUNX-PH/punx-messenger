@@ -5,6 +5,8 @@ import { db } from './firebase'
 import { useAuth } from './auth'
 import { useUsers } from './users'
 import { listenMyDmConvos } from './db'
+import { mutedChatsOf } from './muted'
+import { pathToReadKey } from './unread'
 import { play as playSfx } from './sfx'
 
 // ────────────────── Permission context ──────────────────
@@ -122,6 +124,8 @@ export function NotificationDaemon() {
         if (ts <= baselineRef.current) return
         if (!dm.lastMessageAuthorUid) return
         if (dm.lastMessageAuthorUid === profile.uid) return
+        // A muted conversation does not ping or notify. Read through the ref, like the directory.
+        if (mutedChatsOf(byIdRef.current[profile.id]).has(pathToReadKey(`dms/${dm.id}`))) return
         const author = byIdRef.current[dm.lastMessageAuthorUid]
         fire({
           key: `dm:${dm.id}`,
