@@ -174,6 +174,64 @@ export function writePinned(storage, pinned) {
   } catch { /* private mode: the pin lasts until the tab closes, which is acceptable */ }
 }
 
+// ---------- the department filter ----------
+
+/** The filter's values: everyone, or one department id, or people with no known department. */
+export const DEPT_ALL = ''
+export const DEPT_UNASSIGNED = '?' // not a character a department id is made of
+export const DEPT_KEY = 'punx.calendarDepartment'
+
+// The Worker's { id: name }; anything else (missing, an array, text) is no names at all.
+const asNames = (departments) => (departments && typeof departments === 'object' && !Array.isArray(departments) ? departments : {})
+const hasDept = (names, id) => !!id && Object.hasOwn(names, id)
+
+/**
+ * The choices for the filter, as { value, label }: "All departments", each department the
+ * Worker named (A to Z), and "No department" when someone on leave has none that is known
+ * (or when that is what is chosen, so the choice never silently disappears). `departments`
+ * is the Worker's { id: name }; `leaves` the month's leave.
+ */
+export function departmentOptions(departments, leaves = [], selected = DEPT_ALL) {
+  const names = asNames(departments)
+  const named = Object.entries(names)
+    .filter(([id, name]) => id && typeof name === 'string' && name.trim())
+    .map(([id, name]) => ({ value: id, label: name.trim() }))
+    .sort((a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value))
+  const options = [{ value: DEPT_ALL, label: 'All departments' }, ...named]
+  const someoneUnassigned = (leaves || []).some(l => !hasDept(names, l.departmentId))
+  if (someoneUnassigned || selected === DEPT_UNASSIGNED) options.push({ value: DEPT_UNASSIGNED, label: 'No department' })
+  return options
+}
+
+/** The leave to show for a filter value. Holidays are company-wide and are never filtered. */
+export function filterLeaves(leaves, value, departments) {
+  const list = leaves || []
+  if (value === DEPT_ALL) return list
+  const names = asNames(departments)
+  if (value === DEPT_UNASSIGNED) return list.filter(l => !hasDept(names, l.departmentId))
+  return list.filter(l => l.departmentId === value)
+}
+
+/** A remembered choice that is no longer on offer (a department that was removed) means everyone. */
+export function effectiveDepartment(value, options) {
+  return (options || []).some(o => o.value === value) ? value : DEPT_ALL
+}
+
+/** The department chosen last time on this device; anything unreadable means everyone. */
+export function readDepartment(storage) {
+  try {
+    const v = storage?.getItem(DEPT_KEY)
+    return typeof v === 'string' && v.length > 0 && v.length <= 120 ? v : DEPT_ALL
+  } catch { return DEPT_ALL }
+}
+
+export function writeDepartment(storage, value) {
+  try {
+    if (value) storage?.setItem(DEPT_KEY, value) // DEPT_ALL is '', so "everyone" clears it below
+    else storage?.removeItem(DEPT_KEY)
+  } catch { /* private mode: the choice lasts until the tab closes */ }
+}
+
 // ---------- what a failure says ----------
 
 /**
