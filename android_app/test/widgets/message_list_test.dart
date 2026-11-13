@@ -476,6 +476,130 @@ void main() {
         expect(find.text('1 new message'), findsOneWidget);
       });
 
+      // Rows of very different heights: tall first, short after (or the reverse).
+      // The first guess at where the line is comes from its index, so it lands short
+      // of the line in one case and past it in the other, and the jump has to step
+      // the right way from either. One test each: a conversation switch builds a
+      // fresh list in the app, which reusing one in a test would not.
+      for (final c in [
+        (
+          name: 'tall rows first, so the guess falls short',
+          tallFirst: true,
+          line: 'm60',
+        ),
+        (
+          name: 'short rows first, so the guess overshoots',
+          tallFirst: false,
+          line: 'm150',
+        ),
+      ]) {
+        testWidgets(
+          'finds the line through rows of very different heights: ${c.name}',
+          (tester) async {
+            final now = DateTime.now();
+            final long = List.filled(
+              40,
+              'word',
+            ).join(' '); // wraps to several lines
+            await pump(tester, [
+              for (var i = 0; i < 200; i++)
+                _msg(
+                  'm$i',
+                  i.isEven ? _ana : _ben,
+                  now.subtract(Duration(minutes: 200 - i)),
+                  text: ((i < 100) == c.tallFirst) ? long : 'short',
+                ),
+            ], newFromId: c.line);
+            expect(find.text('Jump to first unread'), findsOneWidget);
+            await tester.tap(find.text('Jump to first unread'));
+            await tester.pumpAndSettle();
+            expect(find.text('NEW'), findsOneWidget);
+            expect(find.text('Jump to first unread'), findsNothing);
+          },
+        );
+      }
+
+      testWidgets(
+        'appears as soon as the line scrolls up past the top, while its row is still built',
+        (tester) async {
+          await pump(tester, _history(120), newFromId: 'm5');
+          await tester.tap(find.text('Jump to first unread'));
+          await tester.pumpAndSettle();
+          expect(find.text('Jump to first unread'), findsNothing);
+          // Just past the top edge: the row still exists (the list builds a little
+          // beyond the screen), so only a measurement can tell it is out of sight.
+          await tester.drag(find.byType(ListView), const Offset(0, -200));
+          await tester.pumpAndSettle();
+          expect(find.text('Jump to first unread'), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        'is offered when the line is decided after the list is showing',
+        (tester) async {
+          tester.view.physicalSize = const Size(390, 844);
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.reset);
+          final newFrom = ValueNotifier<String?>(null);
+          final msgs = _history(80);
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                statusOfProvider.overrideWith((ref, uid) => 'online'),
+              ],
+              child: MaterialApp(
+                home: Scaffold(
+                  body: ValueListenableBuilder<String?>(
+                    valueListenable: newFrom,
+                    builder: (_, id, _) => MessageListView(
+                      messages: msgs,
+                      meUid: 'me',
+                      usersById: const {},
+                      emojiByName: const {},
+                      canDeleteAny: false,
+                      emptyTitle: 'Nothing here',
+                      emptyDesc: 'Say something',
+                      newFromId: id,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(find.text('Jump to first unread'), findsNothing);
+          newFrom.value = 'm10';
+          await tester.pumpAndSettle();
+          expect(find.text('Jump to first unread'), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        'appears on a scroll that adds and removes no rows (very tall messages)',
+        (tester) async {
+          final now = DateTime.now();
+          // Each message is several screens tall, so only a few rows are ever built
+          // and a short scroll changes none of them: the only thing that can notice
+          // the line has gone over the top is the scroll itself.
+          final huge = List.filled(900, 'word').join(' ');
+          await pump(tester, [
+            for (var i = 0; i < 12; i++)
+              _msg(
+                'm$i',
+                i.isEven ? _ana : _ben,
+                now.subtract(Duration(minutes: 12 - i)),
+                text: huge,
+              ),
+          ], newFromId: 'm4');
+          await tester.tap(find.text('Jump to first unread'));
+          await tester.pumpAndSettle();
+          expect(find.text('Jump to first unread'), findsNothing);
+          await tester.drag(find.byType(ListView), const Offset(0, -150));
+          await tester.pumpAndSettle();
+          expect(find.text('Jump to first unread'), findsOneWidget);
+        },
+      );
+
       testWidgets('is also read out as a button', (tester) async {
         final handle = tester.ensureSemantics();
         await pump(tester, _history(80), newFromId: 'm10');

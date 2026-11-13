@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#49 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#50 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#49)
+## 2. What shipped (PRs #1–#50)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#50 — the "New" line and "Jump to first unread" in the phone app** (section 43): the Flutter chat gets what the web got in #43, #44 and #46.
+
 **#49 — the admin page no longer explains the developer role** (section 42): its role summary now says only that developers have dev tools.
 
 **#48 — department filter on the calendar** (section 41): a dropdown under the calendar narrows who is shown on leave to one department; holidays are never filtered.
@@ -139,7 +141,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 444** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 323**, **Node 444** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -696,3 +698,15 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 4 new tests (the paragraph exists and says developers have dev tools; a list of phrases that must not appear in it; the rest of the summary is intact; developers are named exactly once in it), failing as they should against the old paragraph and against one with a leak added back. All web tests and the build pass.
 
 **NOT checked.** The page in a browser (it needs an admin sign-in; the change is a static paragraph of text in JSX, and the build compiles it). The phone app has no such paragraph.
+
+## 43. The "New" line and "Jump to first unread" in the phone app (PR #50)
+
+**Why.** The web chat has had a red "New" line above the first message you had not read (section 37) and a button to get back to it (section 39); the phone app had neither. Same rule, same look, both apps.
+
+**What.** `firstUnreadId` and `newLineIsAbove` (`android_app/lib/utils/new_line.dart`) are line-for-line the web's (`src/lib/unread.js`), with the same cases in `test/utils/new_line_test.dart`. `ChatSurface` takes your last-read time for the conversation **when it is opened** (`initState`, and again if the surface is pointed at another conversation), decides the line once from the first messages, and passes the id to `MessageListView`, exactly as the web does and for the same reason (#44): the chat is marked read 400 ms after opening whether or not its messages have loaded. `MessageListView` inserts a red **NEW** divider above that message (which also starts a group, so the line never cuts one person's run in two) and shows a **Jump to first unread** pill at the top when the divider has scrolled out of sight above.
+
+**What is different from the web, and why.** The phone list is a lazily built `ListView`: a row far off screen has no widget to measure, and no widget to scroll to. So (1) whether the line is above is read from the list's own report of which rows are built (`_ReportingDelegate.didFinishLayout`) when its row is not built, and measured on screen when it is; (2) the jump first goes to a guess from the line's index, then steps a screen at a time towards it until its row exists, then scrolls it into place (10% from the top). Rows of very different heights make the first guess land short of the line or past it; both are tested. The pill's measurement is taken **after the frame** (once per frame): a scroll listener fires before the list is laid out at its new offset, so measuring there was one step behind, and a scroll that stopped exactly as the line crossed the top edge left the pill wrong. That bug was found by a test with very tall messages (where scrolling adds and removes no rows) and is covered by it.
+
+**Checked.** 30 new tests: the helpers (same cases as the web), the line (drawn once, above the first unread, starts a group, announced to a screen reader as "New messages", absent without an id or with an unknown one), and the button (offered when the line is above, not when it is on screen or absent, takes you to the line from 120 and from 400 messages, from rows of very different heights in both directions, not offered once you scroll above the line, comes back past it, appears on a scroll that adds no rows, appears when the line is decided after the list is showing, a message arriving meanwhile does not pull the view away, read out as a button), plus source-shape tests on the `ChatSurface` decision (it needs live Firestore). Deliberate breakages in two rounds, **all caught** except two equivalent ones (a `<` versus `<=` where the row is always built at the boundary, and a redundant line that was deleted). `flutter analyze` is clean and all 323 tests pass.
+
+**NOT checked.** **On a phone**: nothing here was run on a device or emulator; the behaviour is what Flutter's widget tests (which run the real list and layout, headless) show. In particular the real feel of the scroll animation, real row heights with images and long text, and a slow connection. The decision in `ChatSurface` against live Firestore (source-shape tests only). iOS. No Android build was made (no keystore here, by design): build on the other PC and look at a chat with unread messages before relying on it.

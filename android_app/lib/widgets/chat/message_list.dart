@@ -132,7 +132,7 @@ class _MessageListViewState extends State<MessageListView> {
   void _onScroll() {
     _trackBottom();
     _maybeLoadOlder();
-    _checkNewLine();
+    _checkNewLineAfterFrame();
   }
 
   /// Keeps [_stickToBottom] / [_away] honest as the reader scrolls, rebuilding
@@ -168,13 +168,6 @@ class _MessageListViewState extends State<MessageListView> {
   @override
   void didUpdateWidget(covariant MessageListView oldWidget) {
     super.didUpdateWidget(oldWidget);
-
-    // The line was just placed, moved or removed: look again once it is laid out.
-    if (widget.newFromId != oldWidget.newFromId) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _checkNewLine();
-      });
-    }
 
     // A different conversation in the same widget: start clean rather than
     // carrying the last channel's "3 new messages" into this one.
@@ -312,7 +305,20 @@ class _MessageListViewState extends State<MessageListView> {
     if (first == _firstBuilt && last == _lastBuilt) return;
     _firstBuilt = first;
     _lastBuilt = last;
+    _checkNewLineAfterFrame();
+  }
+
+  bool _newLineCheckQueued = false;
+
+  /// Measure once the frame is done, at most once per frame. A scroll listener runs
+  /// BEFORE the list is laid out at its new offset, so a measurement taken there is one
+  /// step behind: a scroll that stops exactly as the line crosses the top edge would
+  /// leave the button's state wrong until the next scroll.
+  void _checkNewLineAfterFrame() {
+    if (_newLineCheckQueued) return;
+    _newLineCheckQueued = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _newLineCheckQueued = false;
       if (mounted) _checkNewLine();
     });
   }
@@ -346,14 +352,14 @@ class _MessageListViewState extends State<MessageListView> {
     }
   }
 
-  /// Takes the reader to the "New" line. Following the newest is switched off
-  /// first, or the next arrival would pull the view straight back down.
+  /// Takes the reader to the "New" line. Following the newest switches itself off
+  /// as soon as the first jump moves the view away from the end ([_trackBottom]),
+  /// so the next arrival does not pull the view straight back down.
   ///
   /// The line's row may not exist yet (rows far off screen are not built), so
   /// first jump to a guess from its index, then step towards it a screen at a
   /// time until it is built, and only then scroll it into place.
   Future<void> _jumpToNewLine() async {
-    setState(() => _stickToBottom = false);
     var guessed = false;
     for (var attempt = 0; attempt < 80; attempt++) {
       if (!mounted || !_scrollController.hasClients) return;
