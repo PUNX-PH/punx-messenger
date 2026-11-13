@@ -251,6 +251,41 @@ export async function firestoreMerge(bearer, projectId, docPath, fields) {
   return res.json()
 }
 
+/**
+ * The full resource name a Firestore commit wants for a document:
+ * projects/<id>/databases/(default)/documents/<path>. Each segment is checked the way
+ * encodePath checks it ('', '.' and '..' are refused); they are not percent-encoded here
+ * because this goes in a JSON body, not a URL.
+ */
+export function documentName(env, docPath, projectId = env.FIREBASE_PROJECT_ID) {
+  const segments = docPath.split('/')
+  if (segments.some((seg) => seg === '' || seg === '.' || seg === '..')) {
+    throw new AuthError(`Invalid Firestore path segment in "${docPath}"`, 400)
+  }
+  return `projects/${projectId}/databases/(default)/documents/${segments.join('/')}`
+}
+
+/**
+ * Apply several writes ATOMICALLY (Firestore :commit): all of them happen or none do.
+ * `writes` are in Firestore's REST shapes (`update` + `updateMask` + `currentDocument`, or
+ * `transform`). Unlike firestoreMerge this takes a SERVICE ACCOUNT, so it bypasses
+ * firestore.rules: call it only after checking who is asking and what they may do. The
+ * answer's own words are logged, not returned: they can name internals.
+ */
+export async function firestoreCommit(env, sa, writes, projectId = env.FIREBASE_PROJECT_ID) {
+  const token = await getAccessToken(env, sa)
+  const res = await fetch(`${docsUrl(projectId)}:commit`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ writes }),
+  })
+  if (!res.ok) {
+    console.error('[firestore] commit failed:', res.status, await res.text())
+    throw new AuthError(`Firestore commit failed (${res.status})`, 502)
+  }
+  return res.json()
+}
+
 /** Service-account bearer, for reads and for writes that may bypass rules. */
 export async function serviceAccountToken(env, sa) {
   return getAccessToken(env, sa)

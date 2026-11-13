@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,6 +9,8 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../config/app_config.dart';
 import '../config/emulators.dart';
 import '../models/role.dart';
+import '../utils/default_group.dart';
+import 'default_group_service.dart';
 
 /// Thrown when sign-in succeeds with Google/Firebase but the account is
 /// outside the allowed workspace domain, or the Firestore profile sync fails.
@@ -193,18 +196,23 @@ class AuthService {
     final ref = _firestore.collection('users').doc(user.uid);
     final isSuper = AppConfig.isBootstrapSuperAdmin(email);
 
-    if (snap == null || !snap.exists) {
+    final isNew = snap == null || !snap.exists;
+    // What the profile holds, as far as the join-the-team decision below needs it.
+    Map<String, dynamic>? profile = snap?.data();
+    if (isNew) {
+      final role = isSuper
+          ? Role.superAdmin.toFirestore()
+          : Role.employee.toFirestore();
       await ref.set({
         'uid': user.uid,
         'email': email,
         'name': user.displayName ?? email.split('@').first,
         'photoURL': user.photoURL,
-        'role': isSuper
-            ? Role.superAdmin.toFirestore()
-            : Role.employee.toFirestore(),
+        'role': role,
         'createdAt': FieldValue.serverTimestamp(),
         'lastSeen': FieldValue.serverTimestamp(),
       });
+      profile = {'role': role};
     } else {
       final existing = snap.data() ?? const <String, dynamic>{};
       await ref.set({
@@ -212,6 +220,20 @@ class AuthService {
         'photoURL': user.photoURL ?? existing['photoURL'],
         'lastSeen': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+    }
+
+    // A new company account is put into the default group (PUNX TEAM) by the
+    // Worker, which is the only one allowed to: people cannot add themselves to a
+    // group. Not waited for and never fatal: a missed attempt is retried at the
+    // next sign-in for a week (shouldJoinDefaultGroup), and the Worker checks all
+    // of it again. Mirrors src/lib/auth.jsx.
+    if (shouldJoinDefaultGroup(
+      profile: profile,
+      email: email,
+      domain: AppConfig.allowedEmailDomain,
+      justCreated: isNew,
+    )) {
+      unawaited(DefaultGroupService.request());
     }
   }
 

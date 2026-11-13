@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#50 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#51 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#50)
+## 2. What shipped (PRs #1–#51)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#51 — new @punx.ai accounts join PUNX TEAM automatically** (section 44; `docs/ONBOARDING.md`): the Worker adds a new company account to the team group at first sign-in.
+
 **#50 — the "New" line and "Jump to first unread" in the phone app** (section 43): the Flutter chat gets what the web got in #43, #44 and #46.
 
 **#49 — the admin page no longer explains the developer role** (section 42): its role summary now says only that developers have dev tools.
@@ -141,7 +143,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 323**, **Node 444** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 339**, **Node 462** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 83, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -710,3 +712,15 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 30 new tests: the helpers (same cases as the web), the line (drawn once, above the first unread, starts a group, announced to a screen reader as "New messages", absent without an id or with an unknown one), and the button (offered when the line is above, not when it is on screen or absent, takes you to the line from 120 and from 400 messages, from rows of very different heights in both directions, not offered once you scroll above the line, comes back past it, appears on a scroll that adds no rows, appears when the line is decided after the list is showing, a message arriving meanwhile does not pull the view away, read out as a button), plus source-shape tests on the `ChatSurface` decision (it needs live Firestore). Deliberate breakages in two rounds, **all caught** except two equivalent ones (a `<` versus `<=` where the row is always built at the boundary, and a redundant line that was deleted). `flutter analyze` is clean and all 323 tests pass.
 
 **NOT checked.** **On a phone**: nothing here was run on a device or emulator; the behaviour is what Flutter's widget tests (which run the real list and layout, headless) show. In particular the real feel of the scroll animation, real row heights with images and long text, and a slow connection. The decision in `ChatSurface` against live Firestore (source-shape tests only). iOS. No Android build was made (no keystore here, by design): build on the other PC and look at a chat with unread messages before relying on it.
+
+## 44. New @punx.ai accounts join PUNX TEAM automatically (PR #51)
+
+**Why.** A new person opened the app to an empty sidebar until someone invited them to the team group. Asked for: every new `@punx.ai` account joins PUNX TEAM on its own. Full description and an operating guide: **`docs/ONBOARDING.md`**.
+
+**What.** A person cannot add themselves to a group (the rules allow an admin, an invite or a member-managing bot only), so a new Worker route does it: `POST /onboarding/join-default-group` (`workers/src/routes/onboarding.js`). The web app (`src/lib/auth.jsx`) and the phone app (`auth_service.dart`) call it at sign-in, without waiting and without it ever affecting sign-in. The Worker re-checks everything: the email on the signed token is exactly `@punx.ai` (an externally allowed address is **not** added), the profile is staff and not a guest, not removed, not already stamped, and **created in the last 7 days**. Then, in one atomic Firestore commit, it appends the caller's uid to the group's `memberUids` (an array union, safe against two joining at once) and stamps `defaultGroupJoinedAt` on their profile (so someone who later leaves is not put back). Two new helpers in `workers/src/googleAuth.js`: `firestoreCommit` and `documentName`. **No change to `firestore.rules`.**
+
+**Which group.** `DEFAULT_GROUP_NAME = "PUNX TEAM"` in `workers/wrangler.toml`: found by name ignoring case, and only if exactly one group has it and a developer, super admin or admin owns it (so a look-alike group made by an ordinary member is never where people land). `DEFAULT_GROUP_ID` pins an exact group instead.
+
+**Checked.** 36 Worker tests (every "no" and its reason, the atomic commit, who is added and who is not, both ways to find the group, failures leaving nothing half done and nothing stamped, a profile removed between the check and the write failing the whole commit), 18 web tests (the client rule, and that the web rule and the Worker's share staff roles, the one-week window and the address check), 16 phone tests (the same rule, plus reading the Worker's file to pin its constants to the phone's). Deliberate breakages: 35 on the Worker and web, 17 on the phone, **all caught** after two gaps were closed (an empty domain matching an address that ends at the `@`, and the no-signed-in-user guard on the phone). All suites and builds pass.
+
+**NOT checked.** **Against the real thing.** Nothing here has run on the live Worker with real Firestore: (1) that the Worker's service account is **allowed to write** to punx-msg's Firestore (it has been used for reads and for minting bot tokens; this is its first direct write), (2) that the group is **found**, i.e. that it is named PUNX TEAM and owned by a developer, super admin or admin (otherwise nothing is joined and the Worker's log says so; `DEFAULT_GROUP_ID` is the fix), and (3) the whole path from a real new sign-in. Do this once after the deploy: sign in with a brand-new `@punx.ai` account and look for PUNX TEAM in its sidebar. Also not checked: the phone app on a device, and the existing members (deliberately left alone: a backfill is a separate one-off job).
