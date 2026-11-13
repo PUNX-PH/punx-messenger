@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { firstUnreadId } from '../src/lib/unread.js'
+import { firstUnreadId, newLineIsAbove } from '../src/lib/unread.js'
 import { buildBlocks } from '../src/lib/messageBlocks.js'
 
 const lf = (s) => s.replace(/\r\n/g, '\n')
@@ -98,6 +98,36 @@ test('the read time used is the one from the moment of opening, not from when th
   assert.ok(src.includes('{ known: true, at: meNow.lastRead?.[pathToReadKey('), 'it is your read time for this conversation')
   assert.ok(src.includes('const lastRead = entry?.known ? entry.at : me.lastRead?.'), 'the captured time wins over the current one')
   assert.ok(src.includes('(entry?.known || me)'), 'it still works when the directory had not arrived at opening')
+})
+
+// ---------- the way back up to it ----------
+
+test('the line counts as "above" only when it has scrolled completely out of sight over the top', () => {
+  assert.equal(newLineIsAbove(-300, 100), true, 'well above')
+  assert.equal(newLineIsAbove(100, 100), true, 'its bottom edge exactly at the top edge')
+  assert.equal(newLineIsAbove(101, 100), false, 'one pixel showing')
+  assert.equal(newLineIsAbove(400, 100), false, 'in view')
+  assert.equal(newLineIsAbove(5000, 100), false, 'below the view: the reader is above it and will reach it')
+})
+
+test('anything unmeasured never offers the button', () => {
+  for (const bad of [undefined, null, NaN, Infinity, '12', {}]) {
+    assert.equal(newLineIsAbove(bad, 100), false, 'bottom ' + String(bad))
+    assert.equal(newLineIsAbove(-300, bad), false, 'top ' + String(bad))
+  }
+})
+
+test('the list measures it on every scroll and after the list changes, and the button takes you there', () => {
+  const src = lf(fs.readFileSync('src/components/MessageList.jsx', 'utf8'))
+  assert.ok(src.includes('aria-label="New messages" data-new-line className='), 'the separator itself carries the marker the list looks for')
+  assert.ok(src.includes("querySelector('[data-new-line]')"), 'and the list looks for it')
+  assert.ok(src.includes('newLineIsAbove(line.getBoundingClientRect().bottom, box.getBoundingClientRect().top)'), 'from the real positions')
+  assert.ok(/const onScroll = \(\) => \{\n\s*const el = containerRef\.current\n\s*if \(!el\) return\n\s*checkNewLine\(\)/.test(src), 'on every scroll')
+  assert.ok(src.includes('useEffect(() => { checkNewLine() }, [newFromId, messages?.length, messages?.[0]?.id])'), 'and when the list changes')
+  assert.ok(/stickToBottomRef\.current = false\n\s*line\.scrollIntoView\(\{ block: 'start', behavior: scrollBehavior \}\)/.test(src),
+    'following the newest is switched off first, so the next arrival does not pull the view back down')
+  assert.ok(src.includes('{newLineAbove && ('), 'the button shows only while it is above')
+  assert.ok(src.includes('Jump to first unread'))
 })
 
 test('the list draws a separator for it and passes the id to the layout', () => {
