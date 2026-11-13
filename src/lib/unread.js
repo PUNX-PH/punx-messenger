@@ -113,6 +113,38 @@ export function countUnread({
   return n
 }
 
+/**
+ * Everything that has something new in it, as read keys, for "mark as read":
+ * { dms: [...], channels: [...] }. Deliberately WIDER than countUnread: anything that shows
+ * a dot should be cleared by "mark as read", so this includes the channels of a muted group
+ * (which countUnread leaves out of the badge) and a DM whose last message is your own (which
+ * the DM list still dots, since it only compares times).
+ */
+export function unreadKeys({ dmConvos = [], channelsByGroup = {}, lastRead = {} } = {}) {
+  const dms = []
+  for (const dm of dmConvos || []) {
+    const key = pathToReadKey(`dms/${dm.id}`)
+    if (isUnread(dm.lastMessageAt, lastRead?.[key])) dms.push(key)
+  }
+  const channels = []
+  for (const [groupId, list] of Object.entries(channelsByGroup || {})) {
+    for (const c of list || []) {
+      const key = pathToReadKey(`groups/${groupId}/channels/${c.id}`)
+      if (isUnread(c.lastMessageAt, lastRead?.[key])) channels.push(key)
+    }
+  }
+  return { dms, channels }
+}
+
+/** The keys without repeats, in pieces of at most `size`, so one write never grows without limit. */
+export function chunkKeys(keys, size = 300) {
+  const n = Number.isInteger(size) && size > 0 ? size : 300
+  const unique = [...new Set(keys || [])]
+  const out = []
+  for (let i = 0; i < unique.length; i += n) out.push(unique.slice(i, i + n))
+  return out
+}
+
 /** "(3) Punx Messenger"; nothing added when there is nothing new. */
 export function titleWithCount(base, n) {
   if (!n || n < 1) return base

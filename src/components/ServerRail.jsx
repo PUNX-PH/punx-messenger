@@ -10,6 +10,7 @@ import { isUnread, pathToReadKey } from '../lib/db'
 import LazySlot from './LazySlot'
 import { CreateGroupModal } from '../lib/lazyParts'
 import GroupContextMenu from './GroupContextMenu'
+import { useMarkAllRead } from '../lib/useMarkAllRead'
 
 export default function ServerRail() {
   const { profile } = useAuth()
@@ -20,6 +21,8 @@ export default function ServerRail() {
   const [channelsByGroup, setChannelsByGroup] = useState({})
   const [creating, setCreating] = useState(false)
   const [menu, setMenu] = useState({ open: false, x: 0, y: 0, group: null })
+  const [homeMenu, setHomeMenu] = useState({ open: false, x: 0, y: 0 })
+  const { count: unreadEverywhere, markAll } = useMarkAllRead()
 
   const me = usersById[profile?.id]
   const lastRead = me?.lastRead || {}
@@ -90,6 +93,19 @@ export default function ServerRail() {
     setMenu({ open: true, x: e.clientX, y: e.clientY, group })
   }
   const closeMenu = () => setMenu(m => ({ ...m, open: false }))
+  const openHomeMenu = (e) => {
+    e.preventDefault?.()
+    setHomeMenu({ open: true, x: e.clientX, y: e.clientY })
+  }
+  const closeHomeMenu = () => setHomeMenu(m => ({ ...m, open: false }))
+  // One item. With nothing unread it is shown but not clickable, and says why.
+  const homeItems = [{
+    label: 'Mark everything as read',
+    icon: <CheckIcon />,
+    onClick: markAll,
+    disabled: unreadEverywhere === 0,
+    trailing: unreadEverywhere === 0 ? 'all caught up' : `${unreadEverywhere} unread`,
+  }]
 
   const onLeave = async (group) => {
     if (!confirm(`Leave "${group.name}"? You'll lose access to its channels until you're invited back.`)) return
@@ -125,9 +141,7 @@ export default function ServerRail() {
   return (
     <>
       <aside className="w-[72px] bg-bg-deepest flex flex-col items-center pt-safe pb-3 gap-2 border-r border-line-subtle overflow-y-auto scrollbar-thin">
-        <RailLink to="/dms" active={onDMs} label="Direct messages">
-          <HomeIcon />
-        </RailLink>
+        <HomeRailLink active={onDMs} onMenu={openHomeMenu} />
 
         <div className="w-8 h-px bg-line-subtle my-1" />
 
@@ -185,6 +199,13 @@ export default function ServerRail() {
         y={menu.y}
         items={menuItems}
         onClose={closeMenu}
+      />
+      <GroupContextMenu
+        open={homeMenu.open}
+        x={homeMenu.x}
+        y={homeMenu.y}
+        items={homeItems}
+        onClose={closeHomeMenu}
       />
     </>
   )
@@ -284,6 +305,30 @@ function GroupRailLink({ group, ghost = false, isMuted, hasUnread, onContextMenu
           <EyeIcon />
         </span>
       )}
+    </div>
+  )
+}
+
+// The Home button: still just a link to your direct messages, and a right-click or a hold
+// (the same way the group icons open theirs) offers "Mark everything as read".
+function HomeRailLink({ active, onMenu }) {
+  const press = useLongPress((pos) => {
+    onMenu({ preventDefault: () => {}, clientX: pos.x, clientY: pos.y })
+  }, 450)
+  return (
+    <div
+      onContextMenu={(e) => { e.preventDefault(); onMenu(e) }}
+      onMouseDown={press.onMouseDown}
+      onMouseUp={press.onMouseUp}
+      onMouseLeave={press.onMouseLeave}
+      onTouchStart={press.onTouchStart}
+      onTouchEnd={press.onTouchEnd}
+      onTouchMove={press.onTouchMove}
+      onClick={press.onClick}
+    >
+      <RailLink to="/dms" active={active} label="Direct messages. Hold or right-click for more.">
+        <HomeIcon />
+      </RailLink>
     </div>
   )
 }
