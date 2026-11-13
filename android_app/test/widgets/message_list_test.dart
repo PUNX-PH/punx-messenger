@@ -49,6 +49,7 @@ void main() {
     String meUid = 'me',
     Size size = const Size(390, 844),
     double textScale = 1.0,
+    String? newFromId,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -76,6 +77,7 @@ void main() {
                 canDeleteAny: false,
                 emptyTitle: 'Nothing here',
                 emptyDesc: 'Say something',
+                newFromId: newFromId,
               ),
             ),
           ),
@@ -335,5 +337,151 @@ void main() {
         });
       }
     }
+  });
+
+  group('the New line', () {
+    final now = DateTime.now();
+    // Three by Ana within a minute: one group, unless something splits it.
+    List<ChatMessage> trio() => [
+      _msg('m0', _ana, now.subtract(const Duration(seconds: 50))),
+      _msg('m1', _ana, now.subtract(const Duration(seconds: 40))),
+      _msg('m2', _ana, now.subtract(const Duration(seconds: 30))),
+    ];
+
+    testWidgets('is drawn once, above the first unread message', (
+      tester,
+    ) async {
+      await pump(tester, trio(), newFromId: 'm2');
+      expect(find.text('NEW'), findsOneWidget);
+      final line = tester.getTopLeft(find.text('NEW')).dy;
+      expect(
+        line,
+        lessThan(
+          tester.getTopLeft(find.text('message m2', findRichText: true)).dy,
+        ),
+        reason: 'above m2',
+      );
+      expect(
+        line,
+        greaterThan(
+          tester.getTopLeft(find.text('message m1', findRichText: true)).dy,
+        ),
+        reason: 'below m1',
+      );
+    });
+
+    testWidgets('starts a new group, so the same person is named again', (
+      tester,
+    ) async {
+      await pump(tester, trio());
+      expect(find.text('Ana'), findsOneWidget, reason: 'one run, one header');
+      await pump(tester, trio(), newFromId: 'm2');
+      expect(find.text('Ana'), findsNWidgets(2));
+    });
+
+    testWidgets('no id, or an id that is not in the list, adds nothing', (
+      tester,
+    ) async {
+      await pump(tester, trio());
+      expect(find.text('NEW'), findsNothing);
+      await pump(tester, trio(), newFromId: 'gone');
+      expect(find.text('NEW'), findsNothing);
+    });
+
+    testWidgets('is announced to a screen reader as "New messages"', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await pump(tester, trio(), newFromId: 'm2');
+      expect(find.bySemanticsLabel('New messages'), findsOneWidget);
+      handle.dispose();
+    });
+
+    group('Jump to first unread', () {
+      // The line is far above the screen once the list has settled at the bottom.
+      testWidgets('is offered when the line is out of sight above', (
+        tester,
+      ) async {
+        await pump(tester, _history(80), newFromId: 'm10');
+        expect(find.text('Jump to first unread'), findsOneWidget);
+      });
+
+      testWidgets('is not offered when the line is on screen', (tester) async {
+        await pump(tester, trio(), newFromId: 'm2');
+        expect(find.text('Jump to first unread'), findsNothing);
+      });
+
+      testWidgets('is not offered when there is no line', (tester) async {
+        await pump(tester, _history(80));
+        expect(find.text('Jump to first unread'), findsNothing);
+      });
+
+      testWidgets('takes you to the line and goes away', (tester) async {
+        await pump(tester, _history(120), newFromId: 'm5');
+        await tester.tap(find.text('Jump to first unread'));
+        await tester.pumpAndSettle();
+        expect(find.text('NEW'), findsOneWidget, reason: 'the line is built');
+        final top = tester.getTopLeft(find.text('NEW')).dy;
+        expect(top, greaterThanOrEqualTo(0));
+        expect(top, lessThan(300), reason: 'near the top of the screen');
+        expect(find.text('Jump to first unread'), findsNothing);
+      });
+
+      testWidgets(
+        'works from a very long way down, through rows not built yet',
+        (tester) async {
+          await pump(tester, _history(400), newFromId: 'm3');
+          await tester.tap(find.text('Jump to first unread'));
+          await tester.pumpAndSettle();
+          expect(find.text('NEW'), findsOneWidget);
+          expect(find.text('Jump to first unread'), findsNothing);
+        },
+      );
+
+      testWidgets('is not offered once you have scrolled above the line', (
+        tester,
+      ) async {
+        await pump(tester, _history(120), newFromId: 'm60');
+        await tester.tap(find.text('Jump to first unread'));
+        await tester.pumpAndSettle();
+        await tester.drag(find.byType(ListView), const Offset(0, 3000));
+        await tester.pumpAndSettle();
+        expect(find.text('Jump to first unread'), findsNothing);
+      });
+
+      testWidgets('comes back when you scroll down past the line again', (
+        tester,
+      ) async {
+        await pump(tester, _history(120), newFromId: 'm20');
+        await tester.tap(find.text('Jump to first unread'));
+        await tester.pumpAndSettle();
+        await tester.drag(find.byType(ListView), const Offset(0, -4000));
+        await tester.pumpAndSettle();
+        expect(find.text('Jump to first unread'), findsOneWidget);
+      });
+
+      testWidgets('a message arriving meanwhile does not pull the view away', (
+        tester,
+      ) async {
+        final msgs = _history(120);
+        final feed = await pump(tester, msgs, newFromId: 'm5');
+        await tester.tap(find.text('Jump to first unread'));
+        await tester.pumpAndSettle();
+        final before = tester.getTopLeft(find.text('NEW')).dy;
+
+        feed.value = [...msgs, _msg('n1', _ben, DateTime.now())];
+        await tester.pumpAndSettle();
+        expect(find.text('NEW'), findsOneWidget, reason: 'still where it was');
+        expect(tester.getTopLeft(find.text('NEW')).dy, closeTo(before, 1));
+        expect(find.text('1 new message'), findsOneWidget);
+      });
+
+      testWidgets('is also read out as a button', (tester) async {
+        final handle = tester.ensureSemantics();
+        await pump(tester, _history(80), newFromId: 'm10');
+        expect(find.bySemanticsLabel('Jump to first unread'), findsOneWidget);
+        handle.dispose();
+      });
+    });
   });
 }

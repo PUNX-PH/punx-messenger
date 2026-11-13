@@ -6,6 +6,7 @@ import '../../models/user_profile.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
 import '../../utils/constants.dart';
+import '../../utils/new_line.dart';
 import '../../utils/time_format.dart';
 import 'message_row.dart';
 
@@ -36,6 +37,7 @@ class MessageListView extends StatefulWidget {
     this.hasMore = false,
     this.onLoadOlder,
     this.scrollToId,
+    this.newFromId,
     this.onReply,
     this.onEdit,
     this.onDelete,
@@ -64,6 +66,11 @@ class MessageListView extends StatefulWidget {
   /// and briefly highlight it, pausing normal auto-follow-latest behavior.
   final String? scrollToId;
 
+  /// The first message the reader had not read when the conversation opened: a
+  /// "New" line goes just above it, and a pill takes them back to it when it has
+  /// scrolled out of sight above. See firstUnreadId.
+  final String? newFromId;
+
   final ValueChanged<ChatMessage>? onReply;
   final void Function(ChatMessage message, String newText)? onEdit;
   final ValueChanged<ChatMessage>? onDelete;
@@ -81,6 +88,16 @@ class _MessageListViewState extends State<MessageListView> {
   String? _firstId;
   final Map<String, GlobalKey> _rowKeys = {};
   String? _highlightId;
+
+  /// The "New" line: its key (to find it on screen), where it sits in the flattened
+  /// list, the range of rows currently built, and whether it has scrolled out of
+  /// sight above. A ListView only builds the rows near the screen, so a row far
+  /// above has no widget to measure: its position is known only by its index.
+  final _newLineKey = GlobalKey();
+  int? _newLineIndex;
+  int _firstBuilt = 0;
+  int _lastBuilt = -1;
+  bool _newLineAbove = false;
 
   /// Whether the reader is at the end of the feed — new messages follow them.
   bool _stickToBottom = true;
@@ -115,6 +132,7 @@ class _MessageListViewState extends State<MessageListView> {
   void _onScroll() {
     _trackBottom();
     _maybeLoadOlder();
+    _checkNewLine();
   }
 
   /// Keeps [_stickToBottom] / [_away] honest as the reader scrolls, rebuilding
@@ -151,6 +169,13 @@ class _MessageListViewState extends State<MessageListView> {
   void didUpdateWidget(covariant MessageListView oldWidget) {
     super.didUpdateWidget(oldWidget);
 
+    // The line was just placed, moved or removed: look again once it is laid out.
+    if (widget.newFromId != oldWidget.newFromId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _checkNewLine();
+      });
+    }
+
     // A different conversation in the same widget: start clean rather than
     // carrying the last channel's "3 new messages" into this one.
     if (widget.meUid != oldWidget.meUid ||
@@ -160,6 +185,7 @@ class _MessageListViewState extends State<MessageListView> {
       _rememberNewest();
       _unseen = 0;
       _away = false;
+      _newLineAbove = false;
       _stickToBottom = true;
       WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
       return;
@@ -279,6 +305,93 @@ class _MessageListViewState extends State<MessageListView> {
     _jumpToBottom();
   }
 
+  /// Called after every layout with the range of rows that is built. Only a
+  /// change in the range is acted on, and the work is deferred to after the frame:
+  /// this runs in the middle of layout, where setState is not allowed.
+  void _onBuilt(int first, int last) {
+    if (first == _firstBuilt && last == _lastBuilt) return;
+    _firstBuilt = first;
+    _lastBuilt = last;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _checkNewLine();
+    });
+  }
+
+  /// Is the "New" line completely out of sight above the list? If its row is built
+  /// it is measured on screen; if not, it is above exactly when its index is before
+  /// the first row that is built.
+  void _checkNewLine() {
+    final index = _newLineIndex;
+    var above = false;
+    if (index != null && _scrollController.hasClients) {
+      final ctx = _newLineKey.currentContext;
+      if (ctx != null && index >= _firstBuilt && index <= _lastBuilt) {
+        final box = ctx.findRenderObject();
+        final viewport = Scrollable.maybeOf(ctx)?.context.findRenderObject();
+        if (box is RenderBox &&
+            box.attached &&
+            viewport is RenderBox &&
+            viewport.attached) {
+          above = newLineIsAbove(
+            box.localToGlobal(Offset(0, box.size.height)).dy,
+            viewport.localToGlobal(Offset.zero).dy,
+          );
+        }
+      } else {
+        above = index < _firstBuilt;
+      }
+    }
+    if (above != _newLineAbove && mounted) {
+      setState(() => _newLineAbove = above);
+    }
+  }
+
+  /// Takes the reader to the "New" line. Following the newest is switched off
+  /// first, or the next arrival would pull the view straight back down.
+  ///
+  /// The line's row may not exist yet (rows far off screen are not built), so
+  /// first jump to a guess from its index, then step towards it a screen at a
+  /// time until it is built, and only then scroll it into place.
+  Future<void> _jumpToNewLine() async {
+    setState(() => _stickToBottom = false);
+    var guessed = false;
+    for (var attempt = 0; attempt < 80; attempt++) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final index = _newLineIndex;
+      if (index == null) return;
+      final p = _scrollController.position;
+      final ctx = _newLineKey.currentContext;
+      if (ctx != null &&
+          ctx.mounted &&
+          index >= _firstBuilt &&
+          index <= _lastBuilt) {
+        await Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 300),
+          alignment: 0.1,
+        );
+        if (mounted) _checkNewLine();
+        return;
+      }
+      double target;
+      if (!guessed && _itemCount > 1) {
+        guessed = true;
+        target = p.maxScrollExtent * (index / (_itemCount - 1));
+      } else {
+        final step = p.viewportDimension;
+        target = index < _firstBuilt ? p.pixels - step : p.pixels + step;
+      }
+      target = target.clamp(p.minScrollExtent, p.maxScrollExtent);
+      if (target == p.pixels && guessed && attempt > 0) {
+        return; // nowhere left to go
+      }
+      _scrollController.jumpTo(target);
+      await WidgetsBinding.instance.endOfFrame;
+    }
+  }
+
+  int _itemCount = 0;
+
   void _jumpToMessage(String id) {
     final ctx = _rowKeys[id]?.currentContext;
     if (ctx == null) return;
@@ -299,43 +412,53 @@ class _MessageListViewState extends State<MessageListView> {
       return _EmptyState(title: widget.emptyTitle, desc: widget.emptyDesc);
     }
 
-    final items = _flatten(widget.messages);
-    final list = ListView.builder(
+    final items = _flatten(widget.messages, widget.newFromId);
+    _itemCount = items.length;
+    final newLineAt = items.indexWhere((i) => i is _NewItem);
+    _newLineIndex = newLineAt < 0 ? null : newLineAt;
+    final list = ListView.custom(
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        final item = items[index];
-        if (item is _DayItem) {
-          return _DayDivider(
-            key: ValueKey(
-              'day-${item.day.year}-${item.day.month}-${item.day.day}',
+      semanticChildCount: items.length,
+      childrenDelegate: _ReportingDelegate(
+        childCount: items.length,
+        onLayout: _onBuilt,
+        (context, index) {
+          final item = items[index];
+          if (item is _NewItem) {
+            return KeyedSubtree(key: _newLineKey, child: const _NewDivider());
+          }
+          if (item is _DayItem) {
+            return _DayDivider(
+              key: ValueKey(
+                'day-${item.day.year}-${item.day.month}-${item.day.day}',
+              ),
+              day: item.day,
+            );
+          }
+          final entry = item as _MessageItem;
+          final key = _rowKeys.putIfAbsent(entry.message.id, () => GlobalKey());
+          return KeyedSubtree(
+            key: key,
+            child: MessageRow(
+              message: entry.message,
+              showHeader: entry.showHeader,
+              meUid: widget.meUid,
+              usersById: widget.usersById,
+              emojiByName: widget.emojiByName,
+              canDeleteAny: widget.canDeleteAny,
+              canPin: widget.canPin,
+              highlighted: _highlightId == entry.message.id,
+              onReply: widget.onReply,
+              onEdit: widget.onEdit,
+              onDelete: widget.onDelete,
+              onTogglePin: widget.onTogglePin,
+              onReact: widget.onReact,
+              onJumpToMessage: widget.onJumpToMessage,
             ),
-            day: item.day,
           );
-        }
-        final entry = item as _MessageItem;
-        final key = _rowKeys.putIfAbsent(entry.message.id, () => GlobalKey());
-        return KeyedSubtree(
-          key: key,
-          child: MessageRow(
-            message: entry.message,
-            showHeader: entry.showHeader,
-            meUid: widget.meUid,
-            usersById: widget.usersById,
-            emojiByName: widget.emojiByName,
-            canDeleteAny: widget.canDeleteAny,
-            canPin: widget.canPin,
-            highlighted: _highlightId == entry.message.id,
-            onReply: widget.onReply,
-            onEdit: widget.onEdit,
-            onDelete: widget.onDelete,
-            onTogglePin: widget.onTogglePin,
-            onReact: widget.onReact,
-            onJumpToMessage: widget.onJumpToMessage,
-          ),
-        );
-      },
+        },
+      ),
     );
 
     // `_unseen` alone is enough to show the pill. New messages are counted from
@@ -345,6 +468,20 @@ class _MessageListViewState extends State<MessageListView> {
     return Stack(
       children: [
         Positioned.fill(child: list),
+        // The "New" line has scrolled out of sight above: a way back up to it.
+        if (_newLineAbove)
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 12,
+            child: Center(
+              child: _PillButton(
+                label: 'Jump to first unread',
+                icon: Icons.arrow_upward,
+                onTap: _jumpToNewLine,
+              ),
+            ),
+          ),
         if (showPill)
           Positioned(
             left: 0,
@@ -368,6 +505,10 @@ class _DayItem extends _ListItem {
   final DateTime day;
 }
 
+class _NewItem extends _ListItem {
+  const _NewItem();
+}
+
 class _MessageItem extends _ListItem {
   const _MessageItem(this.message, this.showHeader);
   final ChatMessage message;
@@ -378,7 +519,7 @@ class _MessageItem extends _ListItem {
 /// author sent it within [AppTiming.messageGroupingWindowMs] of the
 /// *immediately preceding* message (not the group's first message). A new day
 /// always starts a new group, and gets a divider.
-List<_ListItem> _flatten(List<ChatMessage> messages) {
+List<_ListItem> _flatten(List<ChatMessage> messages, [String? newFromId]) {
   final out = <_ListItem>[];
   ChatMessage? prev;
   DateTime? prevDay;
@@ -393,8 +534,13 @@ List<_ListItem> _flatten(List<ChatMessage> messages) {
     }
     if (day != null) prevDay = day;
 
+    // The "New" line goes just above the first unread message, which also starts
+    // a group, so the line never cuts a run by one person in two.
+    final newLine = newFromId != null && m.id == newFromId;
+    if (newLine) out.add(const _NewItem());
     final showHeader =
         newDay ||
+        newLine ||
         prev == null ||
         prev.author.uid != m.author.uid ||
         _msSincePrev(prev, m) >= AppTiming.messageGroupingWindowMs;
@@ -467,6 +613,24 @@ class _JumpPill extends StatelessWidget {
     final label = unseen > 0
         ? '$unseen new ${unseen == 1 ? 'message' : 'messages'}'
         : 'Jump to latest';
+    return _PillButton(label: label, icon: Icons.arrow_downward, onTap: onTap);
+  }
+}
+
+/// A rounded button floating over the feed: "Jump to latest" at the bottom, and
+/// "Jump to first unread" at the top.
+class _PillButton extends StatelessWidget {
+  const _PillButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
     return Semantics(
       button: true,
       label: label,
@@ -486,11 +650,7 @@ class _JumpPill extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
-                      Icons.arrow_downward,
-                      size: 16,
-                      color: Colors.white,
-                    ),
+                    Icon(icon, size: 16, color: Colors.white),
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
@@ -510,6 +670,53 @@ class _JumpPill extends StatelessWidget {
       ),
     );
   }
+}
+
+/// "Everything below this you had not read when you opened the chat."
+class _NewDivider extends StatelessWidget {
+  const _NewDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget rule() => Expanded(
+      child: Container(height: 1, color: Palette.bad.withValues(alpha: 0.6)),
+    );
+    return Semantics(
+      container: true,
+      label: 'New messages',
+      child: ExcludeSemantics(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          child: Row(
+            children: [
+              rule(),
+              const SizedBox(width: 12),
+              Text(
+                'NEW',
+                style: AppTextStyles.xs(
+                  color: Palette.bad,
+                  weight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 12),
+              rule(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The usual lazy list of rows, plus a report after each layout of which rows are
+/// built (the "New" line's row only exists while it is near the screen).
+class _ReportingDelegate extends SliverChildBuilderDelegate {
+  _ReportingDelegate(super.builder, {super.childCount, required this.onLayout});
+  final void Function(int firstIndex, int lastIndex) onLayout;
+
+  @override
+  void didFinishLayout(int firstIndex, int lastIndex) =>
+      onLayout(firstIndex, lastIndex);
 }
 
 class _EmptyState extends StatelessWidget {

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,6 +13,8 @@ import '../../providers/messages_providers.dart';
 import '../../providers/users_providers.dart';
 import '../../theme/palette.dart';
 import '../../utils/constants.dart';
+import '../../utils/firestore_paths.dart';
+import '../../utils/new_line.dart';
 import 'composer.dart';
 import 'message_list.dart';
 import 'pinned_messages_sheet.dart';
@@ -53,6 +56,49 @@ class ChatSurface extends ConsumerStatefulWidget {
 class _ChatSurfaceState extends ConsumerState<ChatSurface> {
   Timer? _markReadDebounce;
   String? _jumpToId;
+
+  /// Where the "New" line goes in the conversation you just opened: the first
+  /// message you had not read at that moment. Decided once per opening, from the
+  /// first messages, and then left where it is while you read (marking the chat
+  /// read moves your last-read time, which must not drag the line along).
+  String? _newFromId;
+  bool _newDecided = false;
+
+  /// Your last-read time for this conversation, taken when it was opened, not
+  /// when the messages arrive: the chat is marked read 400 ms after opening
+  /// whether or not its messages have loaded, so a time read later could already
+  /// be "just now" and the line would be lost on a slow connection.
+  ({bool known, Timestamp? at}) _readAtEntry = (known: false, at: null);
+
+  @override
+  void initState() {
+    super.initState();
+    _captureOpening();
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatSurface oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.path != oldWidget.path) _captureOpening();
+  }
+
+  /// A conversation was opened (or the surface was pointed at another one):
+  /// remember when you had last read it, and decide the line afresh.
+  void _captureOpening() {
+    _newDecided = false;
+    _newFromId = null;
+    final uid = ref.read(authStateProvider).valueOrNull?.uid;
+    final me = uid == null ? null : ref.read(usersByIdProvider)[uid];
+    if (me == null || widget.path.startsWith('users/')) {
+      _readAtEntry = (known: false, at: null);
+      return;
+    }
+    _readAtEntry = (
+      known: true,
+      at: me
+          .lastRead[pathToReadKey(containerPathFromMessagesPath(widget.path))],
+    );
+  }
 
   @override
   void dispose() {
@@ -96,6 +142,25 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
     final containerPath = widget.path.startsWith('users/')
         ? null
         : widget.path.replaceFirst(RegExp(r'/messages$'), '');
+    // The "New" line, decided once per opening from the first messages. Your own
+    // read times are the ones taken when the conversation was opened; if the user
+    // directory had not arrived by then, the current ones are the best there is
+    // (they can only be later, which puts the line later, never earlier than the
+    // truth). Plain field assignment, not setState: this runs inside build and is
+    // used by it just below.
+    if (!_newDecided && messages.isNotEmpty && containerPath != null) {
+      final me = meUid == null ? null : usersById[meUid];
+      if (_readAtEntry.known || me != null) {
+        _newDecided = true;
+        _newFromId = firstUnreadId(
+          messages,
+          _readAtEntry.known
+              ? _readAtEntry.at
+              : me!.lastRead[pathToReadKey(containerPath)],
+          meUid,
+        );
+      }
+    }
     // The LABEL, not the name list: see typingLabelProvider on why watching
     // the list here rebuilt this whole surface every two seconds.
     final typingLabel = containerPath == null
@@ -200,6 +265,7 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
                   emptyTitle: widget.emptyTitle,
                   emptyDesc: widget.emptyDesc,
                   scrollToId: _jumpToId,
+                  newFromId: _newFromId,
                   onReply: controller.setReplyingTo,
                   onEdit: (m, text) => controller.edit(m, text),
                   onDelete: (m) => controller.delete(m),
