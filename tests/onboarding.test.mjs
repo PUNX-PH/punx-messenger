@@ -5,7 +5,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { NEW_ACCOUNT_DAYS, STAFF_ROLES, hasCompanyEmail, shouldJoinDefaultGroup } from '../src/lib/onboarding.js'
+import {
+  BACKFILL_ROLES, NEW_ACCOUNT_DAYS, STAFF_ROLES, describeBackfillFailure, hasCompanyEmail, namesLine, previewText, resultText,
+  shouldJoinDefaultGroup,
+} from '../src/lib/onboarding.js'
 import * as worker from '../workers/src/routes/onboarding.js'
 
 const lf = (s) => s.replace(/\r\n/g, '\n')
@@ -135,4 +138,106 @@ test('the default group is configured by name in wrangler.toml', () => {
   const toml = lf(fs.readFileSync('workers/wrangler.toml', 'utf8'))
   assert.ok(toml.includes('DEFAULT_GROUP_NAME = "PUNX TEAM"'))
   assert.ok(!/^DEFAULT_GROUP_ID\s*=/m.test(toml), 'no id pinned: the name is the setting')
+})
+
+// ---------- the one-off job: everyone already here ----------
+
+test('the roles that may run it are the Worker\'s, and are the top tier only', () => {
+  assert.deepEqual([...BACKFILL_ROLES], [...worker.BACKFILL_ROLES])
+  assert.deepEqual([...BACKFILL_ROLES].sort(), ['developer', 'super_admin'])
+  // The admin page shows the card to canManageRoles(profile), which is the top tier.
+  const auth = lf(fs.readFileSync('src/lib/auth.jsx', 'utf8'))
+  assert.ok(auth.includes('export const canManageRoles = (p) => isTopTier(p)'))
+  assert.ok(auth.includes('export const isTopTier = (p) => isDeveloper(p) || isSuperAdmin(p)'))
+})
+
+test('the preview says who would be added in plain words', () => {
+  assert.equal(previewText({ toAdd: 12, alreadyIn: 5, groupName: 'PUNX TEAM' }), '12 people would be added to PUNX TEAM (5 already in).')
+  assert.equal(previewText({ toAdd: 1, alreadyIn: 0, groupName: 'PUNX TEAM' }), '1 person would be added to PUNX TEAM.')
+  assert.equal(previewText({ toAdd: 0, alreadyIn: 9, groupName: 'PUNX TEAM' }), 'Everyone is already in PUNX TEAM.')
+  assert.equal(previewText({}), 'Everyone is already in the team group.')
+  assert.equal(previewText(), 'Everyone is already in the team group.')
+})
+
+test('the names under the preview are the first few, then "and N more"', () => {
+  assert.equal(namesLine(['Ana', 'Ben'], 2), 'Ana, Ben')
+  assert.equal(namesLine(['Ana', 'Ben', 'Cara'], 3, 2), 'Ana, Ben and 1 more')
+  const many = Array.from({ length: 200 }, (_, i) => `P${i}`)
+  assert.equal(namesLine(many, 255), `${many.slice(0, 20).join(', ')} and 235 more`, 'counts people the Worker did not list too')
+  assert.equal(namesLine([], 0), '')
+  assert.equal(namesLine(undefined, 5), '')
+  assert.equal(namesLine(['Ana', '', null, 7, 'Ben'], 2), 'Ana, Ben', 'blank and non-text names are dropped')
+})
+
+test('the result says what was done', () => {
+  assert.equal(resultText({ added: 5, groupName: 'PUNX TEAM' }), 'Added 5 people to PUNX TEAM.')
+  assert.equal(resultText({ added: 1, groupName: 'PUNX TEAM' }), 'Added 1 person to PUNX TEAM.')
+  assert.equal(resultText({ added: 0, groupName: 'PUNX TEAM' }), 'No one needed adding: everyone is already in PUNX TEAM.')
+})
+
+test('a failure is told in plain words, with no codes or internals', () => {
+  for (const status of [0, 401, 403, 409, 413, 500, 502, 503]) {
+    const words = describeBackfillFailure(status)
+    assert.ok(words.length > 10, String(status))
+    assert.doesNotMatch(words, /\d{3}|Firestore|worker|service account|token|stack/i, `status ${status}`)
+  }
+  assert.equal(describeBackfillFailure(401), describeBackfillFailure(403))
+  assert.match(describeBackfillFailure(409), /single team group/)
+  assert.match(describeBackfillFailure(500), /trying again finishes/)
+})
+
+test('the requests are POSTs with the person\'s own token and no body, and the preview writes nothing', () => {
+  const src = lf(fs.readFileSync('src/lib/onboardingApi.js', 'utf8'))
+  assert.ok(src.includes("previewExistingMembers = () => postJob('/onboarding/add-existing-members?dry=1')"))
+  assert.ok(src.includes("addExistingMembers = () => postJob('/onboarding/add-existing-members')"))
+  assert.ok(src.includes("method: 'POST'"))
+  assert.ok(src.includes('Authorization: `Bearer ${await user.getIdToken()}`'))
+  assert.ok(!/body\s*:/.test(src))
+  assert.ok(src.includes('if (!user) throw new BackfillError(401)'))
+  assert.ok(src.includes('throw new BackfillError(0)'), 'no answer at all is its own message')
+})
+
+test('the card previews first, and only offers to add when there is someone to add', () => {
+  const src = lf(fs.readFileSync('src/components/TeamGroupAdmin.jsx', 'utf8'))
+  assert.ok(src.includes('setPreview(await previewExistingMembers())'))
+  assert.ok(src.includes('setResult(await addExistingMembers())'))
+  assert.ok(src.indexOf('previewExistingMembers') < src.indexOf('addExistingMembers()'), 'preview before the real thing')
+  assert.ok(src.includes('onClick={check}'), 'the first button only previews')
+  assert.ok(src.includes('{preview.toAdd > 0 && (\n                <button type="button" onClick={add}'), 'nothing to add: no add button')
+  assert.ok(src.includes('onClick={add} disabled={busy}'), 'the add button cannot be pressed twice while it works')
+  assert.ok(src.includes('onClick={reset} disabled={busy}'), 'and the card cannot be reset out from under a request in flight')
+  assert.ok(src.includes("const busy = phase === 'checking' || phase === 'adding'"))
+})
+
+test('the card is on the admin page for the top tier only, and its words say nothing about who can see whom', () => {
+  const page = lf(fs.readFileSync('src/views/AdminPanel.jsx', 'utf8'))
+  assert.ok(page.includes("import TeamGroupAdmin from '../components/TeamGroupAdmin'"))
+  const card = page.indexOf('<TeamGroupAdmin />')
+  assert.ok(card > page.indexOf('Hierarchy:'), 'below the role summary')
+  assert.ok(card < page.indexOf('</>)}', card) && page.indexOf('</>)}', card) < page.lastIndexOf('<BotsAdmin />'), 'inside the block only role managers see')
+  // The words the card shows, not the comments in its source.
+  const src = lf(fs.readFileSync('src/components/TeamGroupAdmin.jsx', 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').toLowerCase()
+  assert.ok(src.includes('team group'), 'the check is looking at the real source')
+  for (const leak of ['oversee', 'oversight', 'invisibl', 'developer', 'unseen']) assert.ok(!src.includes(leak), `must not say: ${leak}`)
+})
+
+test('the Worker serves the job for POST only', () => {
+  const index = lf(fs.readFileSync('workers/src/index.js', 'utf8'))
+  assert.ok(index.includes("url.pathname === '/onboarding/add-existing-members' && request.method === 'POST'"))
+})
+
+test('classifyMembers sorts accounts the same way the preview counts them', () => {
+  const env = { ALLOWED_EMAIL_DOMAIN: 'punx.ai' }
+  const u = (id, over) => ({ id, name: id, email: `${id}@punx.ai`, role: 'employee', ...over })
+  const out = worker.classifyMembers([
+    u('a'), u('b'), u('c', { role: 'guest' }), u('d', { type: 'bot', email: null }), u('e', { deactivated: true }),
+    u('f', { email: 'f@gmail.com' }), u('g', { defaultGroupJoinedAt: '2026-01-01T00:00:00Z' }), u('h', { role: 'overlord' }),
+  ], ['a'], env)
+  assert.deepEqual(out.toAdd.map((x) => x.uid), ['b'])
+  assert.deepEqual(out.alreadyIn.map((x) => x.uid), ['a'])
+  assert.deepEqual(out.skipped, { bots: 1, removed: 1, external: 1, guests: 1, otherRoles: 1, alreadyStamped: 1 })
+  assert.deepEqual(worker.classifyMembers([], undefined, env).toAdd, [])
+  // A text where a list belongs must not be read as a list of one-letter ids.
+  assert.deepEqual(worker.classifyMembers([u('x')], 'xyz', env).toAdd.map((x) => x.uid), ['x'], 'a malformed member list means nobody is in yet')
+  assert.deepEqual(worker.classifyMembers([u('x')], { x: true }, env).toAdd.map((x) => x.uid), ['x'], 'and so does an object')
 })

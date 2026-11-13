@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#52 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#53 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#52)
+## 2. What shipped (PRs #1–#53)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#53 — add everyone already here to PUNX TEAM** (section 46): a "Team group" card on the admin page, for developers and super admins, previews and then does the one-off job.
+
 **#52 — the admin page no longer says super admins can read channels unseen** (section 45).
 
 **#51 — new @punx.ai accounts join PUNX TEAM automatically** (section 44; `docs/ONBOARDING.md`): the Worker adds a new company account to the team group at first sign-in.
@@ -145,7 +147,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 339**, **Node 463** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 83, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 339**, **Node 473** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -738,3 +740,13 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** The new test fails against the previous wording and against five oversight phrases added back one at a time (first attempt was a no-op: the paragraph wraps across lines and my edit did not match; redone against the real line). 463 web tests and the build pass.
 
 **NOT checked.** The page in a browser (an admin sign-in is needed; it is a static paragraph of JSX and the build compiles it).
+
+## 46. Add everyone already here to PUNX TEAM (PR #53)
+
+**Why.** Section 44 made new `@punx.ai` accounts join PUNX TEAM on their own, but only accounts from the last week. Asked: add the existing members too.
+
+**What.** A one-off job, run from the admin page, not by anyone holding the service account's key. `POST /onboarding/add-existing-members` (`workers/src/routes/onboarding.js`) with `?dry=1` for a preview that writes nothing. A **Team group** card at the foot of the admin page (`src/components/TeamGroupAdmin.jsx`, shown to developers and super admins, the same people who see the role controls) calls the preview, shows "N people would be added to PUNX TEAM (M already in)" and the first names, and only then offers **Add N people**. Who qualifies is section 44's rule plus "never a bot" (profiles with `type: 'bot'`); each reason someone is left out is counted in the preview. The Worker lets only `developer` and `super_admin` through, reads the caller's role fresh from their profile on every call, and requires a company address. Writes: the group's `memberUids` by array union in commits of 400, then `defaultGroupJoinedAt` stamps on every qualifying profile in commits of 200 (so someone who later leaves is not put back if it is run again). Each commit is atomic, the job is not; stopping part-way and running again finishes it. It refuses at 2000 accounts rather than do part, and answers 409 when no single trusted default group is found. Details: `docs/ONBOARDING.md`.
+
+**Checked.** 19 new Worker tests (who may run it, from preview to commit, the exact counts and the reason for each person left out, nothing written by a preview, only the member list and the stamp touched, only people who need adding sent, a second run changes nothing, a person who left is not put back, chunking at 455 accounts, the 2000-account refusal at the limit as Firestore returns it, and a failure part-way leaving the group updated, no profile stamped and a re-run finishing), 10 new web tests (the wording, the access gate pinned to the Worker's, the two-step flow, the request shapes), and 36 deliberate breakages, **all caught** after three gaps were closed. The card was exercised in a real browser with the server calls stubbed: preview then confirm makes exactly one add call even if the button is pressed again while it works, "nobody to add" offers no add button, a failed preview and a failed add each show plain words and a way back. 473 web tests, 102 Worker tests, 339 Flutter tests, and the build pass.
+
+**NOT checked.** **Against the real thing**, as in section 44: that the Worker's service account may write to punx-msg's Firestore, that the default group is found, and the real size of the workspace. Run the preview first and read the number and the names before confirming. Also not done: any change to the phone app (the card is web-only), and a record of who had left PUNX TEAM before this (none exists, so anyone who left on purpose is added once).
