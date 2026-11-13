@@ -21,6 +21,7 @@ import { AdminPanel } from './lib/lazyParts'
 import InviteAccept from './views/InviteAccept'
 import DataProblemsBanner from './components/DataProblemsBanner'
 import TabTitleUnread from './components/TabTitleUnread'
+import FaviconBadge from './components/FaviconBadge'
 import UnreadHotkeys from './components/UnreadHotkeys'
 import CalendarHost from './components/CalendarHost'
 import PrefsSync from './components/PrefsSync'
@@ -57,6 +58,7 @@ function Gate() {
     <>
     <DataProblemsBanner />
     {user && profile && <TabTitleUnread />}
+    {user && profile && <FaviconBadge />}
     {user && profile && <UnreadHotkeys />}
     {user && profile && <CalendarHost />}
     {user && profile && <PrefsSync />}

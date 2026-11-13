@@ -1,4 +1,4 @@
-﻿// Switching between conversations: nothing of the previous one is shown or marked read.
+// Switching between conversations: nothing of the previous one is shown or marked read.
 //
 //   node --test tests/chat-switch.test.mjs
 import { test } from 'node:test'

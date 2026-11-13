@@ -179,7 +179,7 @@ export default function PreferencesModal({ open, onClose }) {
         <h3 className="mt-8 mb-1 text-base font-semibold">Alerts</h3>
         <div className="space-y-2 mt-3">
           <Switch
-            label="Unread count in the tab title" hint={'Shows "(3) Punx Messenger" so you can see it from another tab.'}
+            label="Unread count in the tab title and icon" hint={'Shows "(3) Punx Messenger" and a red badge on the tab icon so you can see it from another tab.'}
             checked={prefs.tabTitleCount} onChange={(on) => set({ tabTitleCount: on })}
           />
           <Switch
