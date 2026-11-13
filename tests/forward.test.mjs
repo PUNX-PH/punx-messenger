@@ -174,7 +174,7 @@ test('a forwarded message says who wrote it, in text, using the cleaned name', (
   const l = read('src/components/MessageList.jsx')
   assert.ok(l.includes('{forwarded && ('))
   assert.ok(l.includes('const forwarded = forwardedFromOf(message)'))
-  assert.ok(l.includes('Forwarded from <span className="text-ink-muted">{forwarded.name}</span>'))
+  assert.ok(l.includes("{savedNote ? 'Saved from' : 'Forwarded from'} <span className=\"text-ink-muted\">{forwarded.name}</span>"))
 })
 
 test('the dialog is loaded on demand, opened from the chat, closed with the conversation', () => {
