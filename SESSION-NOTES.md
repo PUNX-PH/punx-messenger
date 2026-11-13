@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#47 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#48 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#47)
+## 2. What shipped (PRs #1–#48)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#48 — department filter on the calendar** (section 41): a dropdown under the calendar narrows who is shown on leave to one department; holidays are never filtered.
+
 **#47 — unread badge on the tab icon** (section 40): the browser tab's icon gets a red badge with the number of conversations with something new, the same number and the same preference as the tab title.
 
 **#46 — "Jump to first unread"** (section 39): a button at the top of a chat that takes you to the "New" line when it is scrolled out of sight above.
@@ -135,7 +137,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 420** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 440** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -670,3 +672,13 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 11 new tests (label rules and edges, the badge always inside the icon at several sizes, the two-character font, the colour parsing and its fallback, and the wiring), 18 deliberate breakages, all caught after one gap (the cancel-a-stale-drawing cleanup) was closed. In a real browser with the real component and a stubbed count: the link starts as the plain icon; counts 3, 4 and 250 each give a different badged picture; 0 restores the plain icon; switching the preference off restores it and on brings the badge back. Rendered pictures looked at: "3" and "9+" legible at 128 px. 420 web tests and the build pass.
 
 **NOT checked.** The icon in a real tab strip at 16 px (the picture at that size was too small to judge here), in Chrome, Firefox and Safari tabs (browsers differ in how quickly they redraw a changed icon, and Safari ignores some dynamic icons), a pinned tab, the installed app, and on a phone. The count itself is the existing `useUnreadCount`, which was not changed. The badge covers part of the logo by design (it must be readable at 16 px).
+
+## 41. Department filter on the calendar (PR #48)
+
+**Why.** Section 34's "NOT checked" listed the missing department filter (the DTR's own calendar has one). With a few dozen people the grid is crowded; "who in Creatives is out this week" is the usual question.
+
+**What.** A dropdown under the legend ("Show leave for"): **All departments** (the default), then each department the Worker named, A to Z, then **No department** when someone on leave has none that is known (blank, missing, or an id not in the list; it also stays on offer while chosen, so the choice cannot vanish). It narrows the people on leave, in the grid dots and counts and in the day list alike; **holidays are company-wide and are never filtered**. It is shown only once the month has loaded and there is more than one choice. The choice is remembered on the device (`punx.calendarDepartment`, cleared by "All departments"); a remembered department that is no longer on offer (removed in the DTR) falls back to everyone rather than showing an empty calendar. The Worker already returned `departments` ({ id: name }) and each leave's `departmentId`, so **no Worker change**. The rules (`departmentOptions`, `filterLeaves`, `effectiveDepartment`, `readDepartment`/`writeDepartment`) are in `src/lib/dtrCalendar.js`, tested; the panel is `CalendarPanel.jsx`.
+
+**Checked.** 20 new tests (ordering and tie-breaks, trimming and junk names, a list or text instead of the object, "No department" in each of its forms including an inherited-looking id like `toString` and a blank id in the list, exact matching only, the grid and list sharing one filtered result, remembering and clearing, storage that throws or holds junk, and guards on the wiring), 23 deliberate breakages, all caught after three gaps were closed (a blank id, a list instead of an object, and one redundant check removed). In a real browser, the real panel with made-up leave across four departments (one with nobody): options sorted with "No department" last; the 16th went 4 → 2 (Creatives) → a plain dot (No department) → nothing (HR) → 4 again; the holiday dot and the holiday in the day list stayed under every filter; the choice was stored and cleared; a reload kept "Creatives"; a stale saved id fell back to "All departments". All web tests and the build pass.
+
+**NOT checked.** Real department names and ids from the DTR (the Worker returns whatever its `departments` collection holds, and a department with the same name twice would appear twice), the signed-in messenger, a phone-width screen, Safari/Firefox. The month-end counts per department are not shown in the dropdown. Nothing was done to the Flutter app, which has no calendar.

@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { calendarCache } from '../lib/dtrCalendarApi'
 import {
-  HOLIDAY_TYPES, WEEKDAY_LABELS, addMonths, dayLabel, eventsForDate, holidaysByDate, leaveCountLabel, leaveLine,
-  monthGrid, monthKeyOf, monthTitle, toYMD,
+  HOLIDAY_TYPES, WEEKDAY_LABELS, addMonths, dayLabel, departmentOptions, effectiveDepartment, eventsForDate,
+  filterLeaves, holidaysByDate, leaveCountLabel, leaveLine, monthGrid, monthKeyOf, monthTitle, readDepartment,
+  toYMD, writeDepartment,
 } from '../lib/dtrCalendar'
+
+const storage = () => { try { return window.localStorage } catch { return null } }
 
 /**
  * The calendar itself: the DTR company calendar (holidays, and who is on leave) for
@@ -18,6 +21,7 @@ export default function CalendarPanel({ pinned, onTogglePin, onClose }) {
   const [selected, setSelected] = useState(today)
   const [state, setState] = useState({ status: 'loading', data: null, error: null })
   const [attempt, setAttempt] = useState(0)
+  const [dept, setDept] = useState(() => readDepartment(storage()))
   const ref = useRef(null)
 
   useEffect(() => {
@@ -49,8 +53,13 @@ export default function CalendarPanel({ pinned, onTogglePin, onClose }) {
   const data = state.data
   const grid = useMemo(() => monthGrid(month), [month])
   const holidayIndex = useMemo(() => holidaysByDate(data?.holidays || []), [data])
-  const leaves = data?.leaves || []
+  const allLeaves = data?.leaves || []
+  // The department filter narrows who is on leave; holidays are company-wide and stay.
+  const options = useMemo(() => departmentOptions(data?.departments, allLeaves, dept), [data, dept])
+  const activeDept = effectiveDepartment(dept, options)
+  const leaves = useMemo(() => filterLeaves(allLeaves, activeDept, data?.departments), [data, activeDept])
   const detail = eventsForDate(selected, { holidayIndex, leaves })
+  const chooseDept = (value) => { setDept(value); writeDepartment(storage(), value) }
 
   const go = (n) => setMonth(m => addMonths(m, n))
   const goToday = () => { setMonth(monthKeyOf(new Date())); setSelected(today) }
@@ -119,6 +128,17 @@ export default function CalendarPanel({ pinned, onTogglePin, onClose }) {
           <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-warn" />Holiday</span>
           <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-brand" />On leave</span>
         </div>
+
+        {state.status === 'ready' && options.length > 1 && (
+          <select
+            value={activeDept}
+            onChange={(e) => chooseDept(e.target.value)}
+            aria-label="Show leave for"
+            className="mt-2 w-full text-xs bg-bg-deepest border border-line-subtle rounded-md px-2 py-1.5 text-ink-muted"
+          >
+            {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        )}
 
         <div className="mt-3 pt-3 border-t border-line-subtle min-h-[4.5rem]" aria-live="polite">
           {state.status === 'loading' && <div className="text-sm text-ink-dim">Loading…</div>}
