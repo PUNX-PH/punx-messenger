@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#53 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#54 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#53)
+## 2. What shipped (PRs #1–#54)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#54 — a keyboard shortcuts sheet** (section 47): press `?` to see them.
+
 **#53 — add everyone already here to PUNX TEAM** (section 46): a "Team group" card on the admin page, for developers and super admins, previews and then does the one-off job.
 
 **#52 — the admin page no longer says super admins can read channels unseen** (section 45).
@@ -147,7 +149,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 339**, **Node 473** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 339**, **Node 492** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -750,3 +752,15 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 19 new Worker tests (who may run it, from preview to commit, the exact counts and the reason for each person left out, nothing written by a preview, only the member list and the stamp touched, only people who need adding sent, a second run changes nothing, a person who left is not put back, chunking at 455 accounts, the 2000-account refusal at the limit as Firestore returns it, and a failure part-way leaving the group updated, no profile stamped and a re-run finishing), 10 new web tests (the wording, the access gate pinned to the Worker's, the two-step flow, the request shapes), and 36 deliberate breakages, **all caught** after three gaps were closed. The card was exercised in a real browser with the server calls stubbed: preview then confirm makes exactly one add call even if the button is pressed again while it works, "nobody to add" offers no add button, a failed preview and a failed add each show plain words and a way back. 473 web tests, 102 Worker tests, 339 Flutter tests, and the build pass.
 
 **NOT checked.** **Against the real thing**, as in section 44: that the Worker's service account may write to punx-msg's Firestore, that the default group is found, and the real size of the workspace. Run the preview first and read the number and the names before confirming. Also not done: any change to the phone app (the card is web-only), and a record of who had left PUNX TEAM before this (none exists, so anyone who left on purpose is added once).
+
+## 47. A keyboard shortcuts sheet (PR #54)
+
+**Why.** The app has several keyboard shortcuts (Ctrl/Cmd+K, Alt+Shift+Down/Up, the send key, Esc) and nothing that lists them, so only the people who happened to be told knew them. First of four quality-of-life changes asked for together (the others: mark all as read, mute one channel or DM, a custom status; each its own PR).
+
+**What.** Press **?** (when not typing in a text field) or use **See all keyboard shortcuts** under "Send a message with" in the preferences. A dialog lists the shortcuts in three groups: Move around (Ctrl/Cmd+K to jump to a conversation; Alt+Shift+Down for the one waiting longest; Alt+Shift+Up for the newest unread), Writing (send and new line, which **follow the person's own "Send a message with" setting** and update live; Up/Down and Enter/Tab in the @ list) and Anywhere (Esc; ? again hides it). Keys are written for the platform: Cmd and Option on a Mac, Ctrl and Alt elsewhere. `src/lib/shortcuts.js` is the one list (and the rule for when "?" counts); `ShortcutsHelp.jsx` is the dialog (the shared `Modal`, so Esc, a click outside and scroll-lock behave as in every other dialog); `ShortcutsHelpHost.jsx` listens, mounted beside the quick-switcher host; the dialog is its own chunk, loaded on first use and not preloaded.
+
+**It lists only what exists.** There is no "edit your last message with the up arrow", and the sheet does not claim one (a test refuses that sentence). Every entry is pinned to the code that does it: the Ctrl/Cmd+K handler in `QuickSwitcherHost`, `unreadKeyDirection`, `shouldSend` for both settings, the @ list's keys in `Composer`, the Esc in `Modal`. If a shortcut is added or changed, this list is where it is written down, and the tests say so when it drifts.
+
+**Checked.** 19 new tests and 36 deliberate breakages, all caught. In a real browser (the real host and dialog, a stubbed preference): a real "?" key press opens it; Esc closes it and restores scrolling; "?" typed in a text box goes into the box and opens nothing; "?" again closes it; switching the send setting while it is open rewrites the sending lines to "Ctrl Enter / Enter". 492 web tests and the build pass.
+
+**NOT checked.** The Mac wording (Cmd, Option) beyond the tests of the labels; the dialog on a phone-width screen (it is the shared modal at `max-w-lg` and was not looked at there); the link inside the preferences dialog in the real app (it is wired and source-checked, and was not clicked). The phone app has no keyboard, so no sheet there.
