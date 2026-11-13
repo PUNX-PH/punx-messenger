@@ -6,6 +6,7 @@ import { useAuth } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import { useConversationData } from '../lib/useConversationData'
 import { buildTargets, rankTargets } from '../lib/quickSwitch'
+import { mutedChatsOf } from '../lib/muted'
 
 /**
  * "Jump to": type part of a name, press Enter. People, channels (and the group they
@@ -25,8 +26,8 @@ export default function QuickSwitcher({ onClose }) {
   const me = byId[profile?.id]
   const targets = useMemo(() => buildTargets({
     meUid: profile?.id, users: activeUsers, convosByOther, groups, channelsByGroup,
-    lastRead: me?.lastRead || {}, mutedGroups: new Set(me?.mutedGroups || []),
-  }), [profile?.id, activeUsers, convosByOther, groups, channelsByGroup, me?.lastRead, me?.mutedGroups])
+    lastRead: me?.lastRead || {}, mutedGroups: new Set(me?.mutedGroups || []), mutedChats: mutedChatsOf(me),
+  }), [profile?.id, activeUsers, convosByOther, groups, channelsByGroup, me?.lastRead, me?.mutedGroups, me?.mutedChats])
 
   const results = useMemo(() => rankTargets(targets, query), [targets, query])
 

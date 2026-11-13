@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth'
 import { useUsers } from '../lib/users'
 import { useConversationData } from '../lib/useConversationData'
 import { buildTargets, pickUnread, unreadKeyDirection } from '../lib/quickSwitch'
+import { mutedChatsOf } from '../lib/muted'
 
 /**
  * Alt+Shift+Down opens the conversation that has been waiting longest for you,
@@ -20,8 +21,8 @@ export default function UnreadHotkeys() {
   const me = byId[profile?.id]
   const targets = useMemo(() => buildTargets({
     meUid: profile?.id, users: activeUsers, convosByOther, groups, channelsByGroup,
-    lastRead: me?.lastRead || {}, mutedGroups: new Set(me?.mutedGroups || []),
-  }), [profile?.id, activeUsers, convosByOther, groups, channelsByGroup, me?.lastRead, me?.mutedGroups])
+    lastRead: me?.lastRead || {}, mutedGroups: new Set(me?.mutedGroups || []), mutedChats: mutedChatsOf(me),
+  }), [profile?.id, activeUsers, convosByOther, groups, channelsByGroup, me?.lastRead, me?.mutedGroups, me?.mutedChats])
 
   // The key handler is attached once and reads the latest values from here.
   const latest = useRef({ targets, pathname })

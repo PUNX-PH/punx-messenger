@@ -83,7 +83,7 @@ export function readKeyForRoute(pathname, meUid) {
  * How many conversations have something new in them.
  *
  * Conversations, not messages: all a conversation records is when its last message
- * arrived. Muted groups do not count (they do not badge in the sidebar either).
+ * arrived. Muted groups and muted conversations do not count (they do not badge in the sidebar either).
  * `lookingAt` is the read key of the conversation on screen while the person is
  * actually looking at it: it is being read right now, so it is left out.
  *
@@ -92,12 +92,13 @@ export function readKeyForRoute(pathname, meUid) {
  * record who wrote last, so for those it cannot be told.)
  */
 export function countUnread({
-  dmConvos = [], channelsByGroup = {}, lastRead = {}, mutedGroups = new Set(), meUid, lookingAt = null,
+  dmConvos = [], channelsByGroup = {}, lastRead = {}, mutedGroups = new Set(), mutedChats = new Set(), meUid, lookingAt = null,
 }) {
   let n = 0
   for (const dm of dmConvos) {
     const key = pathToReadKey(`dms/${dm.id}`)
     if (key === lookingAt) continue
+    if (mutedChats.has(key)) continue
     // A conversation that was only opened has a time but no message and no author.
     if (!dm.lastMessageAuthorUid || dm.lastMessageAuthorUid === meUid) continue
     if (isUnread(dm.lastMessageAt, lastRead[key])) n++
@@ -107,6 +108,7 @@ export function countUnread({
     for (const c of channels || []) {
       const key = pathToReadKey(`groups/${groupId}/channels/${c.id}`)
       if (key === lookingAt) continue
+      if (mutedChats.has(key)) continue
       if (isUnread(c.lastMessageAt, lastRead[key])) n++
     }
   }
