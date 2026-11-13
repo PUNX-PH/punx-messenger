@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#60 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#61 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#60)
+## 2. What shipped (PRs #1–#61)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#61 — an Add member button on the phone app's group screen** (section 54).
+
 **#60 — link to a message** (section 53): a Copy link button in channels, and opening one scrolls to the message.
 
 **#59 — a Copy text button on every message** (section 52).
@@ -161,7 +163,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 339**, **Node 601** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 358**, **Node 601** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -876,3 +878,15 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** 16 new tests and 57 deliberate breakages: 56 caught, 1 equivalent (an `else` written as `if (step !== 'jump')`); three redundant guards found by the first run were deleted rather than tested. In a real browser (the real chat with a 400-message stub and the real router; Firestore stubbed): a link to a message on the first page jumped to it with one read and removed `?m=`; one older than that read 50, then 300 (exactly once), found it, centred it (after the smooth scroll finished) and removed `?m=`; one older than 300 read 50 then 300, showed the note and removed `?m=`; Copy link in a channel wrote exactly `http://localhost:5199/g/G1abc/c/C2def?m=id399`, the label went to "Link copied" and back after about 1.5 seconds; the same toolbar in a DM had no Copy link. 601 web tests and the build pass.
 
 **NOT checked.** The real sign-in redirect (read, not run: the sign-in page is rendered for every address when signed out, and the router keeps the query when it switches to the app). Real Firestore. A phone or Safari/Firefox. The real clipboard, as for Copy text. **A link pasted into a message opens in a new tab** (links in messages always do), so it reloads the app rather than moving within it; it works, it is just not instant. The phone app does not have it.
+
+## 54. An Add member button on the phone app's group screen (PR #61)
+
+**Why.** On the phone, adding someone to a group meant: Groups tab, **press and hold** the group, **Group settings**, scroll to Members, **Add member**. The long-press is invisible, so a group's owner could not find how to add people. The capability existed (ported with the settings screen, section on the phone app) but nothing on screen led to it, and the earlier quality-of-life scans looked at the web app and missed it.
+
+**What.** Open a group on iPhone or Android: a **person-plus icon** ("Add member") sits in the top bar, for the people who may add (workspace admins, the group's admins, its owner; the same rule as the button inside Group settings, and the same one firestore.rules enforces: the owner is also in adminUids). Tapping it lists the people **who are not in the group yet, by name** (removed accounts never offered); picking one adds them and a note says "Added <name> to <group>", or says why not (the shared `describeError` wording, e.g. "You don't have permission to add that person..."). "Everyone is already in this group." when there is nobody left. Group settings keeps its own **Add member** button and now opens the **same sheet** (`add_member_sheet.dart`), so both behave alike.
+
+**Not changed.** Group settings is still only reachable by press-and-hold; it was left alone on purpose (one concern per PR). A visible settings entry would be a sensible follow-up. No write is new: it is the existing `addMember`. **No rules change.**
+
+**Checked.** 19 new Flutter tests (the rule for who may add, in every combination including "not known yet"; who is offered; the screen showing the button to the owner, a group admin and a workspace admin and not to a plain member; the list; adding exactly that person and closing; a failure saying so in words; the empty list; settings still adding through the shared sheet) and 22 deliberate breakages: 18 caught at once, 4 survived and were closed (sorting ignoring case; the workspace-admin case, which a test missed because three screens were pumped in one test and the later ones reused the first one's state, so the test was split; the error wording; settings still adding). Re-run: all caught. `flutter analyze` clean, 358 Flutter tests pass. Only changed files were formatted.
+
+**NOT checked.** On a phone or an emulator (no Android build here, by design; no iPhone or Mac). The look of the icon in the top bar on small or large-text screens. Real Firestore (the add is the existing call). The web app is untouched by this PR (not re-checked here).
