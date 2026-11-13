@@ -12,6 +12,7 @@ import { describeListenError } from '../lib/listenError'
 import { usePageActive } from '../lib/usePageActive'
 import { firstUnreadId, needsMarkRead } from '../lib/unread'
 import { pathToReadKey } from '../lib/db'
+import { lastEditableMessage } from '../lib/editLast'
 import ErrorBoundary from './ErrorBoundary'
 import MessageList, { PinIcon } from './MessageList'
 import Composer from './Composer'
@@ -237,6 +238,19 @@ export default function ChatSurface({
     await setMessagePinned(`${path}/${m.id}`, !m.pinned)
   }, [path])
 
+  // Up arrow in the empty box asks the list to open the last message of mine for editing.
+  // `n` makes a second request for the same message count; `focus` puts the cursor back in
+  // the box when that edit is over.
+  const [editRequest, setEditRequest] = useState(null)
+  const [composerFocus, setComposerFocus] = useState(0)
+  useEffect(() => { setEditRequest(null) }, [path])
+  const editLast = useCallback(() => {
+    const m = lastEditableMessage(messages, profile?.uid)
+    if (!m) return false
+    setEditRequest((r) => ({ id: m.id, n: (r?.n || 0) + 1 }))
+    return true
+  }, [messages, profile?.uid])
+
   const onEdit = useCallback(async (m, text) => {
     await editMessageText(`${path}/${m.id}`, text)
   }, [path])
@@ -376,6 +390,8 @@ export default function ChatSurface({
           meUid={profile?.uid}
           scrollToId={jumpId}
           highlightId={jumpId}
+          editRequest={editRequest}
+          onEditEnded={() => setComposerFocus((n) => n + 1)}
         />
       </ErrorBoundary>
       )}
@@ -397,6 +413,8 @@ export default function ChatSurface({
           draftId={path}
           replyingTo={replyingTo}
           onCancelReply={() => setReplyingTo(null)}
+          onEditLast={editLast}
+          focusNonce={composerFocus}
         />
       )}
     </main>

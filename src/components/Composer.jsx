@@ -8,6 +8,7 @@ import { resolveMentions } from '../lib/markdown'
 import { drafts } from '../lib/drafts'
 import { usePrefs } from '../lib/usePrefs'
 import { shouldSend } from '../lib/sendKey'
+import { shouldEditLast } from '../lib/editLast'
 
 const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
 
@@ -18,6 +19,10 @@ export default function Composer({
   // move between conversations, so what is typed has to be kept per conversation,
   // or it follows you into the next one and gets sent there.
   draftId = null,
+  // Up arrow in an empty box: start editing the last message. Returns true when there was one.
+  onEditLast = null,
+  // Bumped to put the cursor back in the box (after an edit started from here ends).
+  focusNonce = 0,
 }) {
   const { profile } = useAuth()
   const [{ sendKey }] = usePrefs()
@@ -39,6 +44,7 @@ export default function Composer({
   const fileRef = useRef(null)
   const taRef = useRef(null)
   const emojiBtnRef = useRef(null)
+  useEffect(() => { if (focusNonce) taRef.current?.focus() }, [focusNonce])
 
   // Mentions the user has explicitly picked in this composition
   // (map of "@Name" chunk → uid). Applied at send time to convert visible
@@ -375,6 +381,10 @@ export default function Composer({
                   setMention(null)
                   return
                 }
+              }
+              if (onEditLast && shouldEditLast(e, { text, hasFile: !!file, mentionOpen: !!(mention && mentionCandidates.length > 0) })) {
+                if (onEditLast()) e.preventDefault()
+                return
               }
               // Which key sends is the person's choice (preferences); isComposing is
               // handled inside, so Enter confirming an IME candidate never also sends.

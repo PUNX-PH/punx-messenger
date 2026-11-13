@@ -28,6 +28,8 @@ export default function MessageList({
   highlightId,
   scrollToId,
   newFromId = null,       // the first message you had not read when you opened this chat
+  editRequest = null,     // { id, n }: open this message of mine for editing (the up arrow in the box)
+  onEditEnded,            // an edit that was opened that way is over: give the box its cursor back
   loading = false,        // this conversation's messages have not arrived yet: not "empty"
   // Suppresses every action affordance, including the ones a caller can't
   // switch off by withholding a handler: editing and deleting your OWN
@@ -40,6 +42,20 @@ export default function MessageList({
   const containerRef = useRef(null)
   const [zoomed, setZoomed] = useState(null)
   const [editingId, setEditingId] = useState(null)
+  // The id of an edit that the up arrow started: when it ends (saved, or Esc), the cursor goes back to the box.
+  const keyboardEditRef = useRef(null)
+  useEffect(() => {
+    if (!editRequest) return
+    keyboardEditRef.current = editRequest.id
+    setEditingId(editRequest.id)
+  }, [editRequest])
+  useEffect(() => {
+    if (editingId === null) {
+      if (keyboardEditRef.current !== null) { keyboardEditRef.current = null; onEditEnded?.() }
+    } else if (editingId !== keyboardEditRef.current) {
+      keyboardEditRef.current = null // a different one was opened with the mouse
+    }
+  }, [editingId])
   const { byId: usersById } = useUsers()
   const { byName: emojiByName } = useEmojis()
   const now = useTickNow()

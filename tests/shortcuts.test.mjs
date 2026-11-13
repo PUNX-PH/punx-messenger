@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import { OPEN_SHORTCUTS_EVENT, isMacPlatform, keyLabels, shortcutGroups, shouldOpenHelp } from '../src/lib/shortcuts.js'
 import { unreadKeyDirection } from '../src/lib/quickSwitch.js'
 import { shouldSend } from '../src/lib/sendKey.js'
+import { shouldEditLast } from '../src/lib/editLast.js'
 
 const lf = (s) => s.replace(/\r\n/g, '\n')
 const read = (f) => lf(fs.readFileSync(f, 'utf8'))
@@ -19,10 +20,8 @@ const byId = (opts) => Object.fromEntries(items(opts).map((i) => [i.id, i]))
 test('it lists exactly the shortcuts that exist, and not one that does not', () => {
   assert.deepEqual(
     items().map((i) => i.id),
-    ['switcher', 'next-unread', 'prev-unread', 'send', 'newline', 'mention-move', 'mention-pick', 'close', 'help'],
+    ['switcher', 'next-unread', 'prev-unread', 'send', 'newline', 'edit-last', 'mention-move', 'mention-pick', 'close', 'help'],
   )
-  // There is no "edit your last message with the up arrow" and the sheet must not promise one.
-  for (const text of items().map((i) => i.does.toLowerCase())) assert.ok(!/edit (your|the) last/.test(text), text)
 })
 
 test('every entry has keys and a plain sentence, ids are unique, and the groups have titles', () => {
@@ -71,6 +70,14 @@ test('with "Ctrl+Enter to send", that sends and a plain Enter is a new line', ()
   const g = byId({ sendKey: 'mod-enter' })
   assert.deepEqual(g.send.keys, ['mod', 'Enter'])
   assert.deepEqual(g.newline.keys, ['Enter'])
+})
+
+test('the up arrow in an empty box really edits your last message', () => {
+  const up = { key: 'ArrowUp', shiftKey: false, ctrlKey: false, metaKey: false, altKey: false }
+  assert.equal(shouldEditLast(up, { text: '' }), true)
+  assert.deepEqual(byId()['edit-last'].keys, ['↑'])
+  assert.match(byId()['edit-last'].does, /empty/)
+  assert.ok(read('src/components/Composer.jsx').includes('shouldEditLast(e,'))
 })
 
 test('the sending lines follow the person\'s setting, and the default is Enter', () => {
