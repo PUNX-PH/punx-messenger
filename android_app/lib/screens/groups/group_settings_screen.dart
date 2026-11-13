@@ -16,6 +16,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
 import '../../widgets/shared/avatar.dart';
+import 'add_member_sheet.dart';
 import 'group_invites_screen.dart';
 
 /// Port of components/GroupSettingsModal.jsx, as a full-screen route (the
@@ -328,38 +329,11 @@ class _MembersSection extends ConsumerWidget {
     List<UserProfile> allUsers,
     GroupsRepository repo,
   ) {
-    final nonMembers = allUsers
-        .where((u) => !group.memberUids.contains(u.id))
-        .toList();
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Palette.bgRaised,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              if (nonMembers.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    'Everyone is already in this group.',
-                    style: AppTextStyles.sm(color: Palette.inkMuted),
-                  ),
-                ),
-              for (final u in nonMembers)
-                ListTile(
-                  leading: Avatar(name: u.name, src: u.photoURL, size: 28),
-                  title: Text(u.name),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    onWrap(() => repo.addMember(group.id, u.id));
-                  },
-                ),
-            ],
-          ),
-        );
-      },
+    showAddMemberSheet(
+      context,
+      group: group,
+      users: allUsers,
+      onAdd: (u) => onWrap(() => repo.addMember(group.id, u.id)),
     );
   }
 }

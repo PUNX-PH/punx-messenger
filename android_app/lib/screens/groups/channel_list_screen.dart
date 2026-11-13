@@ -12,11 +12,14 @@ import '../../providers/users_providers.dart';
 import '../../providers/groups_providers.dart';
 import '../../router/route_paths.dart';
 import '../../services/image_service.dart';
+import '../../services/user_error.dart';
 import '../../services/voice_channel_repository.dart';
 import '../../models/voice_participant.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
+import '../../utils/add_member.dart';
 import '../../utils/firestore_paths.dart';
+import 'add_member_sheet.dart';
 import 'channel_access_sheet.dart';
 
 /// Mobile equivalent of ChannelSidebar.jsx — the channel picker for a group.
@@ -48,12 +51,26 @@ class ChannelListScreen extends ConsumerWidget {
       }),
     );
     final elevated =
-        me != null &&
-        (me.admin || (group?.adminUids.contains(me.id) ?? false));
+        me != null && (me.admin || (group?.adminUids.contains(me.id) ?? false));
 
     return Scaffold(
       backgroundColor: Palette.bgDark,
-      appBar: AppBar(title: Text(group?.name ?? 'Group')),
+      appBar: AppBar(
+        title: Text(group?.name ?? 'Group'),
+        actions: [
+          // Same people who see "Add member" in the group's settings.
+          if (canAddMembers(
+            workspaceAdmin: me?.admin ?? false,
+            uid: me?.id,
+            group: group,
+          ))
+            IconButton(
+              tooltip: 'Add member',
+              icon: const Icon(Icons.person_add_alt_outlined),
+              onPressed: () => _addMember(context, ref, group!),
+            ),
+        ],
+      ),
       body: Column(
         children: [
           if (group?.bannerURL != null) _GroupBanner(group: group!),
@@ -72,11 +89,7 @@ class ChannelListScreen extends ConsumerWidget {
                 if (elevated)
                   IconButton(
                     tooltip: 'Create channel',
-                    icon: Icon(
-                      Icons.add,
-                      size: 18,
-                      color: Palette.inkMuted,
-                    ),
+                    icon: Icon(Icons.add, size: 18, color: Palette.inkMuted),
                     onPressed: () => _createChannel(context, ref, me.id),
                   ),
               ],
@@ -102,6 +115,32 @@ class ChannelListScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  /// Opens the list of people who are not in the group yet; picking one adds
+  /// them and says so (or says why not) in a snack bar.
+  void _addMember(BuildContext context, WidgetRef ref, Group group) {
+    final messenger = ScaffoldMessenger.of(context);
+    final repo = ref.read(groupsRepositoryProvider);
+    showAddMemberSheet(
+      context,
+      group: group,
+      users: ref.read(activeUsersProvider),
+      onAdd: (user) async {
+        try {
+          await repo.addMember(group.id, user.id);
+          messenger.showSnackBar(
+            SnackBar(content: Text('Added ${user.name} to ${group.name}')),
+          );
+        } catch (e) {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(describeError(e, action: 'add that person')),
+            ),
+          );
+        }
+      },
     );
   }
 
@@ -215,9 +254,8 @@ class _ChannelRow extends ConsumerWidget {
           child: isVoice
               ? Icon(Icons.volume_up, size: 18, color: Palette.inkDim)
               : c.private
-                  ? Icon(Icons.lock_outline, size: 18,
-                      color: Palette.inkDim)
-                  : Text('#', style: AppTextStyles.base(color: Palette.inkDim)),
+              ? Icon(Icons.lock_outline, size: 18, color: Palette.inkDim)
+              : Text('#', style: AppTextStyles.base(color: Palette.inkDim)),
         ),
       ),
       // Roster inside the title rather than in `subtitle`, deliberately.
@@ -259,11 +297,11 @@ class _ChannelRow extends ConsumerWidget {
       onLongPress: !elevated
           ? null
           : () => ChannelAccessSheet.show(
-                context,
-                groupId: groupId,
-                channel: c,
-                memberUids: memberUids,
-              ),
+              context,
+              groupId: groupId,
+              channel: c,
+              memberUids: memberUids,
+            ),
     );
   }
 }
@@ -325,7 +363,9 @@ class _VoiceRosterLineState extends ConsumerState<_VoiceRosterLine> {
     // VoiceChannelRepository.clockLooksWrong. `joined` is what tells it
     // whether a row bearing that uid is my heartbeat or my leftover.
     final myUid = ref.read(authStateProvider).value?.uid;
-    ref.read(voiceChannelRepositoryProvider).pruneStaleParticipants(
+    ref
+        .read(voiceChannelRepositoryProvider)
+        .pruneStaleParticipants(
           widget.groupId,
           widget.channelId,
           myUid: myUid,
@@ -367,10 +407,8 @@ class _VoiceRosterLineState extends ConsumerState<_VoiceRosterLine> {
     // outside for the next two minutes.
     final now = DateTime.now();
     final myUid = ref.watch(authStateProvider).value?.uid;
-    final joinedHere = ref
-            .watch(voiceControllerProvider)
-            .active
-            ?.same(groupId, channelId) ??
+    final joinedHere =
+        ref.watch(voiceControllerProvider).active?.same(groupId, channelId) ??
         false;
     final roster = all
         .where((p) => p.uid != myUid || joinedHere)
@@ -391,8 +429,7 @@ class _VoiceRosterLineState extends ConsumerState<_VoiceRosterLine> {
     // still sitting in the channel must resolve to a name.
     final names = ref.watch(
       usersByIdProvider.select(
-        (byId) =>
-            roster.map((p) => byId[p.uid]?.name ?? 'Someone').join(', '),
+        (byId) => roster.map((p) => byId[p.uid]?.name ?? 'Someone').join(', '),
       ),
     );
 
