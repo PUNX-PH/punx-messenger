@@ -63,6 +63,7 @@ export default function ChatSurface({
   // your last-read time, which must not drag the line along).
   const [newFrom, setNewFrom] = useState(null) // { path, id }
   const newFromDecidedFor = useRef(null)
+  const readAtEntry = useRef({ known: false }) // your last-read time when this conversation was opened
 
   // Container path for typing (drops the trailing /messages). Skip for private notes.
   const containerPath = path && !path.startsWith('users/')
@@ -111,9 +112,16 @@ export default function ChatSurface({
     setPinnedOpen(false)
     setSearchOpen(false)
     setJumpId(null)
-    // Opening a conversation (again) decides the "New" line afresh.
+    // Opening a conversation (again) decides the "New" line afresh. Your last-read time is
+    // taken NOW, at the moment of opening, not when the messages arrive: the chat is marked
+    // read 400 ms after opening whether or not its messages have loaded yet, so on a slow
+    // connection the time read later would already be "just now" and the line would be lost.
     newFromDecidedFor.current = null
     setNewFrom(null)
+    const meNow = usersByIdRef.current?.[profile?.uid]
+    readAtEntry.current = meNow && path && !path.startsWith('users/')
+      ? { known: true, at: meNow.lastRead?.[pathToReadKey(path.replace(/\/messages$/, ''))] }
+      : { known: false }
   }, [path])
 
   useEffect(() => {
@@ -125,10 +133,14 @@ export default function ChatSurface({
       // The first batch for this opening, once we know our own read times (they arrive
       // with the user directory). Not for a read-only look at a channel you are not in,
       // nor private notes: neither tracks what you have read.
+      // Our read times are the ones taken when the conversation was opened. If the user
+      // directory had not arrived by then, the current ones are the best there is (they can
+      // only be later, which puts the line later, never earlier than the truth).
+      const entry = readAtEntry.current
       const me = usersByIdRef.current?.[profile?.uid]
-      if (newFromDecidedFor.current !== path && me && docs.length && !readOnly && !path.startsWith('users/')) {
+      if (newFromDecidedFor.current !== path && (entry?.known || me) && docs.length && !readOnly && !path.startsWith('users/')) {
         newFromDecidedFor.current = path
-        const lastRead = me.lastRead?.[pathToReadKey(path.replace(/\/messages$/, ''))]
+        const lastRead = entry?.known ? entry.at : me.lastRead?.[pathToReadKey(path.replace(/\/messages$/, ''))]
         setNewFrom({ path, id: firstUnreadId(docs, lastRead, profile.uid) })
       }
       setHasMore(meta.hasMore)

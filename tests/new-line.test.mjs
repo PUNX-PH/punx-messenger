@@ -87,6 +87,19 @@ test('the chat view decides the line once per opening, from the first batch, and
   assert.ok(!/useEffect\([^]*firstUnreadId[^]*\[[^\]]*usersById/.test(src), 'it does not re-run when your read time moves')
 })
 
+test('the read time used is the one from the moment of opening, not from when the messages arrive', () => {
+  const src = lf(fs.readFileSync('src/components/ChatSurface.jsx', 'utf8'))
+  // Marking a chat read happens 400 ms after opening whether or not its messages have
+  // loaded, so a time read later may already be "just now" and the line would be lost.
+  const capture = src.indexOf("readAtEntry.current = meNow && path && !path.startsWith('users/')")
+  const markRead = src.indexOf('markRead(profile.uid, containerPath)')
+  assert.ok(capture > 0, 'captured when the conversation changes')
+  assert.ok(markRead > capture, 'before the mark-read effect can run')
+  assert.ok(src.includes('{ known: true, at: meNow.lastRead?.[pathToReadKey('), 'it is your read time for this conversation')
+  assert.ok(src.includes('const lastRead = entry?.known ? entry.at : me.lastRead?.'), 'the captured time wins over the current one')
+  assert.ok(src.includes('(entry?.known || me)'), 'it still works when the directory had not arrived at opening')
+})
+
 test('the list draws a separator for it and passes the id to the layout', () => {
   const src = lf(fs.readFileSync('src/components/MessageList.jsx', 'utf8'))
   assert.ok(src.includes('buildBlocks(messages, groupMinutes, newFromId)'))
