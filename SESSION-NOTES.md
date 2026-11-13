@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#59 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#60 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#59)
+## 2. What shipped (PRs #1–#60)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#60 — link to a message** (section 53): a Copy link button in channels, and opening one scrolls to the message.
+
 **#59 — a Copy text button on every message** (section 52).
 
 **#58 — edit your last message with the up arrow** (section 51).
@@ -159,7 +161,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 339**, **Node 585** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 339**, **Node 601** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -858,3 +860,19 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** 18 new tests and 36 deliberate breakages, all caught after the gaps were closed (seven first survived: a null directory, the old way touching nothing without the copy command, the read-only attribute that stops a phone raising its keyboard, restarting the 1.5 seconds on a second click, the tick icon and the aria label; one more was a redundant `?.` inside a try, which was deleted instead). The tests also found a real bug in the first draft: the old way could throw before its try block when the page refused to create a text box. In a real browser (the real chat and message list, Firestore and the clipboard stubbed): the button is on every message with text, in other people's messages as well as mine, and not on a picture-only message; clicking wrote exactly the expected text (formatting and the line break intact, the unknown mention as written), the label read "Copied" and went back to "Copy text" after about 1.5 seconds. 585 web tests and the build pass.
 
 **NOT checked.** The real clipboard (the pane's clipboard was stubbed, so the real permission prompt and the old fallback were tested with fakes, not a browser that refuses). Safari, Firefox, a phone. The button on a touch screen: the toolbar shows on hover or focus, so a tap on a message reveals it only where the browser treats a tap as hover (the same as Reply and Edit today). The phone app does not have it.
+
+## 53. Link to a message (PR #60)
+
+**Why.** There was no way to point a colleague at one message ("see this one") except quoting it. Third of four small changes asked for together (after the up arrow, section 51, and Copy text, section 52; :emoji: suggestions follow).
+
+**What.** In a **channel**, each message's hover toolbar has **Copy link** (after Copy text); the icon turns into a tick, "Link copied", for 1.5 seconds. The link is `https://<this site>/g/<group>/c/<channel>?m=<message id>`. Opening it opens the channel, **scrolls to that message and lights it up** (the same highlight as jumping from a pinned message or a reply), then **removes the `?m=`** from the address so a refresh or Back does not jump again. It works for someone who is signed out: the sign-in page keeps the address, so they land on the message after signing in. Anyone without access to the channel gets what they always got.
+
+**Channels only.** A DM's address is "the conversation with the other person", which reads differently to each of the two, so one link could not be right for both; private notes are not shared. Those get no Copy link button (a test pins it; `messageLink` returns null for them).
+
+**An old message.** The chat holds only the newest 50. If the linked message is not among them, the window is widened **once** to 300 (one re-read of 300 messages, not page after page, which would re-read 50+100+150+... each time). If it is still not there, a note appears above the box: "That message isn't here any more. It may have been deleted, or be too old to load." (dismissible, gone after 8 seconds). It **floats over the top of the list** rather than taking space in the column: the first version took space, which shrank the list and left the newest message partly cut off, seen in the browser and fixed; rechecked, the newest message is fully visible with the note showing. The step logic is `nextLinkStep` in `src/lib/messageLink.js`; a model of the chat (0 to 2,000 messages, the target at the start, a third of the way, the end, or absent) checks that following always ends, asks for a wider window at most once, never when the message is on the first page, and finds exactly what is within reach.
+
+**Safe by construction.** The id from the address is accepted only if it is a plain id (letters, digits, `_`, `-`, at most 64) and used only to find a message among the ones already loaded, never to build a path or a query. Nothing is written anywhere and there is **no rules change**. Copy text's "Copied" timer became a shared `useFlash` hook so the two buttons behave alike; `tests/chat-switch.test.mjs` and `tests/copy-text.test.mjs` were updated deliberately for that and for the batch now remembering the window size it was asked for.
+
+**Checked.** 16 new tests and 57 deliberate breakages: 56 caught, 1 equivalent (an `else` written as `if (step !== 'jump')`); three redundant guards found by the first run were deleted rather than tested. In a real browser (the real chat with a 400-message stub and the real router; Firestore stubbed): a link to a message on the first page jumped to it with one read and removed `?m=`; one older than that read 50, then 300 (exactly once), found it, centred it (after the smooth scroll finished) and removed `?m=`; one older than 300 read 50 then 300, showed the note and removed `?m=`; Copy link in a channel wrote exactly `http://localhost:5199/g/G1abc/c/C2def?m=id399`, the label went to "Link copied" and back after about 1.5 seconds; the same toolbar in a DM had no Copy link. 601 web tests and the build pass.
+
+**NOT checked.** The real sign-in redirect (read, not run: the sign-in page is rendered for every address when signed out, and the router keeps the query when it switches to the app). Real Firestore. A phone or Safari/Firefox. The real clipboard, as for Copy text. **A link pasted into a message opens in a new tab** (links in messages always do), so it reloads the app rather than moving within it; it works, it is just not instant. The phone app does not have it.

@@ -10,14 +10,14 @@ const surface = lf(fs.readFileSync('src/components/ChatSurface.jsx', 'utf8'))
 const list = lf(fs.readFileSync('src/components/MessageList.jsx', 'utf8'))
 
 test('messages are kept with the conversation they belong to, and read back through the current one', () => {
-  assert.ok(surface.includes('const [batch, setBatch] = useState({ path: null, docs: NO_MESSAGES })'))
+  assert.ok(surface.includes('const [batch, setBatch] = useState({ path: null, docs: NO_MESSAGES, limit: 0 })'))
   assert.ok(surface.includes('const loaded = batch.path === path'))
   assert.ok(surface.includes('const messages = loaded ? batch.docs : NO_MESSAGES'), 'another conversation\'s messages read back as none')
   assert.ok(!surface.includes('setMessages('), 'no plain list left that could carry over')
 })
 
 test('each batch from the listener is tagged with its own path, and an unchanged one keeps the same object', () => {
-  assert.ok(surface.includes('setBatch(prev => (prev.path === path && sameMessages(prev.docs, docs) ? prev : { path, docs }))'))
+  assert.ok(surface.includes('setBatch(prev => (prev.path === path && sameMessages(prev.docs, docs) ? prev : { path, docs, limit }))'))
 })
 
 test('a failed listener leaves this conversation with no messages, not the previous one\'s', () => {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   listenMessages, MESSAGE_PAGE, sendMessage, setMessagePinned,
   editMessageText, deleteMessage, toggleReaction, markRead,
@@ -13,6 +14,8 @@ import { usePageActive } from '../lib/usePageActive'
 import { firstUnreadId, needsMarkRead } from '../lib/unread'
 import { pathToReadKey } from '../lib/db'
 import { lastEditableMessage } from '../lib/editLast'
+import { copyToClipboard } from '../lib/clipboard'
+import { LINK_LOOKBACK, MESSAGE_PARAM, messageIdFromSearch, messageLink, nextLinkStep } from '../lib/messageLink'
 import ErrorBoundary from './ErrorBoundary'
 import MessageList, { PinIcon } from './MessageList'
 import Composer from './Composer'
@@ -57,7 +60,8 @@ export default function ChatSurface({
   // conversation's messages under the new one's title until the new ones arrive (and the
   // mark-read effect below would run on them). Reading them back through the path means
   // nothing from another conversation is ever shown, and `loaded` says when these are ours.
-  const [batch, setBatch] = useState({ path: null, docs: NO_MESSAGES })
+  // `limit` is how many messages the window asked for when these arrived (see the link-following below).
+  const [batch, setBatch] = useState({ path: null, docs: NO_MESSAGES, limit: 0 })
   const loaded = batch.path === path
   const messages = loaded ? batch.docs : NO_MESSAGES
   const [pinnedOpen, setPinnedOpen] = useState(false)
@@ -140,7 +144,7 @@ export default function ChatSurface({
     return listenMessages(path, (docs, meta) => {
       setLoadError(null)
       // Same messages as the same objects: nothing to do (see messagesIdentity.js).
-      setBatch(prev => (prev.path === path && sameMessages(prev.docs, docs) ? prev : { path, docs }))
+      setBatch(prev => (prev.path === path && sameMessages(prev.docs, docs) ? prev : { path, docs, limit }))
       // The first batch for this opening, once we know our own read times (they arrive
       // with the user directory). Not for a read-only look at a channel you are not in,
       // nor private notes: neither tracks what you have read.
@@ -277,8 +281,34 @@ export default function ChatSurface({
     setTimeout(() => setJumpId(null), 1500)
   }, [])
 
+  // Following a link to a message (?m=<id>): once this conversation's messages are in, scroll to it
+  // and light it up; if it is older than the first page, widen the window ONCE (to LINK_LOOKBACK
+  // messages, a single re-read, not page by page); if it is not there after that, say so. Either way
+  // the ?m= is removed afterwards, so a refresh or Back does not jump again.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const linkTarget = messageIdFromSearch(searchParams)
+  const [linkNote, setLinkNote] = useState(null)
+  useEffect(() => { setLinkNote(null) }, [path])
+  useEffect(() => {
+    const step = nextLinkStep({ target: linkTarget, loaded, messages, hasMore, limit, loadedLimit: batch.limit })
+    if (step === 'none' || step === 'wait') return
+    if (step === 'lookback') { setLimit(LINK_LOOKBACK); return }
+    if (step === 'jump') jumpTo(linkTarget)
+    else setLinkNote("That message isn't here any more. It may have been deleted, or be too old to load.")
+    setSearchParams((p) => { const n = new URLSearchParams(p); n.delete(MESSAGE_PARAM); return n }, { replace: true })
+  }, [linkTarget, loaded, messages, hasMore, limit, batch.limit, jumpTo, setSearchParams])
+  useEffect(() => {
+    if (!linkNote) return
+    const t = setTimeout(() => setLinkNote(null), 8000)
+    return () => clearTimeout(t)
+  }, [linkNote])
+
+  // "Copy link" is offered only in channels (messageLink gives null for DMs and notes).
+  const hasLinks = messageLink('https://x.example', path, 'a') !== null
+  const copyLink = useCallback((m) => copyToClipboard(messageLink(window.location.origin, path, m.id)), [path])
+
   return (
-    <main className="flex-1 flex flex-col min-w-0 bg-bg-main">
+    <main className="relative flex-1 flex flex-col min-w-0 bg-bg-main">
       <header className="h-12 border-b border-line-subtle flex items-center px-3 md:px-4 gap-2 shadow-elev1 shrink-0">
         <MenuButton />
         <span className="text-ink-dim">{icon}</span>
@@ -387,6 +417,7 @@ export default function ChatSurface({
           onReact={readOnly ? null : onReact}
           onReply={readOnly ? null : setReplyingTo}
           onJumpToMessage={jumpTo}
+          onCopyLink={hasLinks ? copyLink : null}
           meUid={profile?.uid}
           scrollToId={jumpId}
           highlightId={jumpId}
@@ -394,6 +425,13 @@ export default function ChatSurface({
           onEditEnded={() => setComposerFocus((n) => n + 1)}
         />
       </ErrorBoundary>
+      )}
+
+      {linkNote && (
+        <div role="status" className="absolute top-14 left-4 right-4 z-10 px-3 py-2 rounded-md bg-bg-raised border border-line-subtle shadow-elev1 text-sm text-ink-muted flex items-start gap-2">
+          <span className="flex-1">{linkNote}</span>
+          <button type="button" onClick={() => setLinkNote(null)} className="text-ink-dim hover:text-ink" aria-label="Dismiss">×</button>
+        </div>
       )}
 
       <TypingIndicator names={typingNames} />
