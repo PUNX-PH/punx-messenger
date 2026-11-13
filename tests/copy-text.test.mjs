@@ -147,7 +147,7 @@ test('each message with text gets a Copy button that uses the shared helpers', (
 
 test('the toolbar shows for a message that can only be copied, and copying is not tied to edit or read-only', () => {
   const l = read('src/components/MessageList.jsx')
-  assert.ok(l.includes('{!editing && (onReact || onReply || canCopy || onCopyLink || canPin || canEdit || canDelete) && ('))
+  assert.ok(l.includes('{!editing && (onReact || onReply || canCopy || onCopyLink || onForward || canPin || canEdit || canDelete) && ('))
   assert.ok(!/canCopy\s*=\s*[^\n]*(canEdit|readOnly|isAuthor)/.test(l))
 })
 

@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#63 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#64 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#63)
+## 2. What shipped (PRs #1–#64)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -98,6 +98,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 **#27 — unread count in the browser tab title** (section 23).
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
+
+**#64 — forward a message to another conversation** (section 57).
 
 **#63 — :emoji: suggestions in the message box** (section 56): type a colon and two letters.
 
@@ -167,7 +169,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 362**, **Node 634** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 362**, **Node 655** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -918,3 +920,17 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** 33 new tests and 57 deliberate breakages, all caught (12 first survived: ties broken by name, the best of an emoji's several names, a negative limit, the highlight staying inside the list, picking by mouse keeping the cursor, and four more wiring lines; each closed with a test, and one test I had written wrong was fixed before re-running so the second run was against a green baseline). In a real browser (the real message box, the custom emojis stubbed): `:fi` listed the custom `fire_dance` (tagged, with its picture) above 🔥 fire, 👊 fist, 🤞 crossed fingers; Down moved the highlight and Enter inserted 🔥 with a space, the cursor after it, nothing sent and the text kept; `:partyp` then Tab inserted `:partyparrot: `; `:smi` then Esc closed it and kept the text; `10:30` and `:zzqq` showed no list and Enter then sent (the box emptied); `:roc` then a mouse click inserted 🚀 and left the cursor in the box. 634 web tests and the build pass.
 
 **NOT checked.** An input method (IME) composing: the list ignores Enter during composition (in the code, and pinned by a test), not tried with a real one. Safari, Firefox, a phone keyboard. Very long custom emoji lists (it shows eight). The list's look on a narrow screen. The phone app does not have it. A fully typed `:fire:` for an everyday emoji is not converted on send (only picked ones are), as before.
+
+## 57. Forward a message (PR #64)
+
+**Why.** Passing a message on meant copying its text by hand and losing who wrote it. First of three Discord/Viber-style features asked for together (forward, then saved messages, then voice messages; each its own PR).
+
+**What.** Every message that has text or a picture gets a **Forward** button in its hover toolbar (after Copy text), except in a read-only oversight view. It opens **Forward message**: a one-line preview of what is being sent, a search box, and the places it can go: **people, text channels and your own notes** (not voice rooms, and not the conversation it is already in). **Up/Down** move, **Enter** or a click forwards, **Esc** closes. It says "Forwarded to <where>." and closes. The forward is a **new message from you**, shown with a small line **"Forwarded from <who wrote it>"** above it. Forwarding a forward keeps the ORIGINAL writer. For a person you have not messaged yet, the conversation is created first (as opening the DM does). One destination at a time.
+
+**What is copied** (`src/lib/forward.js`): the text and the picture (with its details). **Not** copied: reactions, pin, reply, edit stamp, and where it was: a message from a private channel must not name that channel to people outside it. **Mentions are written as @Name**, not copied as tokens, so a forward cannot ping the people in it or tint the row as a mention for them (an unknown person reads @Unknown, as in Copy text).
+
+**How it is stored.** One extra field on the new message, `forwardedFrom: { uid, name }` (null on every other message), written by the normal `sendMessage`. **No rules change**: the message rules check the author and membership, and they accept any other field (the rules were read to confirm this). The name shown is cleaned again on reading (one line, 60 characters, control and text-direction characters removed, nothing shown if unusable), because any member can write anything into a message.
+
+**Checked.** 21 new tests and 58 deliberate breakages, all caught (6 first survived: a guard that turned out redundant and was deleted, the dialog re-enabling after a failure, which conversation is left out, the ranking, and the label's condition; closed with tests or deleted). In a real browser (the real chat with stubbed Firestore): the toolbar shows Forward; a forwarded message shows "Forwarded from Cara Diaz"; the dialog listed people, the other text channel and My Notes, and not the current channel or the voice room; the preview showed the mention as @Cara Diaz; Down then Enter ensured the DM exists, then sent to the right conversation path with the text (mention as a name), the original writer and no picture, showed "Forwarded to Cara Diaz.", and closed by itself. 655 web tests and the build pass.
+
+**NOT checked.** Real Firestore (the write is the normal message create, which the rules accept on a reading of them). Forwarding a picture in the browser (copied in code and tested, not clicked). Sending to a channel you cannot post in: the send fails and the dialog says "Couldn't forward it" and stays open, which is tested in code only. Several destinations at once; forwarding with a comment added. A phone or Safari/Firefox. The phone app neither forwards nor shows the "Forwarded from" line (it shows the text as an ordinary message).

@@ -167,7 +167,7 @@ test('Copy link is offered only where there is a link, and copies the address of
   assert.ok(l.includes("title={linkCopied ? 'Link copied' : 'Copy link'}"))
   assert.ok(l.includes("aria-label={linkCopied ? 'Link copied' : 'Copy link'}"))
   assert.ok(l.includes('{linkCopied ? <CheckIcon /> : <LinkIcon />}'))
-  assert.ok(l.includes('canCopy || onCopyLink || canPin'))
+  assert.ok(l.includes('canCopy || onCopyLink || onForward || canPin'))
   // threaded through the group to every row
   assert.equal(l.split('onCopyLink={onCopyLink}').length - 1, 2)
 })
