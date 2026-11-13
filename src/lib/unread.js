@@ -56,6 +56,17 @@ export function firstUnreadId(messages, lastReadAt, meUid) {
 }
 
 /**
+ * Is the "New" line scrolled out of sight ABOVE the visible part of the list? Then a
+ * button can take the reader back to it. Below the view (they are reading older
+ * messages and will reach it) or in view, no button. Both numbers are screen positions
+ * in pixels: the line's bottom edge and the list's top edge. Anything unmeasurable
+ * answers false, so a layout that has not happened yet never shows the button.
+ */
+export function newLineIsAbove(lineBottom, viewTop) {
+  return Number.isFinite(lineBottom) && Number.isFinite(viewTop) && lineBottom <= viewTop
+}
+
+/**
  * The read key of the conversation a route shows, or null for a page that is not
  * one (the DM list, notes, settings). Same keys as pathToReadKey of the
  * conversation's container path.

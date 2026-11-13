@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#45 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#46 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#45)
+## 2. What shipped (PRs #1–#46)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#46 — "Jump to first unread"** (section 39): a button at the top of a chat that takes you to the "New" line when it is scrolled out of sight above.
+
 **#45 — switching chats shows nothing of the previous one** (section 38): a conversation no longer shows the previous one's messages, or is marked read, before its own messages have loaded.
 
 **#44 — the "New" line takes your read time when you open the chat** (section 37): fixes the line going missing on a slow connection.
@@ -131,7 +133,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 406** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 409** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -644,3 +646,13 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 5 new tests, which are source-shape tests (the component needs the live listener), 10 deliberate breakages, all caught. In a real browser, the real message list with made-up messages swapped the way ChatSurface now feeds it: loading shows only the blank status pane (no old messages, no "start of the conversation"); after it, the right conversation's newest message is in view and the loading pane is gone; the resting position is the same as before this change (a direct swap of two chats lands the same 15 px, the list's bottom padding, above the end).
 
 **NOT checked.** ChatSurface itself against live Firestore (listener timing, a really slow connection), sign-in, a phone, Safari/Firefox. The list's own scroll behaviour was only exercised through its props, not through a real conversation switch with a composer and images.
+
+## 39. Jump to first unread (PR #46)
+
+**Why.** The "New" line (section 37) is only useful if you can see it, and a chat opens at the newest message, so with more than a screenful unread the line is above the fold. A way back up to it finishes the feature.
+
+**What.** When the "New" line has scrolled completely out of sight above the list, a pill at the top centre reads "Jump to first unread" (up arrow). Clicking it scrolls the line to the top of the list (a 16 px margin above it) and switches off "follow the newest", so a message arriving while you read from there does not pull the view back down. The button goes away as soon as the line is on screen, and is not shown when you are scrolled above the line (you will reach it) or when there is no line. `newLineIsAbove` in `src/lib/unread.js` is the rule; `MessageList.jsx` measures the real positions on every scroll and after the list changes, honours the "reduce motion" preference for the scroll, and the line is found by a `data-new-line` marker.
+
+**Checked.** 3 new tests (the rule and its edges, unmeasurable input, and the wiring), 11 deliberate breakages, all caught after one gap (the marker test was too loose). In a real browser, the real message list with 60 made-up messages and the line in the middle: on opening the button shows with the list at the bottom; clicking puts the line 16 px from the top and removes the button; scrolled above the line there is no button; back at the bottom it returns; a message arriving while reading from the line leaves the scroll position unchanged; with no line there is no button. 409 web tests and the build pass.
+
+**NOT checked.** Against live Firestore with a real unread chat (the line itself is decided in ChatSurface, section 37, and is likewise not yet seen live). The smooth scroll over a long distance: the browser pane used here was hidden, which paused smooth scrolling and delayed scroll events, so the scroll was verified with "reduce motion" on and with scroll events fired by hand; the logic is right in that setting but the animation itself was not watched. A phone, Safari/Firefox. The Flutter app has no such button.

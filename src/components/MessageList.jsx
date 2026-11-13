@@ -9,6 +9,7 @@ import { useEmojis } from '../lib/emojis'
 import { isOnlyEmojis, mentionsUid, renderMessage } from '../lib/markdown'
 import { computeStatus, useTickNow } from '../lib/presence'
 import { buildBlocks, toDate } from '../lib/messageBlocks'
+import { newLineIsAbove } from '../lib/unread'
 import * as tf from '../lib/timeFormat'
 import { usePrefs } from '../lib/usePrefs'
 
@@ -66,9 +67,19 @@ export default function MessageList({
   const [unseen, setUnseen] = useState(0)
   const lastIdRef = useRef(null)
 
+  // The "New" line is above what is on screen: offer a way back to it. Measured from the
+  // real positions, on scroll and after the list changes (see the effect below).
+  const [newLineAbove, setNewLineAbove] = useState(false)
+  const checkNewLine = () => {
+    const box = containerRef.current
+    const line = box?.querySelector('[data-new-line]')
+    setNewLineAbove(!!line && newLineIsAbove(line.getBoundingClientRect().bottom, box.getBoundingClientRect().top))
+  }
+
   const onScroll = () => {
     const el = containerRef.current
     if (!el) return
+    checkNewLine()
     const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
     stickToBottomRef.current = fromBottom < NEAR_BOTTOM_PX
     // setState with an unchanged value bails out, so this costs nothing per
@@ -153,6 +164,20 @@ export default function MessageList({
     if (!stickToBottomRef.current) setUnseen(n => n + 1)
   }, [newestId])
 
+  // Whenever the layout changes (a conversation opens, the line is placed or goes, messages
+  // arrive) look again. The scroll-to-newest effect above runs first, so on opening this
+  // sees the list already at the bottom, with the line above it.
+  useEffect(() => { checkNewLine() }, [newFromId, messages?.length, messages?.[0]?.id])
+
+  // Back to the first unread message. Following the newest is switched off first, or the
+  // next arrival would pull the view straight back down.
+  const jumpToNewLine = () => {
+    const line = containerRef.current?.querySelector('[data-new-line]')
+    if (!line) return
+    stickToBottomRef.current = false
+    line.scrollIntoView({ block: 'start', behavior: scrollBehavior })
+  }
+
   const jumpToLatest = () => {
     stickToBottomRef.current = true
     setUnseen(0)
@@ -230,6 +255,18 @@ export default function MessageList({
         <Lightbox src={zoomed} onClose={() => setZoomed(null)} />
       </div>
 
+      {/* The "New" line is above the visible part: a way back up to the first unread. */}
+      {newLineAbove && (
+        <button
+          type="button"
+          onClick={jumpToNewLine}
+          className="absolute top-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 pl-3 pr-3.5 py-1.5 rounded-full bg-brand text-white text-xs font-medium shadow-elev2 hover:bg-brand-hover transition-colors"
+        >
+          <ArrowDownIcon className="rotate-180" />
+          Jump to first unread
+        </button>
+      )}
+
       {/* `unseen` alone is enough to show it. New messages are counted from
           NEAR_BOTTOM_PX up, but the distance alone only turns the pill on past
           FAR_FROM_BOTTOM_PX — so in between, messages arrived with no sign. */}
@@ -261,7 +298,7 @@ function DayDivider({ date }) {
 // was put while you read, so you can see what was new after the unread dot is gone.
 function NewDivider() {
   return (
-    <div role="separator" aria-label="New messages" className="flex items-center gap-3 select-none">
+    <div role="separator" aria-label="New messages" data-new-line className="flex items-center gap-3 select-none scroll-mt-4">
       <div className="h-px flex-1 bg-bad/60" />
       <span className="text-[11px] font-semibold uppercase tracking-wide text-bad">New</span>
       <div className="h-px flex-1 bg-bad/60" />
@@ -269,9 +306,9 @@ function NewDivider() {
   )
 }
 
-function ArrowDownIcon() {
+function ArrowDownIcon({ className }) {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <line x1="12" y1="5" x2="12" y2="19"/>
       <polyline points="19 12 12 19 5 12"/>
     </svg>
