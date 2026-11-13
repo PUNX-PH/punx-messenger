@@ -243,13 +243,12 @@ export default function AdminPanel() {
           </p>
 
           <p className="text-xs text-ink-dim mt-3">
-            <strong className="text-ink-muted">Hierarchy:</strong> Developers hold everything a super admin
-            does, and one thing more &mdash; groups a developer owns are invisible to super admins unless they're
-            added, and only a developer can grant or revoke the developer role. Super admins manage the
-            workspace and other admins, and can read every other channel without joining &mdash; invisibly,
-            since they stay out of the member list until they're actually added. Admins can pin in any channel
-            and manage any group. Employees join groups by invitation. Guests are invited to individual
-            channels and see nothing else &mdash; not even the names of the other channels in the group.
+            <strong className="text-ink-muted">Hierarchy:</strong> Developers have dev tools. Super admins
+            manage the workspace and other admins, and can read every other channel without joining
+            &mdash; invisibly, since they stay out of the member list until they're actually added. Admins
+            can pin in any channel and manage any group. Employees join groups by invitation. Guests are
+            invited to individual channels and see nothing else &mdash; not even the names of the other
+            channels in the group.
           </p>
           </>)}
 
