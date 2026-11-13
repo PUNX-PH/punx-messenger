@@ -147,17 +147,18 @@ test('each message with text gets a Copy button that uses the shared helpers', (
 
 test('the toolbar shows for a message that can only be copied, and copying is not tied to edit or read-only', () => {
   const l = read('src/components/MessageList.jsx')
-  assert.ok(l.includes('{!editing && (onReact || onReply || canCopy || canPin || canEdit || canDelete) && ('))
+  assert.ok(l.includes('{!editing && (onReact || onReply || canCopy || onCopyLink || canPin || canEdit || canDelete) && ('))
   assert.ok(!/canCopy\s*=\s*[^\n]*(canEdit|readOnly|isAuthor)/.test(l))
 })
 
 test('"Copied" only shows after the copy worked, and goes away by itself', () => {
   const l = read('src/components/MessageList.jsx')
-  // A second click inside the 1.5 seconds restarts the wait instead of ending it early.
-  assert.ok(l.includes('clearTimeout(copiedTimer.current)\n    copiedTimer.current = setTimeout'))
+  assert.ok(l.includes('if (await copyToClipboard(copyableText(message, usersById))) flashCopied()'))
+  assert.ok(l.includes('const [copied, flashCopied] = useFlash(1500)'))
   assert.ok(l.includes('{copied ? <CheckIcon /> : <CopyIcon />}'))
   assert.ok(l.includes("aria-label={copied ? 'Copied' : 'Copy text'}"))
-  assert.ok(l.includes('if (!(await copyToClipboard(copyableText(message, usersById)))) return\n    setCopied(true)'))
-  assert.ok(l.includes('setTimeout(() => setCopied(false), 1500)'))
-  assert.ok(l.includes('useEffect(() => () => clearTimeout(copiedTimer.current), [])'))
+  // The flag: on for the time given, restarted by a second click, cleaned up with the row.
+  assert.ok(l.includes('timer.current = setTimeout(() => setOn(false), ms)'))
+  assert.ok(l.includes('clearTimeout(timer.current)\n    timer.current = setTimeout'))
+  assert.ok(l.includes('useEffect(() => () => clearTimeout(timer.current), [])'))
 })

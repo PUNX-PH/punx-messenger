@@ -26,6 +26,7 @@ export default function MessageList({
   onReact,
   onReply,                // (message) => void  (start replying)
   onJumpToMessage,        // (messageId) => void (for replyTo preview jump)
+  onCopyLink = null,      // (message) => Promise<boolean>: copy a link to it; null where there is no link (DMs, notes)
   meUid,
   highlightId,
   scrollToId,
@@ -266,6 +267,7 @@ export default function MessageList({
               onReact={onReact}
               onReply={onReply}
               onJumpToMessage={onJumpToMessage}
+              onCopyLink={onCopyLink}
             />
           ))}
           <div ref={endRef} />
@@ -336,7 +338,7 @@ function ArrowDownIcon({ className }) {
 const Group = memo(function Group({
   group, timeFormat, onZoom, canPin, onTogglePin, highlightId, usersById, presenceById, emojiByName, tickNow,
   canDeleteAny, readOnly, meUid, editingId, setEditingId, onEdit, onDelete, onReact,
-  onReply, onJumpToMessage,
+  onReply, onJumpToMessage, onCopyLink,
 }) {
   const currentAuthor = usersById?.[group.author?.uid]
   const name = currentAuthor?.name || group.author?.name
@@ -375,6 +377,7 @@ const Group = memo(function Group({
           onReact={onReact}
           onReply={onReply}
           onJumpToMessage={onJumpToMessage}
+          onCopyLink={onCopyLink}
           meUid={meUid}
           usersById={usersById}
         />
@@ -390,7 +393,7 @@ const Group = memo(function Group({
 const Row = memo(function Row({
   message, showHeader, author, firstTime, timeFormat, onZoom, canPin, onTogglePin, highlighted,
   emojiByName, isAuthor, canDeleteAny, readOnly, editing, setEditingId, onEdit, onDelete,
-  onReact, onReply, onJumpToMessage, meUid, usersById,
+  onReact, onReply, onJumpToMessage, onCopyLink, meUid, usersById,
 }) {
   const setEditing = (on) => setEditingId(on ? message.id : null)
   const onlyEmojis = isOnlyEmojis(message.text)
@@ -417,14 +420,14 @@ const Row = memo(function Row({
   // "Copy text": anyone who can see the message may copy it (it is local, nothing is written),
   // so this is not tied to canEdit or readOnly. A picture on its own has no text to copy.
   const canCopy = hasCopyableText(message)
-  const [copied, setCopied] = useState(false)
-  const copiedTimer = useRef(null)
-  useEffect(() => () => clearTimeout(copiedTimer.current), [])
+  const [copied, flashCopied] = useFlash(1500)
   const copyText = async () => {
-    if (!(await copyToClipboard(copyableText(message, usersById)))) return
-    setCopied(true)
-    clearTimeout(copiedTimer.current)
-    copiedTimer.current = setTimeout(() => setCopied(false), 1500)
+    if (await copyToClipboard(copyableText(message, usersById))) flashCopied()
+  }
+  // "Copy link": only where a message has an address worth sharing (a channel). The caller copies it.
+  const [linkCopied, flashLinkCopied] = useFlash(1500)
+  const copyLink = async () => {
+    if (await onCopyLink(message)) flashLinkCopied()
   }
 
   return (
@@ -536,7 +539,7 @@ const Row = memo(function Row({
       </div>
 
       {/* Hover toolbar */}
-      {!editing && (onReact || onReply || canCopy || canPin || canEdit || canDelete) && (
+      {!editing && (onReact || onReply || canCopy || onCopyLink || canPin || canEdit || canDelete) && (
         <div className="absolute -top-3 right-3 opacity-0 group-hover/msg:opacity-100 group-focus-within/msg:opacity-100 transition-opacity bg-bg-raised border border-line-subtle rounded-md shadow-elev1 flex">
           {onReact && (
             <div className="relative">
@@ -582,6 +585,16 @@ const Row = memo(function Row({
               aria-label={copied ? 'Copied' : 'Copy text'}
             >
               {copied ? <CheckIcon /> : <CopyIcon />}
+            </button>
+          )}
+          {onCopyLink && (
+            <button
+              onClick={copyLink}
+              className="p-1.5 text-ink-muted hover:text-ink hover:bg-bg-hover rounded transition-colors"
+              title={linkCopied ? 'Link copied' : 'Copy link'}
+              aria-label={linkCopied ? 'Link copied' : 'Copy link'}
+            >
+              {linkCopied ? <CheckIcon /> : <LinkIcon />}
             </button>
           )}
           {canEdit && message.text && (
@@ -655,6 +668,28 @@ function ReactionChip({ emojiKey, uids, meUid, emojiByName, usersById, onToggle 
       )}
       <span className="font-semibold tabular-nums">{uids.length}</span>
     </button>
+  )
+}
+
+/** A flag that turns on for `ms` milliseconds when flashed ("Copied"), restarts if flashed again, and is cleaned up with the row. */
+function useFlash(ms) {
+  const [on, setOn] = useState(false)
+  const timer = useRef(null)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const flash = () => {
+    setOn(true)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setOn(false), ms)
+  }
+  return [on, flash]
+}
+
+function LinkIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+    </svg>
   )
 }
 
