@@ -50,6 +50,7 @@ export function shortcutGroups({ sendKey = 'enter' } = {}) {
       title: 'Writing',
       items: [
         ...send,
+        { id: 'edit-last', keys: ['↑'], does: 'Edit your last message, when the box is empty' },
         { id: 'mention-move', keys: ['↑'], or: ['↓'], does: 'Move through the list when you type @' },
         { id: 'mention-pick', keys: ['Enter'], or: ['Tab'], does: 'Pick the person highlighted' },
       ],

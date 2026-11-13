@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#57 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#58 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#57)
+## 2. What shipped (PRs #1–#58)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#58 — edit your last message with the up arrow** (section 51).
+
 **#57 — a custom status** (section 50): a short line next to your name ("On leave"), with a choice of how long it stays.
 
 **#56 — mute one channel or DM** (section 49): right-click it; it stops counting and stops dotting, and a muted DM stops pinging.
@@ -155,7 +157,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 339**, **Node 552** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 339**, **Node 567** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -765,7 +767,7 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 
 **What.** Press **?** (when not typing in a text field) or use **See all keyboard shortcuts** under "Send a message with" in the preferences. A dialog lists the shortcuts in three groups: Move around (Ctrl/Cmd+K to jump to a conversation; Alt+Shift+Down for the one waiting longest; Alt+Shift+Up for the newest unread), Writing (send and new line, which **follow the person's own "Send a message with" setting** and update live; Up/Down and Enter/Tab in the @ list) and Anywhere (Esc; ? again hides it). Keys are written for the platform: Cmd and Option on a Mac, Ctrl and Alt elsewhere. `src/lib/shortcuts.js` is the one list (and the rule for when "?" counts); `ShortcutsHelp.jsx` is the dialog (the shared `Modal`, so Esc, a click outside and scroll-lock behave as in every other dialog); `ShortcutsHelpHost.jsx` listens, mounted beside the quick-switcher host; the dialog is its own chunk, loaded on first use and not preloaded.
 
-**It lists only what exists.** There is no "edit your last message with the up arrow", and the sheet does not claim one (a test refuses that sentence). Every entry is pinned to the code that does it: the Ctrl/Cmd+K handler in `QuickSwitcherHost`, `unreadKeyDirection`, `shouldSend` for both settings, the @ list's keys in `Composer`, the Esc in `Modal`. If a shortcut is added or changed, this list is where it is written down, and the tests say so when it drifts.
+**It lists only what exists.** When this was written there was no "edit your last message with the up arrow" and a test refused any sheet that claimed one; section 51 added it, and that test now pins the claim to the code instead. Every entry is pinned to the code that does it: the Ctrl/Cmd+K handler in `QuickSwitcherHost`, `unreadKeyDirection`, `shouldSend` for both settings, the @ list's keys in `Composer`, the Esc in `Modal`. If a shortcut is added or changed, this list is where it is written down, and the tests say so when it drifts.
 
 **Checked.** 19 new tests and 36 deliberate breakages, all caught. In a real browser (the real host and dialog, a stubbed preference): a real "?" key press opens it; Esc closes it and restores scrolling; "?" typed in a text box goes into the box and opens nothing; "?" again closes it; switching the send setting while it is open rewrites the sending lines to "Ctrl Enter / Enter". 492 web tests and the build pass.
 
@@ -826,3 +828,17 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** 27 new tests and 58 deliberate breakages, all caught (after the escapes were fixed, three breakages that had not applied were re-run and caught; a redundant `Array.isArray` was deleted rather than tested). In a real browser (the real DM list, member list and your panel, with a live stubbed profile): another person's status shows in both lists; an expired one, a malformed one and a 5,000-character one (cut to 60, no direction characters left in the page) behave; clicking your name opens the dialog lazily with Save disabled while empty, no Clear button, "Today" chosen and the 60-character limit; picking a preset and "1 hour" and saving wrote exactly that text with an end time 60 minutes out, closed the dialog, and showed it on your panel and your member row; reopening pre-filled it and offered Clear; clearing wrote a delete and everything went back. 552 web tests and the build pass.
 
 **NOT checked.** Against real Firestore (the write, and that the rules accept it: they do on a reading of them, tested). The DM header's subtitle in the real chat view (wired and source-checked, not seen). The dialog on a phone-width screen, Safari and Firefox. A status expiring while the screen is open: it disappears the next time that part of the screen redraws (presence redraws it every few seconds on most screens), which was not timed.
+
+## 51. Edit your last message with the up arrow (PR #58)
+
+**Why.** Fixing a typo meant hovering the message and finding the pencil. First of four small changes asked for together (the others: copy message text, link to a message, :emoji: suggestions; each its own PR).
+
+**What.** In an **empty** message box, press **Up**: your newest message that has text opens for editing, the cursor in it. **Enter** saves, **Esc** cancels (as with the pencil), and either way the cursor goes **back to the message box**. An edit opened with the mouse behaves as before (the cursor is not moved). It is listed on the shortcuts sheet ("Edit your last message, when the box is empty").
+
+**When the key counts** (`shouldEditLast`, `src/lib/editLast.js`): a plain Up, the box empty or only spaces, no picture or file attached, the @ list not open (it uses Up itself), no Shift/Ctrl/Cmd/Alt, no input method composing, and the key not already handled. In every other case the key does what it always did. It is also not taken when there is no message of yours to edit (the key is only swallowed when one was found). **Which message** (`lastEditableMessage`): the newest one **authored by you with non-blank text**, so a picture on its own is skipped, as the pencil is not offered on it either. Read-only views (oversight) have no message box, so there is nothing to press.
+
+**How it is wired.** `Composer` reports the key through `onEditLast`; `ChatSurface` picks the message from the messages it holds and hands `MessageList` an `editRequest` ({ id, n }); the list opens it through the same `editingId` the pencil uses, so permissions, the edit field and the save path are unchanged (no new write, **no rules change**). The request is cleared when the conversation changes. `focusNonce` gives the box its cursor back when an edit that the key started ends.
+
+**Checked.** 15 new tests (the key under every modifier and state, which message, wiring in the three components, the shortcuts entry pinned to the code) and 32 deliberate breakages: 31 caught at once, 1 survived (the `!meUid` guard, which a test then closed: with nobody signed in, a message without an author must not match "undefined is undefined"), and re-run, caught. In a real browser with the real chat, list and box (Firestore stubbed): Up opened the last message of mine (not the other person's last) with the cursor in it; Esc closed it and put the cursor back in the box; Up, typing and Enter saved exactly the edited text through the edit path (one write, to that message) and put the cursor back in the box, with nothing leaking into the box's own text; Up with text in the box did nothing; an edit opened with the pencil on an earlier message ended with Esc and left the cursor where it was. 567 web tests and the build pass.
+
+**NOT checked.** Against real Firestore (the write is the existing edit; the rules already allow it). Safari, Firefox, a phone keyboard (there is no Up key on most; the pencil stays). An IME while composing (checked in the test, not with a real input method). The phone app does not have it. A message that is deleted by someone else while its edit is open from the key: the cursor is not returned to the box in that case.
