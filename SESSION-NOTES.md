@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#54 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#55 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#54)
+## 2. What shipped (PRs #1–#55)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#55 — mark as read, for one DM, all DMs, or everything** (section 48).
+
 **#54 — a keyboard shortcuts sheet** (section 47): press `?` to see them.
 
 **#53 — add everyone already here to PUNX TEAM** (section 46): a "Team group" card on the admin page, for developers and super admins, previews and then does the one-off job.
@@ -149,7 +151,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 339**, **Node 492** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 339**, **Node 507** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -764,3 +766,20 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 19 new tests and 36 deliberate breakages, all caught. In a real browser (the real host and dialog, a stubbed preference): a real "?" key press opens it; Esc closes it and restores scrolling; "?" typed in a text box goes into the box and opens nothing; "?" again closes it; switching the send setting while it is open rewrites the sending lines to "Ctrl Enter / Enter". 492 web tests and the build pass.
 
 **NOT checked.** The Mac wording (Cmd, Option) beyond the tests of the labels; the dialog on a phone-width screen (it is the shared modal at `max-w-lg` and was not looked at there); the link inside the preferences dialog in the real app (it is wired and source-checked, and was not clicked). The phone app has no keyboard, so no sheet there.
+
+## 48. Mark as read: one DM, all DMs, everything (PR #55)
+
+**Why.** "Mark as read" existed only on a group's right-click menu. With a sidebar full of dots there was no way to clear a single DM or everything at once. Second of four quality-of-life changes asked for together.
+
+**What.** Three ways in, one rule, one write.
+- **A DM:** right-click it in the DM list for **Mark as read** (shown but disabled, saying "already read", when there is nothing to clear). Only a DM that has a conversation gets the menu.
+- **All DMs:** a **Mark all read** link in the DM list header, shown only while at least one DM is unread.
+- **Everything:** right-click the Home button on the rail, or hold it (the way the group icons open their menu), for **Mark everything as read**, with "N unread" beside it, or "all caught up" and disabled when there is nothing.
+- The rule is `unreadKeys` (`src/lib/unread.js`): every conversation with a last message newer than when you last read it, in your DMs and in the channels of your groups. It is deliberately **wider than the badge** (`countUnread`): it also clears the channels of a **muted** group and a DM whose last message is your own, because both can still show a dot. A test checks that anything the badge counts is cleared. Groups you only oversee are not touched (they have no unread state).
+- The write is `markManyRead` (`src/lib/db.js`): one update of your own profile per 300 conversations (`chunkKeys`), touching only `lastRead.<key>`, each to the server's clock like `markRead`. No rules change: a person already may update their own `lastRead`. `useMarkAllRead` shares `useConversationData` with the tab title and the quick switcher, so it adds no reads.
+
+**Not done.** Touch: a DM row has no long-press menu (the rail's Home button does); on a phone-width screen the header's **Mark all read** is the way. The phone app has none of this.
+
+**Checked.** 15 new tests (what counts as unread in DMs and channels; muted groups and own-last-message DMs cleared; a property check that the badge is never wider than "mark all"; nothing left to mark afterwards; odd input; batching; the write touching only lastRead; each entry point wired) and 34 deliberate breakages, all caught after four gaps were closed (an unused return value deleted, and three source checks that were too loose). In a real browser with the real rail and DM list and stubbed data: right-click Ana's DM then Mark as read wrote exactly her conversation and closed the menu; Ben's (read) item was disabled and writing nothing when clicked; the Home menu said "3 unread" and its click wrote exactly the unread DM, the unread channel and the muted group's unread channel, leaving the read DM and read channel out; the header link wrote the unread DM. 507 web tests and the build pass.
+
+**NOT checked.** Against real Firestore (the write itself, and that the rules accept a many-key update of your own profile: they accept the same single-key update that `markRead` makes, and nothing in the rules looks at how many keys); a very large number of unread conversations; the menus on a touch device; Safari and Firefox.

@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { NavLink, useParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { usePresence, useUsers } from '../lib/users'
-import { isUnread, listenMyDmConvos, pathToReadKey } from '../lib/db'
+import { isUnread, listenMyDmConvos, markManyRead, pathToReadKey } from '../lib/db'
+import { unreadKeys } from '../lib/unread'
+import GroupContextMenu from './GroupContextMenu'
 import { computeStatus, useTickNow } from '../lib/presence'
 import Avatar from './Avatar'
 import RoleBadge from './RoleBadge'
@@ -18,6 +20,7 @@ export default function DMsSidebar() {
   const { otherUid: activeOtherUid } = useParams()
   const [filter, setFilter] = useState('')
   const [convosByOther, setConvosByOther] = useState({})
+  const [menu, setMenu] = useState({ open: false, x: 0, y: 0, convo: null })
   const now = useTickNow()
   const presence = usePresence()
 
@@ -28,6 +31,22 @@ export default function DMsSidebar() {
 
   const me = usersById[profile?.id]
   const lastRead = me?.lastRead || {}
+
+  // Which direct messages have something new, so "Mark all read" is only offered when it would do something.
+  const unreadDmKeys = useMemo(
+    () => unreadKeys({ dmConvos: Object.values(convosByOther), lastRead }).dms,
+    [convosByOther, lastRead],
+  )
+
+  const menuKey = menu.convo ? pathToReadKey(`dms/${menu.convo.id}`) : null
+  const menuUnread = !!menu.convo && isUnread(menu.convo.lastMessageAt, lastRead[menuKey])
+  const menuItems = menu.convo ? [{
+    label: 'Mark as read',
+    icon: <CheckIcon />,
+    onClick: () => markManyRead(profile.id, [menuKey]).catch((e) => console.warn('[unread] could not mark as read:', e)),
+    disabled: !menuUnread,
+    trailing: menuUnread ? undefined : 'already read',
+  }] : []
 
   const visible = useMemo(() => {
     const f = filter.trim().toLowerCase()
@@ -54,7 +73,19 @@ export default function DMsSidebar() {
           <span className="text-[11px] font-semibold tracking-wider uppercase text-ink-dim">
             Direct messages
           </span>
-          <span className="text-[11px] text-ink-dim">{visible.length}</span>
+          <span className="flex items-center gap-2">
+            {unreadDmKeys.length > 0 && (
+              <button
+                type="button"
+                onClick={() => markManyRead(profile.id, unreadDmKeys).catch((e) => console.warn('[unread] could not mark as read:', e))}
+                aria-label="Mark all direct messages as read"
+                className="text-[11px] text-brand-text hover:underline"
+              >
+                Mark all read
+              </button>
+            )}
+            <span className="text-[11px] text-ink-dim">{visible.length}</span>
+          </span>
         </div>
 
         {visible.length === 0 && (
@@ -73,6 +104,7 @@ export default function DMsSidebar() {
             <NavLink
               key={u.id}
               to={`/dms/${u.id}`}
+              onContextMenu={convo ? (e) => { e.preventDefault(); setMenu({ open: true, x: e.clientX, y: e.clientY, convo }) } : undefined}
               className={({ isActive }) => [
                 'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm transition-colors duration-150',
                 isActive
@@ -93,8 +125,19 @@ export default function DMsSidebar() {
 
       <VoiceStatusBar />
       <UserPanel />
+      <GroupContextMenu
+        open={menu.open}
+        x={menu.x}
+        y={menu.y}
+        items={menuItems}
+        onClose={() => setMenu(m => ({ ...m, open: false }))}
+      />
     </aside>
   )
+}
+
+function CheckIcon() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
 }
 
 function PinnedItem({ to, icon, label }) {

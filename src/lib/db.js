@@ -10,7 +10,7 @@ import { watched } from './dataHealth'
 
 // The pure unread helpers live in unread.js (testable without Firebase); they are
 // re-exported here so existing imports keep working.
-import { dmConvoId, isUnread, pathToReadKey } from './unread'
+import { chunkKeys, dmConvoId, isUnread, pathToReadKey } from './unread'
 export { dmConvoId, isUnread, pathToReadKey }
 
 // Listen to all users (workspace directory)
@@ -103,6 +103,18 @@ export async function markRead(uid, containerPath) {
   await updateDoc(doc(db, 'users', uid), {
     [`lastRead.${key}`]: serverTimestamp(),
   })
+}
+
+// Mark many conversations read at once ("mark all as read"). `keys` are read keys (pathToReadKey),
+// as returned by unreadKeys. One write per few hundred, each a single update of the person's own
+// profile: only lastRead.<key> is touched, and each to the server's clock like markRead.
+export async function markManyRead(uid, keys) {
+  if (!uid) return
+  for (const piece of chunkKeys(keys)) {
+    const fields = {}
+    for (const key of piece) fields[`lastRead.${key}`] = serverTimestamp()
+    await updateDoc(doc(db, 'users', uid), fields)
+  }
 }
 
 // Listen to all DM convos the current user is in.
