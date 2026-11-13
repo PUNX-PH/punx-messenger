@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#61 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#62 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#61)
+## 2. What shipped (PRs #1–#62)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#62 — a visible Group settings button on the phone app's group screen** (section 55).
+
 **#61 — an Add member button on the phone app's group screen** (section 54).
 
 **#60 — link to a message** (section 53): a Copy link button in channels, and opening one scrolls to the message.
@@ -163,7 +165,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 358**, **Node 601** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 362**, **Node 601** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -890,3 +892,13 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** 19 new Flutter tests (the rule for who may add, in every combination including "not known yet"; who is offered; the screen showing the button to the owner, a group admin and a workspace admin and not to a plain member; the list; adding exactly that person and closing; a failure saying so in words; the empty list; settings still adding through the shared sheet) and 22 deliberate breakages: 18 caught at once, 4 survived and were closed (sorting ignoring case; the workspace-admin case, which a test missed because three screens were pumped in one test and the later ones reused the first one's state, so the test was split; the error wording; settings still adding). Re-run: all caught. `flutter analyze` clean, 358 Flutter tests pass. Only changed files were formatted.
 
 **NOT checked.** On a phone or an emulator (no Android build here, by design; no iPhone or Mac). The look of the icon in the top bar on small or large-text screens. Real Firestore (the add is the existing call). The web app is untouched by this PR (not re-checked here).
+
+## 55. A visible Group settings button on the phone app (PR #62)
+
+**Why.** Follow-up to section 54: Group settings was reachable only by pressing and holding the group on the Groups tab, which nobody finds without being told.
+
+**What.** Open a group on iPhone or Android: a **gear icon** ("Group settings") in the top bar, next to Add member for those who may add. It is shown to **everyone in the group**, as the press-and-hold menu's item always was; what can be changed inside depends on the role, as before. It opens the same `GroupSettingsScreen`. The press-and-hold menu is unchanged. Hidden until the group is known.
+
+**Checked.** 4 new Flutter tests (a plain member sees it, the owner sees it beside Add member, tapping opens the settings of *that* group, not before the group is known) and 6 deliberate breakages: 4 caught; 2 survived and are not worth a test (a different gear glyph; a commented-out blank line, which is no change). `flutter analyze` clean, 362 Flutter tests pass. A first run of the tap test failed because the settings screen reads the groups repository and the test had no Firebase; it now gives it a fake.
+
+**NOT checked.** On a phone or emulator (no Android build here; no iPhone). How the two icons fit on a narrow screen with a long group name (the title truncates; not seen).
