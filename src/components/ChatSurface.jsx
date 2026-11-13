@@ -15,6 +15,8 @@ import { firstUnreadId, needsMarkRead } from '../lib/unread'
 import { pathToReadKey } from '../lib/db'
 import { lastEditableMessage } from '../lib/editLast'
 import { copyToClipboard } from '../lib/clipboard'
+import LazySlot from './LazySlot'
+import { ForwardDialog } from '../lib/lazyParts'
 import { LINK_LOOKBACK, MESSAGE_PARAM, messageIdFromSearch, messageLink, nextLinkStep } from '../lib/messageLink'
 import ErrorBoundary from './ErrorBoundary'
 import MessageList, { PinIcon } from './MessageList'
@@ -68,6 +70,7 @@ export default function ChatSurface({
   const [searchOpen, setSearchOpen] = useState(false)
   const [jumpId, setJumpId] = useState(null)
   const [replyingTo, setReplyingTo] = useState(null)
+  const [forwarding, setForwarding] = useState(null) // the message being forwarded (its picker is open)
   const [container, setContainer] = useState(null)
   const [nowTick, setNowTick] = useState(() => Date.now())
   const pinnedRef = useRef(null)
@@ -124,6 +127,7 @@ export default function ChatSurface({
   // "replying to" chosen in one channel was still pending in the next.
   useEffect(() => {
     setReplyingTo(null)
+    setForwarding(null)
     setPinnedOpen(false)
     setSearchOpen(false)
     setJumpId(null)
@@ -418,6 +422,7 @@ export default function ChatSurface({
           onReply={readOnly ? null : setReplyingTo}
           onJumpToMessage={jumpTo}
           onCopyLink={hasLinks ? copyLink : null}
+          onForward={readOnly ? null : setForwarding}
           meUid={profile?.uid}
           scrollToId={jumpId}
           highlightId={jumpId}
@@ -425,6 +430,12 @@ export default function ChatSurface({
           onEditEnded={() => setComposerFocus((n) => n + 1)}
         />
       </ErrorBoundary>
+      )}
+
+      {forwarding && (
+        <LazySlot overlay title="The forward box couldn't be opened" onDismiss={() => setForwarding(null)}>
+          <ForwardDialog message={forwarding} currentPath={path} onClose={() => setForwarding(null)} />
+        </LazySlot>
       )}
 
       {linkNote && (

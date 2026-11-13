@@ -156,7 +156,8 @@ export function listenMyDmConvos(uid, cb) {
 //   imageFile  — optional File (resized + base64 embedded)
 //   imageURL   — optional pre-existing URL (e.g. a picked GIF) — used as-is, skips the resize/embed step
 //   replyTo    — optional message obj we're replying to; a snapshot is embedded
-export async function sendMessage(path, { text, author, imageFile = null, imageURL: directImageURL = null, imageMeta: directImageMeta = null, replyTo = null }) {
+//   forwardedFrom — optional { uid, name } of who wrote a message that is being forwarded (see forward.js)
+export async function sendMessage(path, { text, author, imageFile = null, imageURL: directImageURL = null, imageMeta: directImageMeta = null, replyTo = null, forwardedFrom = null }) {
   const trimmed = (text || '').trim()
   if (!trimmed && !imageFile && !directImageURL) return
   const colRef = collection(db, ...path.split('/'))
@@ -192,6 +193,7 @@ export async function sendMessage(path, { text, author, imageFile = null, imageU
       authorName: replyTo.author?.name || 'Unknown',
       snippet:    (replyTo.text || (replyTo.imageURL ? '[image]' : '')).slice(0, 160),
     } : null,
+    forwardedFrom: forwardedFrom ? { uid: forwardedFrom.uid ?? null, name: String(forwardedFrom.name ?? '') } : null,
     createdAt: serverTimestamp(),
     pinned: false,
   })
