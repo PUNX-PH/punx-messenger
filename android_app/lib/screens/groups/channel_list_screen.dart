@@ -21,6 +21,7 @@ import '../../utils/add_member.dart';
 import '../../utils/firestore_paths.dart';
 import 'add_member_sheet.dart';
 import 'channel_access_sheet.dart';
+import 'group_settings_screen.dart';
 
 /// Mobile equivalent of ChannelSidebar.jsx — the channel picker for a group.
 /// Unlike the desktop app (where a persistent sidebar makes GroupHome.jsx a
@@ -68,6 +69,19 @@ class ChannelListScreen extends ConsumerWidget {
               tooltip: 'Add member',
               icon: const Icon(Icons.person_add_alt_outlined),
               onPressed: () => _addMember(context, ref, group!),
+            ),
+          // The same screen as "Group settings" in the press-and-hold menu on the
+          // Groups tab, for everyone in the group (what is changeable inside it
+          // depends on the role, as it always has).
+          if (group != null)
+            IconButton(
+              tooltip: 'Group settings',
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => GroupSettingsScreen(groupId: groupId),
+                ),
+              ),
             ),
         ],
       ),
