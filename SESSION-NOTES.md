@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#46 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#47 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#46)
+## 2. What shipped (PRs #1–#47)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#47 — unread badge on the tab icon** (section 40): the browser tab's icon gets a red badge with the number of conversations with something new, the same number and the same preference as the tab title.
+
 **#46 — "Jump to first unread"** (section 39): a button at the top of a chat that takes you to the "New" line when it is scrolled out of sight above.
 
 **#45 — switching chats shows nothing of the previous one** (section 38): a conversation no longer shows the previous one's messages, or is marked read, before its own messages have loaded.
@@ -133,7 +135,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 409** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 420** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -656,3 +658,15 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 3 new tests (the rule and its edges, unmeasurable input, and the wiring), 11 deliberate breakages, all caught after one gap (the marker test was too loose). In a real browser, the real message list with 60 made-up messages and the line in the middle: on opening the button shows with the list at the bottom; clicking puts the line 16 px from the top and removes the button; scrolled above the line there is no button; back at the bottom it returns; a message arriving while reading from the line leaves the scroll position unchanged; with no line there is no button. 409 web tests and the build pass.
 
 **NOT checked.** Against live Firestore with a real unread chat (the line itself is decided in ChatSurface, section 37, and is likewise not yet seen live). The smooth scroll over a long distance: the browser pane used here was hidden, which paused smooth scrolling and delayed scroll events, so the scroll was verified with "reduce motion" on and with scroll events fired by hand; the logic is right in that setting but the animation itself was not watched. A phone, Safari/Firefox. The Flutter app has no such button.
+
+## 40. Unread badge on the tab icon (PR #47)
+
+**Why.** The tab title already carries "(3)" but a title is cut short in a crowded tab strip, and the icon is what you see. A red badge on the icon shows there is something new from another tab or window.
+
+**What.** `FaviconBadge` (`src/components/FaviconBadge.jsx`, mounted beside `TabTitleUnread` while signed in) takes the same count (`useUnreadCount`) and obeys the same preference (**Unread count in the tab title and icon**, `tabTitleCount`; the label and hint in `PreferencesModal.jsx` now say so). While the count is above zero it draws the page's own icon (`/logo-punx.png`, a 447 px square) onto a 64 px canvas with a red circle in the top-right corner holding the number ("9+" past nine; a white ring so it reads on a dark or light tab strip; the red is the theme's `--bad`), and points `<link rel="icon">` at the result. At zero, with the preference off, on a drawing failure and on sign-out it points the link back at the original, which is remembered once. The rules (`badgeLabel`, `badgeGeometry`, `rgbFromTriplet`) are in `src/lib/faviconBadge.js`, free of the DOM and tested; only `renderBadgedIcon` touches a canvas.
+
+**Also.** The new files, and `tests/chat-switch.test.mjs` from #45, had a stray UTF-8 byte-order mark (PowerShell 5.1's `Set-Content -Encoding utf8` adds one); removed. Worth remembering when converting line endings from PowerShell here: use `sed` or a script instead.
+
+**Checked.** 11 new tests (label rules and edges, the badge always inside the icon at several sizes, the two-character font, the colour parsing and its fallback, and the wiring), 18 deliberate breakages, all caught after one gap (the cancel-a-stale-drawing cleanup) was closed. In a real browser with the real component and a stubbed count: the link starts as the plain icon; counts 3, 4 and 250 each give a different badged picture; 0 restores the plain icon; switching the preference off restores it and on brings the badge back. Rendered pictures looked at: "3" and "9+" legible at 128 px. 420 web tests and the build pass.
+
+**NOT checked.** The icon in a real tab strip at 16 px (the picture at that size was too small to judge here), in Chrome, Firefox and Safari tabs (browsers differ in how quickly they redraw a changed icon, and Safari ignores some dynamic icons), a pinned tab, the installed app, and on a phone. The count itself is the existing `useUnreadCount`, which was not changed. The badge covers part of the logo by design (it must be readable at 16 px).
