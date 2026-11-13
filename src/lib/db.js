@@ -224,6 +224,26 @@ export async function sendMessage(path, { text, author, imageFile = null, imageU
   }
 }
 
+// Keep a copy of a message in the person's own private notes (see saved.js). The note's id comes
+// from the message, so saving it twice is one note: 'exists' says it was already there.
+export async function saveMessageToNotes(me, noteId, payload) {
+  const ref = doc(db, 'users', me.uid, 'notes', noteId)
+  if ((await getDoc(ref)).exists()) return 'exists'
+  await setDoc(ref, {
+    text: payload.text,
+    imageURL: payload.imageURL,
+    imageMeta: payload.imageMeta,
+    author: { uid: me.uid, name: me.name, photoURL: me.photoURL || null },
+    mentionedUids: [],
+    replyTo: null,
+    forwardedFrom: payload.forwardedFrom,
+    savedFrom: payload.savedFrom,
+    createdAt: serverTimestamp(),
+    pinned: false,
+  })
+  return 'saved'
+}
+
 // Toggle the pinned flag on a single message
 // messagePath e.g. 'dms/<convoId>/messages/<msgId>'
 export async function setMessagePinned(messagePath, pinned) {

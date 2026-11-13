@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#64 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#65 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#64)
+## 2. What shipped (PRs #1–#65)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -98,6 +98,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 **#27 — unread count in the browser tab title** (section 23).
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
+
+**#65 — saved messages: a bookmark button that keeps a copy in My Notes** (section 58).
 
 **#64 — forward a message to another conversation** (section 57).
 
@@ -169,7 +171,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 362**, **Node 655** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 362**, **Node 670** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -934,3 +936,17 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** 21 new tests and 58 deliberate breakages, all caught (6 first survived: a guard that turned out redundant and was deleted, the dialog re-enabling after a failure, which conversation is left out, the ranking, and the label's condition; closed with tests or deleted). In a real browser (the real chat with stubbed Firestore): the toolbar shows Forward; a forwarded message shows "Forwarded from Cara Diaz"; the dialog listed people, the other text channel and My Notes, and not the current channel or the voice room; the preview showed the mention as @Cara Diaz; Down then Enter ensured the DM exists, then sent to the right conversation path with the text (mention as a name), the original writer and no picture, showed "Forwarded to Cara Diaz.", and closed by itself. 655 web tests and the build pass.
 
 **NOT checked.** Real Firestore (the write is the normal message create, which the rules accept on a reading of them). Forwarding a picture in the browser (copied in code and tested, not clicked). Sending to a channel you cannot post in: the send fails and the dialog says "Couldn't forward it" and stays open, which is tested in code only. Several destinations at once; forwarding with a comment added. A phone or Safari/Firefox. The phone app neither forwards nor shows the "Forwarded from" line (it shows the text as an ordinary message).
+
+## 58. Saved messages (PR #65)
+
+**Why.** Second of three Discord/Viber-style features asked for together (forward, section 57; saved messages; then voice messages). There was no way to keep a message to come back to.
+
+**What.** Every message with text or a picture gets a **bookmark** button in its hover toolbar (after Forward), except in My Notes itself and in a read-only oversight view. Clicking it keeps a copy in **My Notes** and the icon turns into a tick saying **"Saved to My Notes"**; clicking it again says **"Already saved"**. In My Notes the copy shows **"Saved from <who wrote it>"** and, for a message that came from a **channel**, a **Go to message** link that takes you back into the app to that message (the link-following of section 53, scrolling to it and lighting it up, or telling you it is gone). The list of saved messages is My Notes (its empty text now says so).
+
+**Why notes, and not a new list.** My Notes is already private (the rules let only its owner read or write `users/{uid}/notes`), so **no rules change and nothing new is stored where others can read it**. The first idea was a list on the person's profile; that document is readable by every signed-in person, so it would have copied private-channel text into it. A saved message is one note whose id comes from the message's id (`s_<message id>`), so saving twice is still one note. DMs are saved too but have no way back (a DM's address means different things to its two people, as in section 53).
+
+**What is kept** (`src/lib/saved.js`, on the forward copy of section 57): the text and picture, who wrote it, mentions as names (a note never pings anyone), and where it came from. Not kept: reactions, pin, reply. The way back is read again on display and must be exactly `/g/<group>/c/<channel>?m=<id>`, so a note can only ever lead into this app.
+
+**Checked.** 15 new tests and 53 deliberate breakages, all caught (3 first survived: a path anchor, one field of the stored note, and the icon swap; closed with tests). In a real browser (the real chat, Firestore stubbed): the toolbar shows the bookmark; the first click wrote one note to the right id with the text (mention as a name), the original writer and the way back, and the label read "Saved to My Notes" then went back after about 1.5 seconds; the second click wrote nothing and said "Already saved"; a saved note showed "Saved from Cara Diaz" with a Go to message link whose address was exactly the in-app route, and clicking it navigated inside the app (the message was too old for the stub, so it showed the "isn't here any more" note, as designed). 670 web tests and the build pass.
+
+**NOT checked.** Against real Firestore (the write is a create in the owner's own notes, which the rules allow; the exists-check is a read of the same place). Saving a picture by clicking (copied in code and tested). Unsaving: delete the note in My Notes like any message of yours; there is no "remove bookmark" on the original. A phone or Safari/Firefox. The phone app has no bookmark button; it shows saved notes as ordinary notes.

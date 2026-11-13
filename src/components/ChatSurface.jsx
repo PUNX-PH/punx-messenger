@@ -15,6 +15,8 @@ import { firstUnreadId, needsMarkRead } from '../lib/unread'
 import { pathToReadKey } from '../lib/db'
 import { lastEditableMessage } from '../lib/editLast'
 import { copyToClipboard } from '../lib/clipboard'
+import { saveMessageToNotes } from '../lib/db'
+import { savedNoteId, savedPayload } from '../lib/saved'
 import LazySlot from './LazySlot'
 import { ForwardDialog } from '../lib/lazyParts'
 import { LINK_LOOKBACK, MESSAGE_PARAM, messageIdFromSearch, messageLink, nextLinkStep } from '../lib/messageLink'
@@ -309,6 +311,14 @@ export default function ChatSurface({
 
   // "Copy link" is offered only in channels (messageLink gives null for DMs and notes).
   const hasLinks = messageLink('https://x.example', path, 'a') !== null
+  // "Save" keeps a copy in My Notes. Not offered in My Notes itself, nor in a read-only view.
+  const inNotes = path.startsWith('users/')
+  const saveMessage = useCallback(async (m) => {
+    const id = savedNoteId(m.id)
+    const payload = savedPayload(m, usersByIdRef.current, path)
+    if (!id || !payload || !profile?.uid) return false
+    try { return await saveMessageToNotes(profile, id, payload) } catch { return false }
+  }, [path, profile])
   const copyLink = useCallback((m) => copyToClipboard(messageLink(window.location.origin, path, m.id)), [path])
 
   return (
@@ -423,6 +433,7 @@ export default function ChatSurface({
           onJumpToMessage={jumpTo}
           onCopyLink={hasLinks ? copyLink : null}
           onForward={readOnly ? null : setForwarding}
+          onSave={readOnly || inNotes ? null : saveMessage}
           meUid={profile?.uid}
           scrollToId={jumpId}
           highlightId={jumpId}
