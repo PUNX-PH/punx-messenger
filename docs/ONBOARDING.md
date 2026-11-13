@@ -50,9 +50,23 @@ The route answers `200` with `{ "joined": false, "reason": ... }` for every "no"
 
 A real failure (the commit was refused, Google was unreachable) answers `502` and **does not stamp the profile**, so the next sign-in tries again.
 
+## The people who were already here
+
+The sign-in route above only looks at the last week, so it does not touch people who signed up before it existed. They are added once, by a **developer or super admin**, from the **Team group** card at the foot of the admin page:
+
+1. **See who would be added.** Calls `POST /onboarding/add-existing-members?dry=1` (`workers/src/routes/onboarding.js`, `src/components/TeamGroupAdmin.jsx`). Nothing is written. It shows how many would be added, how many are already in, and the first names.
+2. **Add N people.** Only after that preview, and only if there is someone to add. Calls the same route without `?dry=1`.
+
+Who qualifies is the same as for a new account, with one addition: a company address (`@punx.ai`), staff and not a guest, not removed, not already stamped, and **never a bot**. Outsiders invited into single channels, bots, removed accounts and the externally allowed addresses are left out, and the preview counts each of those so nothing is silent.
+
+How it writes: first one array-union commit per 400 people onto the group's `memberUids` (people already in are left alone), then it stamps every qualifying profile with `defaultGroupJoinedAt` in commits of 200, so someone who later leaves the group is not put back if the job is run again. Each commit is atomic; the whole job is not, so if it stops part-way, run it again: what was done stays done and the rest is finished. It is safe to run twice. It refuses (413) if the workspace has 2000 accounts or more, rather than do part of the list, and answers 409 if no single trusted default group is found.
+
+The route reads the caller's role fresh from their profile on every call (never from the token), requires a company address, and only `developer` and `super_admin` get through; an admin does not, because this changes who is in a group workspace-wide. It logs who ran it and how many were added.
+
+One thing to know: this adds **everyone** who qualifies, including anyone who had deliberately left PUNX TEAM before this existed (there is no record of that, since the stamp did not exist). They are added once, and not again.
+
 ## Not done by this
 
-- **People already here.** To add everyone currently in the workspace to PUNX TEAM, that is a one-off job (an admin adding people from the group's member list, or a script run with the service account), not this route, which is deliberately limited to new accounts.
 - **Other groups.** One default group only.
 - **Rules.** Nothing in `firestore.rules` changed, and nothing needs deploying beyond the Worker (which deploys on merge to `main`).
 

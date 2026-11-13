@@ -1,4 +1,4 @@
-import { verifyAuth } from '../auth.js'
+import { AuthError, verifyAuth } from '../auth.js'
 import { documentName, firestoreCommit, firestoreGet, firestoreQuery, loadServiceAccount } from '../googleAuth.js'
 
 // A new account is added to the workspace's main group (PUNX TEAM) automatically.
@@ -125,4 +125,130 @@ export async function joinDefaultGroup(request, env) {
     },
   ])
   return Response.json({ joined: true, groupId: group.id })
+}
+
+// ---------------------------------------------------------------------------------------
+// The one-off job: put everyone who is ALREADY here into the default group.
+//
+// joinDefaultGroup above is for new accounts. People who signed up before it existed are
+// not touched by it (it only looks at the last week), so this does them, once, when a
+// developer or super admin asks for it from the admin page:
+//
+//   POST /onboarding/add-existing-members?dry=1   what WOULD happen: counts and names, nothing written
+//   POST /onboarding/add-existing-members         do it
+//
+// The same rules as for a new account decide who qualifies (a company address, staff and
+// not a guest, not removed, not already stamped), plus: never a bot. Everyone it adds is
+// stamped with defaultGroupJoinedAt, exactly as a new account is, so a person who later
+// leaves the group is not put back by running it again. It is safe to run twice: members
+// already in are left alone (an array union) and stamped people are skipped.
+//
+// It first adds all of them to the group, then stamps their profiles, in chunks (Firestore
+// limits one commit's size). Each commit is atomic; the whole job is not, so if it stops
+// part-way, run it again: what was done stays done and the rest is finished.
+// ---------------------------------------------------------------------------------------
+
+/** Who may run it. A plain admin cannot; this changes who is in a group workspace-wide. */
+export const BACKFILL_ROLES = ['developer', 'super_admin']
+
+const USER_READ_LIMIT = 2000 // more accounts than this and the job refuses rather than do part of it
+const ADD_CHUNK = 400 // uids appended per commit
+const STAMP_CHUNK = 200 // profiles stamped per commit
+const PREVIEW_NAMES = 200 // names shown in the preview
+
+/**
+ * Sorts every account into "would be added" or a named reason it is left alone. Pure.
+ * `users` are the profile documents ({ id, ...fields }); `memberUids` the group's current members.
+ */
+export function classifyMembers(users, memberUids, env) {
+  const inGroup = new Set(Array.isArray(memberUids) ? memberUids : [])
+  const skipped = { bots: 0, removed: 0, external: 0, guests: 0, otherRoles: 0, alreadyStamped: 0 }
+  const eligible = [] // everyone who qualifies, in the group or not
+  for (const u of users) {
+    if (u.type === 'bot') { skipped.bots++; continue }
+    if (u.deactivated === true) { skipped.removed++; continue }
+    if (!hasCompanyEmail(u.email, env)) { skipped.external++; continue }
+    if (u.role === 'guest') { skipped.guests++; continue }
+    if (!STAFF_ROLES.includes(u.role)) { skipped.otherRoles++; continue }
+    if (u.defaultGroupJoinedAt) { skipped.alreadyStamped++; continue }
+    eligible.push({ uid: u.id, name: typeof u.name === 'string' ? u.name : '', inGroup: inGroup.has(u.id) })
+  }
+  return {
+    eligible,
+    toAdd: eligible.filter((e) => !e.inGroup),
+    alreadyIn: eligible.filter((e) => e.inGroup),
+    skipped,
+  }
+}
+
+const chunks = (list, size) => {
+  const out = []
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size))
+  return out
+}
+
+/** POST /onboarding/add-existing-members[?dry=1] */
+export async function addExistingMembers(request, env) {
+  const caller = await verifyAuth(request, env)
+  if (!hasCompanyEmail(caller.email, env)) throw new AuthError('Not available to this account', 403)
+  const sa = loadServiceAccount(env)
+
+  // Who is asking, read fresh from the profile (never from a token claim), so removing a
+  // role takes effect at once.
+  const me = await firestoreGet(env, sa, `users/${caller.uid}`)
+  if (!me || me.deactivated === true || !BACKFILL_ROLES.includes(me.role)) {
+    throw new AuthError('Not available to this account', 403)
+  }
+
+  const group = await findDefaultGroup(env, sa)
+  if (!group) throw new AuthError('No single default group was found (see docs/ONBOARDING.md)', 409)
+
+  const users = await firestoreQuery(env, sa, { from: [{ collectionId: 'users' }], limit: USER_READ_LIMIT })
+  if (users.length >= USER_READ_LIMIT) {
+    throw new AuthError(`More than ${USER_READ_LIMIT} accounts: this job will not run part of them`, 413)
+  }
+
+  const { eligible, toAdd, alreadyIn, skipped } = classifyMembers(users, group.memberUids, env)
+  const summary = {
+    groupId: group.id,
+    groupName: group.name ?? '',
+    eligible: eligible.length,
+    toAdd: toAdd.length,
+    alreadyIn: alreadyIn.length,
+    skipped,
+  }
+
+  if (new URL(request.url).searchParams.get('dry') === '1') {
+    return Response.json({ dryRun: true, ...summary, names: toAdd.slice(0, PREVIEW_NAMES).map((e) => e.name || '(no name)') })
+  }
+
+  // 1. Everyone into the group (an array union: those already in stay as they are).
+  for (const part of chunks(toAdd, ADD_CHUNK)) {
+    await firestoreCommit(env, sa, [{
+      transform: {
+        document: documentName(env, `groups/${group.id}`),
+        fieldTransforms: [{
+          fieldPath: 'memberUids',
+          appendMissingElements: { values: part.map((e) => ({ stringValue: e.uid })) },
+        }],
+      },
+    }])
+  }
+  // 2. Stamp every account that qualified, in or not, so a person who later leaves is not
+  // put back by running this again. The profile must still exist (a deleted one is not
+  // recreated as an empty document).
+  const stamp = new Date().toISOString()
+  for (const part of chunks(eligible, STAMP_CHUNK)) {
+    await firestoreCommit(env, sa, part.map((e) => ({
+      update: {
+        name: documentName(env, `users/${e.uid}`),
+        fields: { defaultGroupJoinedAt: { timestampValue: stamp } },
+      },
+      updateMask: { fieldPaths: ['defaultGroupJoinedAt'] },
+      currentDocument: { exists: true },
+    })))
+  }
+
+  console.log(`[onboarding] ${caller.uid} added ${toAdd.length} existing member(s) to ${group.id}; stamped ${eligible.length}`)
+  return Response.json({ dryRun: false, ...summary, added: toAdd.length, stamped: eligible.length })
 }

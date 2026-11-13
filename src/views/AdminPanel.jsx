@@ -7,6 +7,7 @@ import {
 } from '../lib/users'
 import Avatar from '../components/Avatar'
 import BotsAdmin from '../components/BotsAdmin'
+import TeamGroupAdmin from '../components/TeamGroupAdmin'
 import RoleBadge from '../components/RoleBadge'
 import { MenuButton } from '../components/AppShell'
 
@@ -248,6 +249,8 @@ export default function AdminPanel() {
             Employees join groups by invitation. Guests are invited to individual channels and see
             nothing else &mdash; not even the names of the other channels in the group.
           </p>
+
+          <TeamGroupAdmin />
           </>)}
 
           <BotsAdmin />

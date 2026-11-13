@@ -11,7 +11,7 @@ import { beforeEach, describe, test } from 'node:test'
 
 import { encodeFields } from '../src/googleAuth.js'
 import worker from '../src/index.js'
-import { NEW_ACCOUNT_DAYS, STAFF_ROLES, hasCompanyEmail, isNewAccount } from '../src/routes/onboarding.js'
+import { BACKFILL_ROLES, NEW_ACCOUNT_DAYS, STAFF_ROLES, classifyMembers, hasCompanyEmail, isNewAccount } from '../src/routes/onboarding.js'
 
 // ---------- fixtures ----------
 
@@ -47,6 +47,7 @@ const env = (over = {}) => ({
 let docs      // path -> REST fields
 let commits   // every commit's writes, as sent
 let failCommit
+let failOnCommit // fail the Nth commit (1-based) only, to stop a job part-way
 let beforeCommit // a hook run as a commit arrives, to change the world under it
 
 const seed = (path, obj) => { docs.set(path, encodeFields(obj)) }
@@ -70,7 +71,7 @@ globalThis.fetch = async (input, init = {}) => {
     const { writes } = JSON.parse(init.body)
     commits.push(writes)
     beforeCommit?.()
-    if (failCommit) return json({ error: { message: 'secret detail from Google' } }, 500)
+    if (failCommit || failOnCommit === commits.length) return json({ error: { message: 'secret detail from Google' } }, 500)
     // All or nothing: check every precondition first, then apply.
     const prefix = `projects/${MSG}/databases/(default)/documents/`
     for (const w of writes) {
@@ -98,9 +99,11 @@ globalThis.fetch = async (input, init = {}) => {
 
   const q = /\/projects\/([^/]+)\/databases\/\(default\)\/documents:runQuery$/.exec(url)
   if (q) {
-    const collection = JSON.parse(init.body).structuredQuery.from[0].collectionId
+    const sq = JSON.parse(init.body).structuredQuery
+    const collection = sq.from[0].collectionId
     const rows = [...docs.entries()]
       .filter(([k]) => k.startsWith(`${collection}/`) && k.split('/').length === 2)
+      .slice(0, sq.limit ?? Infinity) // as Firestore does: at most `limit` documents come back
       .map(([k, fields]) => ({ document: { name: `x/${k.split('/').pop()}`, fields } }))
     return json(rows.length ? rows : [{}])
   }
@@ -124,7 +127,7 @@ const members = (id = 'g1') => read(`groups/${id}`).memberUids
 const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString()
 
 beforeEach(() => {
-  docs = new Map(); commits = []; failCommit = false; beforeCommit = null; kv.clear()
+  docs = new Map(); commits = []; failCommit = false; failOnCommit = null; beforeCommit = null; kv.clear()
   seed('users/boss', { name: 'Boss', role: 'super_admin' })
   seed('groups/g1', { name: 'PUNX TEAM', ownerUid: 'boss', adminUids: ['boss'], memberUids: ['boss', 'ana'] })
   seed('users/new1', { name: 'New', email: 'new@punx.ai', role: 'employee', createdAt: iso(60_000) })
@@ -409,5 +412,220 @@ describe('when the write fails', () => {
     const res = await call()
     assert.equal(res.status, 502, 'the commit was refused')
     assert.deepEqual(members(), ['boss', 'ana'], 'the group was not changed either')
+  })
+})
+
+// ---------- the one-off job: everyone already here ----------
+
+describe('adding the existing members', () => {
+  const run = ({ dry = false, uid = 'boss', email = 'boss@punx.ai', method = 'POST', auth, over } = {}) =>
+    worker.fetch(new Request(`https://worker.test/onboarding/add-existing-members${dry ? '?dry=1' : ''}`, {
+      method,
+      headers: (auth ?? `Bearer ${token({ uid, email })}`) ? { Authorization: auth ?? `Bearer ${token({ uid, email })}`, Origin: 'https://plexus.punxai.online' } : {},
+    }), env(over))
+
+  const person = (name, email, role = 'employee', extra = {}) => ({ name, email, role, createdAt: iso(90 * DAY), ...extra })
+
+  beforeEach(() => {
+    seed('users/boss', person('Boss', 'boss@punx.ai', 'super_admin'))
+    seed('users/ana', person('Ana', 'ana@punx.ai'))                       // already in the group
+    seed('users/ben', person('Ben', 'ben@punx.ai'))
+    seed('users/cara', person('Cara', 'cara@punx.ai', 'admin'))
+    seed('users/dev1', person('Dev One', 'dev@punx.ai', 'developer'))
+    seed('users/sup', person('Sup', 'sup@punx.ai', 'super_admin'))
+    seed('users/guest1', person('Guest', 'guest@gmail.com', 'guest'))       // an outsider invited into one channel
+    seed('users/guest2', person('Guest Two', 'guest2@punx.ai', 'guest'))     // a guest with a company address
+    seed('users/bot1', { name: 'A bot', email: null, role: 'employee', type: 'bot' })
+    seed('users/gone', person('Gone', 'gone@punx.ai', 'employee', { deactivated: true }))
+    seed('users/ext', person('External', 'ext@gmail.com'))
+    seed('users/marked', person('Marked', 'marked@punx.ai', 'employee', { defaultGroupJoinedAt: iso(5 * DAY) }))
+    seed('users/odd', person('Odd', 'odd@punx.ai', 'overlord'))
+    // new1 (from the outer beforeEach) is a recent employee not in the group: it qualifies too.
+  })
+
+  const stamped = (uid) => !!read(`users/${uid}`)?.defaultGroupJoinedAt
+
+  describe('who may run it', () => {
+    test('a developer or a super admin', async () => {
+      assert.equal((await run({ dry: true })).status, 200)
+      seed('users/dev1', person('Dev One', 'dev@punx.ai', 'developer'))
+      assert.equal((await run({ dry: true, uid: 'dev1', email: 'dev@punx.ai' })).status, 200)
+    })
+
+    test('nobody else: an admin, an employee, a guest, a removed account, or a stranger', async () => {
+      seed('users/boss2', person('Boss Two', 'boss2@punx.ai', 'super_admin', { deactivated: true }))
+      for (const [uid, email] of [['cara', 'cara@punx.ai'], ['ben', 'ben@punx.ai'], ['guest1', 'guest@gmail.com'], ['boss2', 'boss2@punx.ai'], ['nobody', 'nobody@punx.ai']]) {
+        const res = await run({ uid, email })
+        assert.equal(res.status, 403, uid)
+      }
+      assert.equal(commits.length, 0)
+      assert.deepEqual(members(), ['boss', 'ana'])
+    })
+
+    test('and only from a company address, even for a super admin', async () => {
+      seed('users/boss', person('Boss', 'boss@gmail.com', 'super_admin'))
+      const res = await run({ email: 'boss@gmail.com', over: { ALLOWED_EXTRA_EMAILS: 'boss@gmail.com' } })
+      assert.equal(res.status, 403)
+      assert.equal(commits.length, 0)
+    })
+
+    test('needs a signed-in messenger user, and only POST is served', async () => {
+      assert.equal((await run({ auth: '' })).status, 401)
+      assert.equal((await run({ auth: 'Bearer not.a.token' })).status, 401)
+      assert.equal((await run({ method: 'GET' })).status, 404)
+      assert.equal(commits.length, 0)
+    })
+
+    test('the role is read from the profile at the time of asking, not from the token', async () => {
+      assert.equal((await run({ dry: true })).status, 200)
+      seed('users/boss', person('Boss', 'boss@punx.ai', 'employee')) // demoted between two requests
+      assert.equal((await run({ dry: true })).status, 403)
+    })
+  })
+
+  describe('the preview (?dry=1)', () => {
+    test('says what would happen and writes nothing', async () => {
+      const res = await run({ dry: true })
+      assert.equal(res.status, 200)
+      const body = await res.json()
+      assert.equal(body.dryRun, true)
+      assert.equal(body.groupId, 'g1')
+      assert.equal(body.groupName, 'PUNX TEAM')
+      assert.equal(body.eligible, 7, 'boss, ana, ben, cara, dev1, sup and new1')
+      assert.equal(body.toAdd, 5, 'ben, cara, dev1, sup, new1')
+      assert.equal(body.alreadyIn, 2, 'boss and ana')
+      assert.deepEqual(body.skipped, { bots: 1, removed: 1, external: 2, guests: 1, otherRoles: 1, alreadyStamped: 1 })
+      assert.deepEqual([...body.names].sort(), ['Ben', 'Cara', 'Dev One', 'New', 'Sup'])
+      assert.equal(commits.length, 0, 'no write')
+      assert.deepEqual(members(), ['boss', 'ana'])
+      assert.equal(stamped('ben'), false)
+    })
+
+    test('names the people, never their addresses or ids', async () => {
+      const text = JSON.stringify(await (await run({ dry: true })).json())
+      for (const secret of ['ben@punx.ai', 'cara@punx.ai', 'guest@gmail.com', 'guest2@punx.ai', 'dev1', 'bot1']) assert.ok(!text.includes(secret), secret)
+    })
+
+    test('shows at most 200 names however many there are', async () => {
+      for (let i = 0; i < 250; i++) seed(`users/p${i}`, person(`P${i}`, `p${i}@punx.ai`))
+      const body = await (await run({ dry: true })).json()
+      assert.equal(body.toAdd, 255)
+      assert.equal(body.names.length, 200)
+    })
+  })
+
+  describe('doing it', () => {
+    test('adds every qualifying account that is not in yet, and leaves the members as they were', async () => {
+      const res = await run()
+      assert.equal(res.status, 200)
+      const body = await res.json()
+      assert.equal(body.dryRun, false)
+      assert.equal(body.added, 5)
+      assert.equal(body.stamped, 7)
+      assert.deepEqual(members().slice(0, 2), ['boss', 'ana'], 'those already in keep their place')
+      assert.deepEqual([...members()].sort(), ['ana', 'ben', 'boss', 'cara', 'dev1', 'new1', 'sup'])
+    })
+
+    test('stamps everyone who qualified, in the group already or not', async () => {
+      await run()
+      for (const uid of ['boss', 'ana', 'ben', 'cara', 'dev1', 'sup', 'new1']) assert.equal(stamped(uid), true, uid)
+    })
+
+    test('never adds or stamps a guest, a bot, a removed account, an outside address, an unknown role, or someone already stamped', async () => {
+      const before = Object.fromEntries(['guest1', 'guest2', 'bot1', 'gone', 'ext', 'odd', 'marked'].map((u) => [u, JSON.stringify(read(`users/${u}`))]))
+      await run()
+      for (const uid of Object.keys(before)) {
+        assert.ok(!members().includes(uid), `${uid} not added`)
+        assert.equal(JSON.stringify(read(`users/${uid}`)), before[uid], `${uid} not touched`)
+      }
+    })
+
+    test('touches only the member list on the group and only the stamp on each profile', async () => {
+      const group = read('groups/g1')
+      const ben = read('users/ben')
+      await run()
+      assert.deepEqual({ ...read('groups/g1'), memberUids: undefined }, { ...group, memberUids: undefined })
+      assert.deepEqual({ ...read('users/ben'), defaultGroupJoinedAt: undefined }, { ...ben, defaultGroupJoinedAt: undefined })
+      const writes = commits.flat()
+      // Only people who actually need adding are sent: not those already in, not anyone left out.
+      const appended = writes.filter((w) => w.transform)
+        .flatMap((w) => w.transform.fieldTransforms[0].appendMissingElements.values.map((v) => v.stringValue))
+      assert.deepEqual([...appended].sort(), ['ben', 'cara', 'dev1', 'new1', 'sup'])
+      assert.ok(writes.filter((w) => w.transform).every((w) => w.transform.fieldTransforms.length === 1 && w.transform.fieldTransforms[0].fieldPath === 'memberUids'))
+      assert.ok(writes.filter((w) => w.update).every((w) => w.updateMask.fieldPaths.length === 1 && w.updateMask.fieldPaths[0] === 'defaultGroupJoinedAt' && w.currentDocument.exists === true))
+    })
+
+    test('running it again changes nothing', async () => {
+      await run()
+      const done = commits.length
+      const again = await (await run()).json()
+      assert.equal(again.added, 0)
+      assert.equal(again.stamped, 0)
+      assert.equal(commits.length, done, 'no further write')
+    })
+
+    test('a person who left the group since is not put back by a second run', async () => {
+      await run()
+      seed('groups/g1', { name: 'PUNX TEAM', ownerUid: 'boss', adminUids: ['boss'], memberUids: ['boss', 'ana'] }) // ben, cara... all left
+      const again = await (await run()).json()
+      assert.equal(again.added, 0)
+      assert.deepEqual(members(), ['boss', 'ana'])
+    })
+
+    test('the caller need not be in the group', async () => {
+      seed('groups/g1', { name: 'PUNX TEAM', ownerUid: 'cara', adminUids: ['cara'], memberUids: ['cara'] })
+      seed('users/cara', person('Cara', 'cara@punx.ai', 'developer'))
+      const res = await run()
+      assert.equal(res.status, 200)
+      assert.ok(members().includes('boss'))
+    })
+  })
+
+  describe('which group, and how much', () => {
+    test('with no single trusted default group it does nothing and says so', async () => {
+      seed('groups/g2', { name: 'punx team', ownerUid: 'boss', adminUids: ['boss'], memberUids: ['boss'] })
+      const res = await run()
+      assert.equal(res.status, 409)
+      assert.match((await res.json()).error, /default group/)
+      assert.equal(commits.length, 0)
+    })
+
+    test('a very large workspace is split into commits of a safe size', async () => {
+      for (let i = 0; i < 450; i++) seed(`users/q${i}`, person(`Q${i}`, `q${i}@punx.ai`))
+      const body = await (await run()).json()
+      assert.equal(body.added, 455)
+      const adds = commits.filter((c) => c[0].transform)
+      const stamps = commits.filter((c) => c[0].update)
+      assert.ok(adds.length >= 2)
+      assert.ok(adds.every((c) => c.length === 1 && c[0].transform.fieldTransforms[0].appendMissingElements.values.length <= 400))
+      assert.ok(stamps.length >= 3)
+      assert.ok(stamps.every((c) => c.length <= 200))
+      assert.equal(members().length, 2 + 455)
+      assert.equal(stamped('q449'), true)
+    })
+
+    test('too many accounts to be sure of the whole list and it refuses rather than do part', async () => {
+      for (let i = 0; i < 2000; i++) seed(`users/z${i}`, person(`Z${i}`, `z${i}@punx.ai`))
+      const res = await run()
+      assert.equal(res.status, 413)
+      assert.equal(commits.length, 0)
+    })
+  })
+
+  describe('when it stops part-way', () => {
+    test('what was done stays done, the profile stamps are not half-applied, and running it again finishes', async () => {
+      failOnCommit = 2 // the group commit (1) works; the first stamp commit (2) fails
+      const res = await run()
+      assert.equal(res.status, 502)
+      assert.ok(!JSON.stringify(await res.json()).includes('secret detail'))
+      assert.ok(members().includes('ben'), 'the group was updated')
+      assert.equal(stamped('ben'), false, 'no profile stamped yet')
+
+      failOnCommit = null
+      const again = await (await run()).json()
+      assert.equal(again.added, 0, 'those already added are not added twice')
+      assert.equal(again.stamped, 7)
+      assert.equal(stamped('ben'), true)
+    })
   })
 })
