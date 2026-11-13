@@ -6,6 +6,7 @@ import { dmConvoId, ensureDmConvo } from '../lib/db'
 import ChatSurface from '../components/ChatSurface'
 import Loading from '../components/Loading'
 import CallButtons from '../components/calls/CallButtons'
+import { statusOf } from '../lib/status'
 
 export default function DMConvo() {
   const { otherUid } = useParams()
@@ -50,6 +51,7 @@ export default function DMConvo() {
     <ChatSurface
       title={other.name}
       icon="@"
+      subtitle={statusOf(other)?.text}
       path={path}
       canPin
       composerPlaceholder={`Message @${other.name}`}

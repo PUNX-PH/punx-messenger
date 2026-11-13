@@ -11,6 +11,7 @@
 //                       dialogs, shown on demand
 //   CalendarPanel       the DTR calendar popup, opened from the toolbox
 //   ShortcutsHelp       the keyboard shortcuts sheet, opened with "?"
+//   StatusEditor        the "set a status" dialog, opened from the bottom-left panel
 import { lazyWithPreload, preloadWhenIdle } from './lazy'
 
 export const AdminPanel = lazyWithPreload(() => import('../views/AdminPanel'))
@@ -23,6 +24,7 @@ export const PreferencesModal = lazyWithPreload(() => import('../components/Pref
 export const QuickSwitcher = lazyWithPreload(() => import('../components/QuickSwitcher'))
 export const CalendarPanel = lazyWithPreload(() => import('../components/CalendarPanel'))
 export const ShortcutsHelp = lazyWithPreload(() => import('../components/ShortcutsHelp'))
+export const StatusEditor = lazyWithPreload(() => import('../components/StatusEditor'))
 
 /**
  * Warms up what nearly everyone ends up using, once the app is up. The admin panel

@@ -5,6 +5,7 @@ import { usePresence, useUsers } from '../lib/users'
 import { isUnread, listenMyDmConvos, markManyRead, pathToReadKey, toggleMuteChat } from '../lib/db'
 import { mutedChatsOf, muteLabel } from '../lib/muted'
 import { BellOffIcon, BellOnIcon } from './BellIcons'
+import { statusOf } from '../lib/status'
 import { unreadKeys } from '../lib/unread'
 import GroupContextMenu from './GroupContextMenu'
 import { computeStatus, useTickNow } from '../lib/presence'
@@ -106,6 +107,7 @@ export default function DMsSidebar() {
         {visible.map(u => {
           const convo = convosByOther[u.id]
           const isActive = u.id === activeOtherUid
+          const st = statusOf(u, now)
           const muted = !!convo && mutedChats.has(pathToReadKey(`dms/${convo.id}`))
           // A muted conversation is quiet: no dot, no bold, dimmed. It still opens as usual.
           const unread = !muted && !isActive && convo
@@ -128,7 +130,10 @@ export default function DMsSidebar() {
               ].join(' ')}
             >
               <Avatar name={u.name} src={u.photoURL} size={28} status={computeStatus(presence[u.id], now)} />
-              <span className="truncate flex-1">{u.name}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block truncate">{u.name}</span>
+                {st && <span className="block text-[11px] font-normal text-ink-dim truncate" title={st.text}>{st.text}</span>}
+              </span>
               {unread && <span className="w-2 h-2 rounded-full bg-bad shrink-0" />}
               <RoleBadge role={u.role} size="xs" />
             </NavLink>
