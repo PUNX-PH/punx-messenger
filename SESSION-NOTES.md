@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#48 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#49 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#48)
+## 2. What shipped (PRs #1–#49)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#49 — the admin page no longer explains the developer role** (section 42): its role summary now says only that developers have dev tools.
+
 **#48 — department filter on the calendar** (section 41): a dropdown under the calendar narrows who is shown on leave to one department; holidays are never filtered.
 
 **#47 — unread badge on the tab icon** (section 40): the browser tab's icon gets a red badge with the number of conversations with something new, the same number and the same preference as the tab title.
@@ -137,7 +139,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 440** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 444** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -682,3 +684,15 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 20 new tests (ordering and tie-breaks, trimming and junk names, a list or text instead of the object, "No department" in each of its forms including an inherited-looking id like `toString` and a blank id in the list, exact matching only, the grid and list sharing one filtered result, remembering and clearing, storage that throws or holds junk, and guards on the wiring), 23 deliberate breakages, all caught after three gaps were closed (a blank id, a list instead of an object, and one redundant check removed). In a real browser, the real panel with made-up leave across four departments (one with nobody): options sorted with "No department" last; the 16th went 4 → 2 (Creatives) → a plain dot (No department) → nothing (HR) → 4 again; the holiday dot and the holiday in the day list stayed under every filter; the choice was stored and cleared; a reload kept "Creatives"; a stale saved id fell back to "All departments". All web tests and the build pass.
 
 **NOT checked.** Real department names and ids from the DTR (the Worker returns whatever its `departments` collection holds, and a department with the same name twice would appear twice), the signed-in messenger, a phone-width screen, Safari/Firefox. The month-end counts per department are not shown in the dropdown. Nothing was done to the Flutter app, which has no calendar.
+
+## 42. The admin page says only that developers have dev tools (PR #49)
+
+**Why.** The role summary at the foot of the admin page ("Hierarchy:") spelled out what the developer role is: that it holds everything a super admin does, that groups a developer owns are invisible to super admins unless they are added, and that only a developer can grant or revoke the role. That is more than most people who can open the page should be told, and it describes how to find the one account that sits above the admins. Asked to hide it and say only that developers have dev tools.
+
+**What.** `src/views/AdminPanel.jsx`: the paragraph now begins "Developers have dev tools." and goes on, unchanged in meaning, with super admins, admins, employees and guests. Nothing about what the role can see, hide or grant.
+
+**What was deliberately left.** The behaviour (the rules in `firestore.rules`, `outsideDeveloperGroup`, who may grant the role) is unchanged. Other app text that only appears when someone tries to change a developer's account still names developers, because it is an error message for that action: "Only a developer can grant or revoke the developer role.", "Only a developer can remove or restore a developer account.", the tooltips on the locked role and remove controls, and the "Developers" count tile in the admin page's stats. `docs/ROLES.md` and code comments are internal and still describe the role fully. If those messages should be softened too, that is a small follow-up.
+
+**Checked.** 4 new tests (the paragraph exists and says developers have dev tools; a list of phrases that must not appear in it; the rest of the summary is intact; developers are named exactly once in it), failing as they should against the old paragraph and against one with a leak added back. All web tests and the build pass.
+
+**NOT checked.** The page in a browser (it needs an admin sign-in; the change is a static paragraph of text in JSX, and the build compiles it). The phone app has no such paragraph.
