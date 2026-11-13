@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#43 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#44 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#43)
+## 2. What shipped (PRs #1–#44)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#44 — the "New" line takes your read time when you open the chat** (section 37): fixes the line going missing on a slow connection.
+
 **#43 — a "New" line in chats** (section 37): opening a conversation with unread messages draws a red "New" line above the first one you had not read, and leaves it there while you read.
 
 **#42 — leave count on busy days** (section 36): on the calendar grid a day with two or more people on leave shows the number ("9+" past nine) in place of the blue dot; one person keeps the plain dot.
@@ -127,7 +129,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 293**, **Node 400** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 293**, **Node 401** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 47, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -628,3 +630,5 @@ The first build went to TestFlight and was tried on a phone. Two things came bac
 **Checked.** 11 new tests (where the line goes and the cases above, the layout with and without it, a new day, and guards on the wiring), 15 deliberate breakages, all caught after three gaps were closed (one redundant guard removed, one loose wiring test tightened). In a real browser, the real message list with made-up messages: the "New" separator sits between the last read message and the first unread, and an unread author's run is split there; with no unread there is no separator. All web tests and the build pass.
 
 **NOT checked.** The decision inside ChatSurface against live Firestore (it is covered by source-shape tests, since the component needs the live listener; not exercised in a browser here). Sign-in, a phone, Safari/Firefox. A conversation reopened while the tab is in the background. The Flutter app has no such line.
+
+**Fix in #44 (found on a second look the day after).** #43 read your last-read time when the first batch of messages arrived. But a chat is marked read 400 ms after you open it whether or not its messages have loaded (the mark-read effect runs on the previous conversation's messages until the new ones arrive), so on any connection where the first batch takes longer than that, the time read was already "just now" and the line silently never appeared. The time is now taken at the moment of opening (the per-conversation reset effect in `ChatSurface.jsx`, which runs before the mark-read effect) and used when the batch arrives; if the user directory had not loaded by then, the current time is used as a fallback (only ever later, so the line can be late but never early). 1 new test (the capture is set up before the mark-read effect and the captured time wins), 5 breakages all caught. Still **not exercised against live Firestore.**
