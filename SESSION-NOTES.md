@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#56 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#57 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#56)
+## 2. What shipped (PRs #1–#57)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,8 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#57 — a custom status** (section 50): a short line next to your name ("On leave"), with a choice of how long it stays.
+
 **#56 — mute one channel or DM** (section 49): right-click it; it stops counting and stops dotting, and a muted DM stops pinging.
 
 **#55 — mark as read, for one DM, all DMs, or everything** (section 48).
@@ -153,7 +155,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 339**, **Node 525** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 339**, **Node 552** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -806,3 +808,21 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** 18 new tests and 43 deliberate breakages, all caught on the first run. In a real browser with the real channel list and DM list and a live stubbed profile: an ordinary member right-clicking a text channel gets exactly "Mute channel"; clicking wrote the right key, and the row dimmed with no dot or bold and the title "(muted)"; the menu then said "Unmute channel" and unmuting brought the dot and bold back; a member has no menu on a voice channel; a DM's menu offered "Mark as read" and "Mute conversation", muting dimmed it and removed its dot, and the header's "Mark all read" disappeared because nothing dotted was left; as a group manager a text channel's menu was Mute, Manage access, Delete, and a voice channel's was Manage access and Delete only. 525 web tests and the build pass.
 
 **NOT checked.** Against real Firestore (the write, and that the rules accept it: they do on a reading of them, tested). That a muted DM really stays silent in a browser with notifications granted. The menus on a touch device. Safari and Firefox.
+
+## 50. A custom status (PR #57)
+
+**Why.** There was no way to say "on leave" or "in a meeting" next to your name. Last of four quality-of-life changes asked for together (shortcuts #54, mark as read #55, mute one chat #56).
+
+**What.** Click your name in the bottom-left panel (or **Set a status** in its gear menu). A dialog takes a line of text (60 characters), offers five ready-made ones (In a meeting, On leave, Out sick, Working remotely, Heads down), and **Clear after**: Today (the default, to the end of your own day), 1 hour, 4 hours, 7 days, or Don't clear. Saving shows it in four places: under your name in your own panel (in place of your role), under each person's name in the **member list** and in the **DM list**, and as the **DM header's subtitle**. Opening the dialog again pre-fills it and offers **Clear status**. The dialog is its own lazily loaded chunk. The phone app does not have it.
+
+**How it is stored.** `status: { text, until }` on the person's own profile (`setMyStatus` in `src/lib/db.js`; `deleteField()` to clear); `until` is a time in milliseconds or null. **No rules change**: a person may change any field of their own profile but the protected ones, and a test reads the real rules to show `status` is not among them. **Expiry is decided where it is shown** (`statusOf` in `src/lib/status.js`): a status whose time has passed is simply not displayed, so nothing has to run to clear it.
+
+**Other people's data is not trusted.** The rules let a person write anything into their own profile, so `statusOf` cleans what it reads from anyone: text only, one line, control characters and text-direction marks removed, cut at 60 characters (an emoji counts as one and is never split), a wrong type or an unusable end time shows nothing or no end. It is always shown as React text, never as markup. Checked with a 5,000-character status and a right-to-left override written straight into a profile.
+
+**A bug the tests could not have found, found in the browser.** The member list builds each row as the user plus a field named `status` for the online/away dot, which **overwrote the profile's own `status`**, so no status ever showed there. Fixed by carrying the written one as `customStatus`, taken from the user, not the row; the exact bug is now in the breakage list and is caught.
+
+**Also:** while writing the tests, the file-writing tool turned my `\u202E`-style escapes into the real invisible direction characters inside the source. They were replaced by visible escapes (13 of them, in `status.js` and its test), and a test now fails if any raw invisible or direction character appears in the status code or its tests, so this cannot creep back. Worth remembering when writing such characters through any tool.
+
+**Checked.** 27 new tests and 58 deliberate breakages, all caught (after the escapes were fixed, three breakages that had not applied were re-run and caught; a redundant `Array.isArray` was deleted rather than tested). In a real browser (the real DM list, member list and your panel, with a live stubbed profile): another person's status shows in both lists; an expired one, a malformed one and a 5,000-character one (cut to 60, no direction characters left in the page) behave; clicking your name opens the dialog lazily with Save disabled while empty, no Clear button, "Today" chosen and the 60-character limit; picking a preset and "1 hour" and saving wrote exactly that text with an end time 60 minutes out, closed the dialog, and showed it on your panel and your member row; reopening pre-filled it and offered Clear; clearing wrote a delete and everything went back. 552 web tests and the build pass.
+
+**NOT checked.** Against real Firestore (the write, and that the rules accept it: they do on a reading of them, tested). The DM header's subtitle in the real chat view (wired and source-checked, not seen). The dialog on a phone-width screen, Safari and Firefox. A status expiring while the screen is open: it disappears the next time that part of the screen redraws (presence redraws it every few seconds on most screens), which was not timed.

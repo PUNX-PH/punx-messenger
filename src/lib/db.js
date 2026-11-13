@@ -11,6 +11,7 @@ import { watched } from './dataHealth'
 // The pure unread helpers live in unread.js (testable without Firebase); they are
 // re-exported here so existing imports keep working.
 import { chunkKeys, dmConvoId, isUnread, pathToReadKey } from './unread'
+import { cleanStatusText } from './status'
 export { dmConvoId, isUnread, pathToReadKey }
 
 // Listen to all users (workspace directory)
@@ -123,6 +124,15 @@ export async function markManyRead(uid, keys) {
 export async function toggleMuteChat(uid, key, mute) {
   if (!uid || !key) return
   await updateDoc(doc(db, 'users', uid), { mutedChats: mute ? arrayUnion(key) : arrayRemove(key) })
+}
+
+// Set or clear your own status (see lib/status.js): `null` clears it. The text is cleaned again
+// here, so only a short clean line is ever written, whatever called this.
+export async function setMyStatus(uid, status) {
+  if (!uid) return
+  const text = cleanStatusText(status?.text)
+  const until = typeof status?.until === 'number' && Number.isFinite(status.until) ? status.until : null
+  await updateDoc(doc(db, 'users', uid), { status: text ? { text, until } : deleteField() })
 }
 
 // Listen to all DM convos the current user is in.

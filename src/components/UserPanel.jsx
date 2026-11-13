@@ -12,7 +12,8 @@ import { isEnabled as sfxEnabled, play as playSfx, setEnabled as setSfxEnabled }
 import GroupContextMenu from './GroupContextMenu'
 import VoiceSettingsPopover from './voice/VoiceSettingsPopover'
 import LazySlot from './LazySlot'
-import { PreferencesModal } from '../lib/lazyParts'
+import { PreferencesModal, StatusEditor } from '../lib/lazyParts'
+import { statusOf } from '../lib/status'
 import { OPEN_EVENT } from '../lib/quickSwitch'
 
 // Compact, Discord-style bottom bar: avatar + name/role, then whatever
@@ -31,6 +32,7 @@ export default function UserPanel() {
   const [menu, setMenu] = useState({ open: false, x: 0, y: 0 })
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false)
   const [prefsOpen, setPrefsOpen] = useState(false)
+  const [statusOpen, setStatusOpen] = useState(false)
   // Mirrors the class already on <html>, which the inline script in
   // index.html may have set before React ever mounted.
   const [light, setLightState] = useState(() => isLight())
@@ -41,10 +43,13 @@ export default function UserPanel() {
   // Presence from its own channel; `me` (a one-time read at sign-in, until the live
   // list arrives) is only the fallback for the first moments.
   const status = computeStatus(presence[profile?.id] || me, now)
+  // What you have written next to your name (not the green/grey dot, which is `status` above).
+  const myStatus = statusOf(me, now)
 
   const openMenu = (e) => setMenu({ open: true, x: e.clientX, y: e.clientY })
 
   const items = [
+    { label: myStatus ? 'Change your status' : 'Set a status', icon: <SmileIcon />, onClick: () => setStatusOpen(true) },
     ...(activeChannel ? [
       { label: 'Voice Settings', icon: <GearIcon />, onClick: () => setVoiceSettingsOpen(true) },
       { separator: true },
@@ -91,12 +96,17 @@ export default function UserPanel() {
   return (
     <div className="h-14 bg-bg-deepest border-t border-line-subtle px-2 flex items-center gap-1.5 shrink-0">
       <Avatar name={profile?.name} src={profile?.photoURL} size={32} status={status} ringColor="border-bg-deepest" />
-      <div className="flex-1 min-w-0">
+      <button
+        type="button"
+        onClick={() => setStatusOpen(true)}
+        title={myStatus ? `Status: ${myStatus.text}. Click to change it.` : 'Set a status'}
+        className="flex-1 min-w-0 text-left rounded hover:bg-bg-hover -mx-1 px-1"
+      >
         <div className="text-sm font-medium truncate">{profile?.name}</div>
         <div className="text-xs text-ink-dim truncate">
-          {activeChannel ? 'In voice' : roleLabel(profile?.role)}
+          {activeChannel ? 'In voice' : myStatus ? myStatus.text : roleLabel(profile?.role)}
         </div>
-      </div>
+      </button>
 
       {activeChannel && (
         <>
@@ -122,6 +132,11 @@ export default function UserPanel() {
           <PreferencesModal open onClose={() => setPrefsOpen(false)} />
         </LazySlot>
       )}
+      {statusOpen && (
+        <LazySlot overlay title="The status box couldn't be opened" onDismiss={() => setStatusOpen(false)}>
+          <StatusEditor open onClose={() => setStatusOpen(false)} current={me?.status} />
+        </LazySlot>
+      )}
     </div>
   )
 }
@@ -143,6 +158,10 @@ const FlatIconButton = forwardRef(function FlatIconButton({ onClick, active, lab
     </button>
   )
 })
+
+function SmileIcon() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+}
 
 function GearIcon() {
   return (

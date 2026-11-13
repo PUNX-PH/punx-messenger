@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth'
 import { usePresence, useUsers } from '../lib/users'
 import { computeStatus, useTickNow } from '../lib/presence'
 import Avatar from './Avatar'
+import { statusOf } from '../lib/status'
 
 /**
  * Right-hand member list for a group channel.
@@ -29,7 +30,8 @@ export default function MembersPanel({ group, open }) {
       .filter(u => memberSet.has(u.id))
       .map(u => ({
         ...u,
-        status: computeStatus(presence[u.id], now),
+        status: computeStatus(presence[u.id], now), // the online/away dot (this REPLACES a profile's own `status`)
+        customStatus: statusOf(u, now), // what they wrote next to their name, kept under its own name for that reason
         roleTier: group.ownerUid === u.id ? 0 : adminSet.has(u.id) ? 1 : 2,
       }))
       .sort((a, b) => {
@@ -85,11 +87,15 @@ function SectionLabel({ children, className = '' }) {
 
 function MemberRow({ m, meUid, dim }) {
   const isMe = m.id === meUid
+  const st = m.customStatus
   const inner = (
     <>
       <Avatar name={m.name} src={m.photoURL} size={28} status={m.status} ringColor="border-bg-dark" />
-      <span className="text-sm truncate flex-1 text-ink">
-        {m.name} {isMe && <span className="text-[10px] text-ink-dim">(you)</span>}
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm truncate text-ink">
+          {m.name} {isMe && <span className="text-[10px] text-ink-dim">(you)</span>}
+        </span>
+        {st && <span className="block text-[11px] text-ink-dim truncate" title={st.text}>{st.text}</span>}
       </span>
       {m.roleTier === 0 && (
         <span className="text-[9px] uppercase tracking-wider text-warn font-semibold shrink-0">Owner</span>
