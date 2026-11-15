@@ -29,7 +29,7 @@ const original = {
 
 test('the text and who wrote it are copied, nothing else of the original', () => {
   const p = forwardPayload(original, users)
-  assert.deepEqual(Object.keys(p).sort(), ['forwardedFrom', 'imageMeta', 'imageURL', 'text'])
+  assert.deepEqual(Object.keys(p).sort(), ['audio', 'forwardedFrom', 'imageMeta', 'imageURL', 'text'])
   assert.equal(p.text, 'see you at 3, @Me Myself')
   assert.deepEqual(p.forwardedFrom, { uid: 'u1', name: 'Ana Reyes' })
   assert.equal(p.imageURL, null)
@@ -155,7 +155,7 @@ test('the picker offers people, text channels and notes, not voice rooms, and no
 
 test('sending stores who wrote it, and a normal message stores none', () => {
   const d = read('src/lib/db.js')
-  assert.ok(d.includes('replyTo = null, forwardedFrom = null }) {'))
+  assert.ok(d.includes('replyTo = null, forwardedFrom = null, audio = null }) {'))
   assert.ok(d.includes("forwardedFrom: forwardedFrom ? { uid: forwardedFrom.uid ?? null, name: String(forwardedFrom.name ?? '') } : null,"))
 })
 

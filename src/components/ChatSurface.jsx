@@ -231,8 +231,8 @@ export default function ChatSurface({
     return () => window.removeEventListener('mousedown', onClick)
   }, [pinnedOpen])
 
-  const onSend = async ({ text, imageFile, imageURL, imageMeta }) => {
-    await sendMessage(path, { text, imageFile, imageURL, imageMeta, author: profile, replyTo: replyingTo })
+  const onSend = async ({ text, imageFile, imageURL, imageMeta, audio }) => {
+    await sendMessage(path, { text, imageFile, imageURL, imageMeta, audio, author: profile, replyTo: replyingTo })
     setReplyingTo(null)
     // Clear our typing state on send
     if (containerPath && profile?.uid) setTyping(containerPath, profile.uid, false)
