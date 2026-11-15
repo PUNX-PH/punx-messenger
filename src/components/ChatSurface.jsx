@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   listenMessages, MESSAGE_PAGE, sendMessage, setMessagePinned,
   editMessageText, deleteMessage, toggleReaction, markRead,
-  listenContainer, setTyping,
+  listenContainer, listenPeerSeen, setTyping,
 } from '../lib/db'
 import { useAuth } from '../lib/auth'
 import { useUsers } from '../lib/users'
@@ -11,7 +11,9 @@ import { whoIsTyping } from '../lib/typing'
 import { sameMessages } from '../lib/messagesIdentity'
 import { describeListenError } from '../lib/listenError'
 import { usePageActive } from '../lib/usePageActive'
-import { firstUnreadId, needsMarkRead } from '../lib/unread'
+import { firstUnreadId } from '../lib/unread'
+import { isDmPath, marksNeeded, seenLabel, seenMarker } from '../lib/seen'
+import { usePrefs } from '../lib/usePrefs'
 import { pathToReadKey } from '../lib/db'
 import { lastEditableMessage } from '../lib/editLast'
 import { copyToClipboard } from '../lib/clipboard'
@@ -48,6 +50,7 @@ export default function ChatSurface({
   canPin = false,
   canDeleteAny = false, // group admin / workspace admin: can delete anyone's
   headerExtras = null,  // optional extra buttons rendered at the right of the header
+  seenBy = null,        // a DM: the other person's uid, so "Seen" can go under your latest message they have read
   // Look, don't touch. Used by super-admin oversight viewing (see isGhost in
   // lib/auth): the whole point is that nobody in the channel can tell you're
   // reading it, so this has to close off EVERY write, not just the composer —
@@ -199,6 +202,8 @@ export default function ChatSurface({
   // background was read the instant it landed: no unread dot, no count in the
   // tab title. It is marked as soon as they come back to the tab.
   const looking = usePageActive()
+  const [prefs] = usePrefs()
+  const shareSeen = prefs.shareSeen
   // Read through refs: what is read is the latest, and the effect must not re-run
   // (and re-arm its timer) every time someone's presence changes the directory.
   const usersByIdRef = useRef(usersById)
@@ -212,14 +217,31 @@ export default function ChatSurface({
     if (!profile?.uid || !path || readOnly || !looking || !loaded) return
     if (path.startsWith('users/')) return
     const containerPath = path.replace(/\/messages$/, '')
-    // Nothing new since it was last read (the usual case on switching back to a tab).
-    const lastRead = usersByIdRef.current?.[profile.uid]?.lastRead?.[pathToReadKey(containerPath)]
-    if (!needsMarkRead(newestCreatedAtRef.current, lastRead)) return
+    // What this open conversation has to record: the unread bookkeeping, and (for a DM, when you
+    // share it) that you had it open. Neither when nothing is new since last time (the usual case on
+    // switching back to a tab).
+    const own = usersByIdRef.current?.[profile.uid]
+    const key = pathToReadKey(containerPath)
+    const marks = marksNeeded({
+      containerPath, newestCreatedAt: newestCreatedAtRef.current,
+      lastRead: own?.lastRead?.[key], seen: own?.seen?.[key], share: shareSeen,
+    })
+    if (!marks.read && !marks.seen) return
     const t = setTimeout(() => {
-      markRead(profile.uid, containerPath).catch(() => {})
+      markRead(profile.uid, containerPath, marks).catch(() => {})
     }, 400)
     return () => clearTimeout(t)
-  }, [profile?.uid, path, newestId, readOnly, looking, loaded])
+  }, [profile?.uid, path, newestId, readOnly, looking, loaded, shareSeen])
+
+  // A DM: when the other person last had it open, from their own profile (one document, only while
+  // this is on screen). Not at all when you do not share yours: it goes both ways (lib/seen.js).
+  const [peerSeenAt, setPeerSeenAt] = useState(null)
+  useEffect(() => {
+    setPeerSeenAt(null)
+    if (!seenBy || !containerPath || readOnly || !shareSeen || !isDmPath(containerPath)) return
+    return listenPeerSeen(seenBy, containerPath, setPeerSeenAt)
+  }, [seenBy, containerPath, readOnly, shareSeen])
+  const seen = shareSeen && seenBy ? seenMarker(messages, profile?.uid, peerSeenAt) : null
 
   // close pinned dropdown on outside click
   useEffect(() => {
@@ -435,6 +457,8 @@ export default function ChatSurface({
           onForward={readOnly ? null : setForwarding}
           onSave={readOnly || inNotes ? null : saveMessage}
           meUid={profile?.uid}
+          seenId={seen?.id ?? null}
+          seenText={seen ? seenLabel(seen.at, Date.now(), prefs.timeFormat) : ''}
           scrollToId={jumpId}
           highlightId={jumpId}
           editRequest={editRequest}

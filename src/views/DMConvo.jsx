@@ -52,6 +52,7 @@ export default function DMConvo() {
       title={other.name}
       icon="@"
       subtitle={statusOf(other)?.text}
+      seenBy={other.id}
       path={path}
       canPin
       composerPlaceholder={`Message @${other.name}`}

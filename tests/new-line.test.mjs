@@ -92,7 +92,7 @@ test('the read time used is the one from the moment of opening, not from when th
   // Marking a chat read happens 400 ms after opening whether or not its messages have
   // loaded, so a time read later may already be "just now" and the line would be lost.
   const capture = src.indexOf("readAtEntry.current = meNow && path && !path.startsWith('users/')")
-  const markRead = src.indexOf('markRead(profile.uid, containerPath)')
+  const markRead = src.indexOf('markRead(profile.uid, containerPath, marks)')
   assert.ok(capture > 0, 'captured when the conversation changes')
   assert.ok(markRead > capture, 'before the mark-read effect can run')
   assert.ok(src.includes('{ known: true, at: meNow.lastRead?.[pathToReadKey('), 'it is your read time for this conversation')
