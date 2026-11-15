@@ -31,6 +31,17 @@ class UsersRepository {
     });
   }
 
+  /// Switches do-not-disturb on or off for yourself (see models/dnd.dart): null switches it off. Only
+  /// a time or null is ever written, whatever called this.
+  Future<void> setMyDnd(String uid, Map<String, Object?>? dnd) async {
+    final until = dnd?['until'];
+    await _db.collection('users').doc(uid).update({
+      'dnd': dnd == null
+          ? FieldValue.delete()
+          : {'until': until is num && until.isFinite ? until : null},
+    });
+  }
+
   Future<void> setUserRole(String uid, Role role) async {
     await _db.collection('users').doc(uid).set({
       'role': role.toFirestore(),

@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../providers/auth_providers.dart';
+import '../utils/dnd.dart';
 import '../utils/firestore_paths.dart';
 import '../utils/muted.dart';
 import '../providers/users_providers.dart';
@@ -40,6 +41,12 @@ class NotificationListenerService {
   final Map<String, int> _pingedAt = {};
   String? _uid;
   bool _pluginInitialized = false;
+
+  /// Is do-not-disturb on right now (models/dnd.dart)? Read at the moment a message arrives, from
+  /// the live profile, so switching it on, off, or its running out applies to the next message with
+  /// nothing to re-subscribe.
+  bool get _quiet =>
+      activeDndOf(_ref.read(profileProvider).valueOrNull, DateTime.now()) != null;
 
   bool get _shouldNotify {
     final state = WidgetsBinding.instance.lifecycleState;
@@ -138,6 +145,7 @@ class NotificationListenerService {
       appInFront:
           WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
       viewingThisConversation: _isOnScreen(path),
+      quiet: _quiet,
     );
     _pingedAt[docId] = stamp;
     if (due) _ref.read(sfxServiceProvider).play(Sfx.dmPing);
@@ -198,7 +206,10 @@ class NotificationListenerService {
     if (!_shouldNotify) return;
     final dedupeValue = '$body|$path';
     if (_lastFired[key] == dedupeValue) return;
+    // Recorded BEFORE do-not-disturb is considered, so what arrived during it is not announced as
+    // new when it ends.
     _lastFired[key] = dedupeValue;
+    if (_quiet) return;
 
     unawaited(
       _plugin.show(

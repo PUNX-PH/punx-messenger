@@ -8,7 +8,9 @@ import '../../providers/theme_providers.dart';
 import '../../providers/voice_channel_providers.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
+import '../../utils/dnd.dart';
 import 'avatar.dart';
+import 'dnd_sheet.dart';
 import 'status_editor_sheet.dart';
 import 'role_badge.dart';
 
@@ -97,6 +99,8 @@ class ProfileSheet extends ConsumerWidget {
           const Divider(height: 1),
           // Your status: what shows next to your name for everyone you work with.
           const StatusRow(),
+          // Do not disturb: no sounds or notifications for a while (same switch as the web's).
+          const DndRow(),
           // The web's gear menu, which is the closest thing it has to a
           // settings screen: voice settings while connected, then
           // notifications. Admin panel is omitted because it is a bottom-nav
@@ -221,10 +225,19 @@ class ProfileAvatarButton extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(profileProvider).valueOrNull;
     if (profile == null) return const SizedBox.shrink();
+    // A red dot while do-not-disturb is on: you can tell without opening the sheet. It is worked
+    // out when this builds, and your profile is rewritten every 45 seconds while you are here, so a
+    // switch that has run out clears itself within that.
+    final quiet = activeDndOf(profile, DateTime.now()) != null;
     return IconButton(
-      tooltip: 'You',
+      tooltip: quiet ? 'You (do not disturb is on)' : 'You',
       onPressed: () => ProfileSheet.show(context),
-      icon: Avatar(name: profile.name, src: profile.photoURL, size: 28),
+      icon: Badge(
+        isLabelVisible: quiet,
+        smallSize: 10,
+        backgroundColor: Palette.bad,
+        child: Avatar(name: profile.name, src: profile.photoURL, size: 28),
+      ),
     );
   }
 }
