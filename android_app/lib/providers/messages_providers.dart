@@ -7,8 +7,11 @@ import '../models/message.dart';
 import '../services/messages_repository.dart';
 import '../utils/constants.dart';
 import '../utils/firestore_paths.dart';
+import '../utils/forward.dart';
+import '../utils/forward_targets.dart';
 import '../utils/saved.dart';
 import 'auth_providers.dart';
+import 'dm_providers.dart';
 import 'users_providers.dart';
 
 final messagesRepositoryProvider = Provider<MessagesRepository>(
@@ -147,6 +150,34 @@ class ChatController extends StateNotifier<ChatUiState> {
     );
     setReplyingTo(null);
     setTyping(false);
+  }
+
+  /// Forwards [message] to [target] as a new message from the person, marked with who wrote it
+  /// first (see utils/forward.dart). True when it went; false when it could not (nothing to
+  /// forward, not signed in, or the write failed).
+  Future<bool> forwardMessage(ChatMessage message, ForwardTarget target) async {
+    final me = _ref.read(profileProvider).valueOrNull;
+    final payload = forwardPayload(message, _ref.read(usersByIdProvider));
+    if (me == null || payload == null) return false;
+    try {
+      // A person you have not messaged yet has no conversation to put it in.
+      final other = target.user;
+      if (target.kind == TargetKind.dm && other != null) {
+        await _ref.read(dmRepositoryProvider).ensureDmConvo(me, other);
+      }
+      await _repo.sendMessage(
+        target.path,
+        text: payload.text,
+        author: me,
+        remoteImageUrl: payload.imageURL,
+        remoteImageMeta: payload.imageMeta?.toMap(),
+        voice: payload.voice,
+        forwardedFrom: payload.forwardedFrom,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Keeps a copy of [message] in My Notes. The result says whether it was saved, was already

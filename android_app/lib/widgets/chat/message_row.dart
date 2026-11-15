@@ -46,6 +46,7 @@ class MessageRow extends ConsumerWidget {
     this.onReact,
     this.onJumpToMessage,
     this.onSave,
+    this.onForward,
   });
 
   final ChatMessage message;
@@ -65,6 +66,9 @@ class MessageRow extends ConsumerWidget {
 
   /// Keeps a copy of this message in My Notes; null where that is not offered.
   final Future<SaveResult> Function(ChatMessage message)? onSave;
+
+  /// Opens the Forward box for this message; null where forwarding is not offered.
+  final ValueChanged<ChatMessage>? onForward;
 
   bool get _isAuthor => meUid != null && message.author.uid == meUid;
   bool get _mentionsMe => mentionsUid(message.text, meUid);
@@ -293,6 +297,15 @@ class MessageRow extends ConsumerWidget {
                   onTap: () {
                     Navigator.of(context).pop();
                     _copy(messenger);
+                  },
+                ),
+              if (onForward != null && canForward(message))
+                ListTile(
+                  leading: Icon(Icons.forward, color: Palette.ink),
+                  title: const Text('Forward'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onForward!(message);
                   },
                 ),
               if (onSave != null && canForward(message))
