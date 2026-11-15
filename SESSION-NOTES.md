@@ -171,7 +171,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 402**, **Node 713** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 414**, **Node 713** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -982,3 +982,13 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** 40 new Flutter tests (402 pass in CI, 362 before) (the address check including a trailing newline and a size limit that is exact; the player's rules with a stand-in player: play, pause, resume, one at a time, end of file, the file's own length, seek clamped, a recording that cannot be read, an iPhone offered WebM, going away mid-failure; the pill in a real message row: shows, plays, slider, blocked during a call, can still be paused when a call starts, "Can't play"). 25 deliberate breakages: 24 caught, 1 survived and was a redundant guard that was deleted. Writing the tests found one real bug: two releases of the same player at once (the screen going away while a failed one was being let go) walked the same list and threw; fixed and pinned. `flutter analyze` clean.
 
 **NOT checked.** **Nothing here has run on a phone**: not on an iPhone, not on an Android. The `audioplayers` call (`BytesSource` with a type) is the standard one but was never heard. In particular: whether an iPhone plays AAC/MP4 through it, whether it plays with the silent switch on (no audio context is set, so it follows whatever the app's session already is; the sound effects use "ambient", which obeys the switch), and whether it disturbs a call that starts afterwards. **Recording on the phone is not built**: it needs a new native plugin (microphone capture to AAC), which cannot be built or tried here (no Android build without the keystore, no Mac), and it would touch the same audio session the call uses; it should be done with a phone in hand. The microphone permission is already declared on both platforms (for calls).
+
+## 61. Copy text on the phone app (PR #68)
+
+**Why.** The web has had **Copy text** on a message since section 52; the phone app's long-press menu (Reply, React, Pin, Edit, Delete) had nothing, and copying a message is one of the things people do most on a phone. First of the phone-app catch-up items (the standing direction: the same quality of life on web and phone).
+
+**What.** Long-press a message that has text: **Copy text** (after React). It puts the text on the clipboard and says "Copied" for two seconds, or "Couldn't copy" if the clipboard refuses (it does not claim success). It is not offered for a picture or a voice message with no words. What is copied is the same as on the web (`lib/utils/copy_text.dart` mirrors `src/lib/copyText.js`): the text as written, so **bold** and `code` still work when pasted back, trimmed, with every mention turned from the stored `<@uid>` token back into the name people see (`@Cara Diaz`; `@Unknown` for someone who has left or has no name).
+
+**Checked.** 12 new Flutter tests (the text rules; the menu offering it only where there is text; a tap copying, closing the menu and saying Copied; a mention copied as a name; a refusing clipboard saying so; nothing offered for a voice message). 17 deliberate breakages: 15 caught; 2 survived: a redundant guard (blank text copies as nothing anyway; deleted) and a rewrite of the "hide the last message first" line that does the same thing. `flutter analyze` clean.
+
+**NOT checked.** On a phone, either kind: the system clipboard was a stand-in in the tests. Android 13+ shows its own "copied" confirmation on top of ours; whether the two together look cluttered was not seen. iOS may show a paste-permission prompt in other apps when pasting; that is the system's, not ours. "Copy link" to a message (section 53) is not on the phone: the phone app has no handling of `?m=` links (its router reads no query parameters and the app has no app links), so a link copied there could not land on the message.

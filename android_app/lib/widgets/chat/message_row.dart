@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../markdown/mention_resolver.dart';
@@ -14,6 +13,7 @@ import '../../services/image_service.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
+import '../../utils/copy_text.dart';
 import '../../utils/time_format.dart';
 import '../shared/avatar.dart';
 import 'emoji_picker_sheet.dart';
@@ -205,9 +205,29 @@ class MessageRow extends ConsumerWidget {
     );
   }
 
+  /// Puts the message's text on the clipboard, and says so (or says it could not).
+  /// `messenger` is taken before the sheet closes: the sheet's own context is gone by then.
+  Future<void> _copy(ScaffoldMessengerState? messenger) async {
+    String said;
+    try {
+      await Clipboard.setData(
+        ClipboardData(text: copyableText(message, usersById)),
+      );
+      said = 'Copied';
+    } catch (_) {
+      said = "Couldn't copy";
+    }
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(said), duration: const Duration(seconds: 2)),
+      );
+  }
+
   void _showActions(BuildContext context) {
     final canEdit = _isAuthor && message.text.isNotEmpty;
     final canDelete = _isAuthor || canDeleteAny;
+    final messenger = ScaffoldMessenger.maybeOf(context);
 
     showModalBottomSheet(
       context: context,
@@ -238,6 +258,15 @@ class MessageRow extends ConsumerWidget {
                     if (token != null) {
                       onReact!(message, token);
                     }
+                  },
+                ),
+              if (hasCopyableText(message))
+                ListTile(
+                  leading: Icon(Icons.copy_outlined, color: Palette.ink),
+                  title: const Text('Copy text'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _copy(messenger);
                   },
                 ),
               if (canPin)
