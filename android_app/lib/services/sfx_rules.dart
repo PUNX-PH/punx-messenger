@@ -69,7 +69,11 @@ bool dmPingDue({
   required int stamp,
   required bool appInFront,
   required bool viewingThisConversation,
+  bool quiet = false,
 }) {
+  // Do not disturb: no ping, whatever else is true. The caller still records the stamp, so what
+  // arrived meanwhile does not ping when it ends.
+  if (quiet) return false;
   if (lastPingedStamp == stamp) return false; // already told you about this one
   // In the background the system notification announces it, with its own sound.
   if (!appInFront) return false;
