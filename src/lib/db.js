@@ -136,6 +136,14 @@ export async function setMyStatus(uid, status) {
   await updateDoc(doc(db, 'users', uid), { status: text ? { text, until } : deleteField() })
 }
 
+// Turn do-not-disturb on or off for yourself (see lib/dnd.js): `null` turns it off. Only a time or
+// null is ever written, whatever called this.
+export async function setMyDnd(uid, dnd) {
+  if (!uid) return
+  const until = Number.isFinite(dnd?.until) ? dnd.until : null
+  await updateDoc(doc(db, 'users', uid), { dnd: dnd ? { until } : deleteField() })
+}
+
 // Listen to all DM convos the current user is in.
 // Returns a map keyed by the *other* member's uid → convo doc.
 export function listenMyDmConvos(uid, cb) {

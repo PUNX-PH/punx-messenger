@@ -26,8 +26,9 @@ const VOLATILE = ['presence', 'lastSeen']
  * must stay live for them and only them. `mutedChats` (the conversations they have
  * muted) is the same kind of thing: personal, drives only their own badges and dots,
  * and nobody else's screen has any use for it or any reason to redraw when it changes.
+ * `dnd` (do not disturb, lib/dnd.js) is too: it only decides whether THEIR device pings.
  */
-const OWN_ONLY = ['lastRead', 'mutedChats']
+const OWN_ONLY = ['lastRead', 'mutedChats', 'dnd']
 
 /** A person without the fields that change on their own. */
 export function identityOf(user, isMe = false) {
