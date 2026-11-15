@@ -12,6 +12,11 @@ import { buildBlocks, toDate } from '../lib/messageBlocks'
 import { newLineIsAbove } from '../lib/unread'
 import { copyableText, hasCopyableText } from '../lib/copyText'
 import { copyToClipboard } from '../lib/clipboard'
+import { Link } from 'react-router-dom'
+import { canForward, forwardedFromOf } from '../lib/forward'
+import { audioOf } from '../lib/voiceMessage'
+import VoicePlayer from './VoicePlayer'
+import { isSavedNote, savedRouteOf } from '../lib/saved'
 import * as tf from '../lib/timeFormat'
 import { usePrefs } from '../lib/usePrefs'
 
@@ -27,6 +32,8 @@ export default function MessageList({
   onReply,                // (message) => void  (start replying)
   onJumpToMessage,        // (messageId) => void (for replyTo preview jump)
   onCopyLink = null,      // (message) => Promise<boolean>: copy a link to it; null where there is no link (DMs, notes)
+  onForward = null,       // (message) => void: open the "forward to..." picker; null where forwarding is not offered
+  onSave = null,          // (message) => Promise<'saved'|'exists'|false>: keep a copy in My Notes; null where it is not offered
   meUid,
   highlightId,
   scrollToId,
@@ -268,6 +275,8 @@ export default function MessageList({
               onReply={onReply}
               onJumpToMessage={onJumpToMessage}
               onCopyLink={onCopyLink}
+              onForward={onForward}
+              onSave={onSave}
             />
           ))}
           <div ref={endRef} />
@@ -338,7 +347,7 @@ function ArrowDownIcon({ className }) {
 const Group = memo(function Group({
   group, timeFormat, onZoom, canPin, onTogglePin, highlightId, usersById, presenceById, emojiByName, tickNow,
   canDeleteAny, readOnly, meUid, editingId, setEditingId, onEdit, onDelete, onReact,
-  onReply, onJumpToMessage, onCopyLink,
+  onReply, onJumpToMessage, onCopyLink, onForward, onSave,
 }) {
   const currentAuthor = usersById?.[group.author?.uid]
   const name = currentAuthor?.name || group.author?.name
@@ -378,6 +387,8 @@ const Group = memo(function Group({
           onReply={onReply}
           onJumpToMessage={onJumpToMessage}
           onCopyLink={onCopyLink}
+          onForward={onForward}
+          onSave={onSave}
           meUid={meUid}
           usersById={usersById}
         />
@@ -393,7 +404,7 @@ const Group = memo(function Group({
 const Row = memo(function Row({
   message, showHeader, author, firstTime, timeFormat, onZoom, canPin, onTogglePin, highlighted,
   emojiByName, isAuthor, canDeleteAny, readOnly, editing, setEditingId, onEdit, onDelete,
-  onReact, onReply, onJumpToMessage, onCopyLink, meUid, usersById,
+  onReact, onReply, onJumpToMessage, onCopyLink, onForward, onSave, meUid, usersById,
 }) {
   const setEditing = (on) => setEditingId(on ? message.id : null)
   const onlyEmojis = isOnlyEmojis(message.text)
@@ -420,9 +431,20 @@ const Row = memo(function Row({
   // "Copy text": anyone who can see the message may copy it (it is local, nothing is written),
   // so this is not tied to canEdit or readOnly. A picture on its own has no text to copy.
   const canCopy = hasCopyableText(message)
+  const forwarded = forwardedFromOf(message)
+  const audio = useMemo(() => audioOf(message), [message]) // checked once per message, not on every draw
+  const savedNote = isSavedNote(message)
+  const savedRoute = savedRouteOf(message)
   const [copied, flashCopied] = useFlash(1500)
   const copyText = async () => {
     if (await copyToClipboard(copyableText(message, usersById))) flashCopied()
+  }
+  // "Save": keep a copy in My Notes. Says whether it was saved just now or already there.
+  const [saveFlash, flashSave] = useFlash(1500)
+  const saveResult = useRef('')
+  const saveMessage = async () => {
+    const r = await onSave(message)
+    if (r) { saveResult.current = r === 'exists' ? 'Already saved' : 'Saved to My Notes'; flashSave() }
   }
   // "Copy link": only where a message has an address worth sharing (a channel). The caller copies it.
   const [linkCopied, flashLinkCopied] = useFlash(1500)
@@ -470,6 +492,14 @@ const Row = memo(function Row({
           </button>
         )}
 
+        {forwarded && (
+          <div className="flex items-center gap-1 text-xs text-ink-dim mb-0.5" title={(savedNote ? 'Saved from ' : 'Forwarded from ') + forwarded.name}>
+            {savedNote ? <BookmarkIcon /> : <ForwardIcon />}
+            <span className="truncate">{savedNote ? 'Saved from' : 'Forwarded from'} <span className="text-ink-muted">{forwarded.name}</span></span>
+            {savedRoute && <Link to={savedRoute} className="shrink-0 ml-1 text-brand-text hover:underline">Go to message</Link>}
+          </div>
+        )}
+
         {showHeader && (
           <div className="flex items-baseline gap-2 -mt-0.5 flex-wrap">
             <span className="font-semibold text-ink truncate">{author?.name || 'Unknown'}</span>
@@ -501,6 +531,7 @@ const Row = memo(function Row({
                 <img src={message.imageURL} alt="" className="max-w-md max-h-80 object-contain bg-bg-deepest" />
               </button>
             )}
+            {audio && <VoicePlayer audio={audio} />}
             {message.text && (
               <div className={onlyEmojis ? 'py-0.5' : 'whitespace-pre-wrap'}>
                 {renderMessage(message.text, { emojiByName, usersById, emojiSize })}
@@ -539,7 +570,7 @@ const Row = memo(function Row({
       </div>
 
       {/* Hover toolbar */}
-      {!editing && (onReact || onReply || canCopy || onCopyLink || canPin || canEdit || canDelete) && (
+      {!editing && (onReact || onReply || canCopy || onCopyLink || onForward || onSave || canPin || canEdit || canDelete) && (
         <div className="absolute -top-3 right-3 opacity-0 group-hover/msg:opacity-100 group-focus-within/msg:opacity-100 transition-opacity bg-bg-raised border border-line-subtle rounded-md shadow-elev1 flex">
           {onReact && (
             <div className="relative">
@@ -585,6 +616,26 @@ const Row = memo(function Row({
               aria-label={copied ? 'Copied' : 'Copy text'}
             >
               {copied ? <CheckIcon /> : <CopyIcon />}
+            </button>
+          )}
+          {onForward && canForward(message) && (
+            <button
+              onClick={() => onForward(message)}
+              className="p-1.5 text-ink-muted hover:text-ink hover:bg-bg-hover rounded transition-colors"
+              title="Forward"
+              aria-label="Forward"
+            >
+              <ForwardIcon />
+            </button>
+          )}
+          {onSave && canForward(message) && (
+            <button
+              onClick={saveMessage}
+              className="p-1.5 text-ink-muted hover:text-ink hover:bg-bg-hover rounded transition-colors"
+              title={saveFlash ? saveResult.current : 'Save to My Notes'}
+              aria-label={saveFlash ? saveResult.current : 'Save to My Notes'}
+            >
+              {saveFlash ? <CheckIcon /> : <BookmarkIcon />}
             </button>
           )}
           {onCopyLink && (
@@ -682,6 +733,23 @@ function useFlash(ms) {
     timer.current = setTimeout(() => setOn(false), ms)
   }
   return [on, flash]
+}
+
+function BookmarkIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      <path d="M6 4h12a1 1 0 0 1 1 1v16l-7-4-7 4V5a1 1 0 0 1 1-1z"/>
+    </svg>
+  )
+}
+
+function ForwardIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      <polyline points="15 14 20 9 15 4"/>
+      <path d="M4 20v-7a4 4 0 0 1 4-4h12"/>
+    </svg>
+  )
 }
 
 function LinkIcon() {

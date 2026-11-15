@@ -12,6 +12,7 @@ import { watched } from './dataHealth'
 // re-exported here so existing imports keep working.
 import { chunkKeys, dmConvoId, isUnread, pathToReadKey } from './unread'
 import { cleanStatusText } from './status'
+import { isPlayableAudioURL } from './voiceMessage'
 export { dmConvoId, isUnread, pathToReadKey }
 
 // Listen to all users (workspace directory)
@@ -156,9 +157,13 @@ export function listenMyDmConvos(uid, cb) {
 //   imageFile  — optional File (resized + base64 embedded)
 //   imageURL   — optional pre-existing URL (e.g. a picked GIF) — used as-is, skips the resize/embed step
 //   replyTo    — optional message obj we're replying to; a snapshot is embedded
-export async function sendMessage(path, { text, author, imageFile = null, imageURL: directImageURL = null, imageMeta: directImageMeta = null, replyTo = null }) {
+//   forwardedFrom — optional { uid, name } of who wrote a message that is being forwarded (see forward.js)
+//   audio      — optional voice message { dataURL, durationMs, mime } (see voiceMessage.js)
+export async function sendMessage(path, { text, author, imageFile = null, imageURL: directImageURL = null, imageMeta: directImageMeta = null, replyTo = null, forwardedFrom = null, audio = null }) {
   const trimmed = (text || '').trim()
-  if (!trimmed && !imageFile && !directImageURL) return
+  if (!trimmed && !imageFile && !directImageURL && !audio) return
+  // A voice message is stored inside the document, so it has to be a playable address of a sane size.
+  if (audio && !isPlayableAudioURL(audio.dataURL)) throw new Error("That voice message can't be sent.")
   const colRef = collection(db, ...path.split('/'))
 
   const msgRef = doc(colRef)
@@ -180,6 +185,8 @@ export async function sendMessage(path, { text, author, imageFile = null, imageU
     text: trimmed,
     imageURL,
     imageMeta,
+    audioURL: audio ? audio.dataURL : null,
+    audioMeta: audio ? { durationMs: Math.round(Number(audio.durationMs) || 0), mime: typeof audio.mime === 'string' ? audio.mime : null } : null,
     author: {
       uid: author.uid,
       name: author.name,
@@ -190,8 +197,9 @@ export async function sendMessage(path, { text, author, imageFile = null, imageU
       messageId:  replyTo.id,
       authorUid:  replyTo.author?.uid || null,
       authorName: replyTo.author?.name || 'Unknown',
-      snippet:    (replyTo.text || (replyTo.imageURL ? '[image]' : '')).slice(0, 160),
+      snippet:    (replyTo.text || (replyTo.imageURL ? '[image]' : replyTo.audioURL ? '[voice message]' : '')).slice(0, 160),
     } : null,
+    forwardedFrom: forwardedFrom ? { uid: forwardedFrom.uid ?? null, name: String(forwardedFrom.name ?? '') } : null,
     createdAt: serverTimestamp(),
     pinned: false,
   })
@@ -206,7 +214,7 @@ export async function sendMessage(path, { text, author, imageFile = null, imageU
       const convoId = path.split('/')[1]
       await setDoc(doc(db, 'dms', convoId), {
         lastMessageAt: serverTimestamp(),
-        lastMessageText: trimmed || '📷 Image',
+        lastMessageText: trimmed || (audio ? '🎤 Voice message' : '📷 Image'),
         lastMessageAuthorUid: author.uid,
       }, { merge: true })
     } else if (path.startsWith('groups/') && path.includes('/channels/')) {
@@ -220,6 +228,28 @@ export async function sendMessage(path, { text, author, imageFile = null, imageU
   } catch (e) {
     console.warn('[sendMessage] parent metadata bump failed (non-fatal):', e.message)
   }
+}
+
+// Keep a copy of a message in the person's own private notes (see saved.js). The note's id comes
+// from the message, so saving it twice is one note: 'exists' says it was already there.
+export async function saveMessageToNotes(me, noteId, payload) {
+  const ref = doc(db, 'users', me.uid, 'notes', noteId)
+  if ((await getDoc(ref)).exists()) return 'exists'
+  await setDoc(ref, {
+    text: payload.text,
+    imageURL: payload.imageURL,
+    imageMeta: payload.imageMeta,
+    audioURL: payload.audio ? payload.audio.dataURL : null,
+    audioMeta: payload.audio ? { durationMs: payload.audio.durationMs, mime: payload.audio.mime } : null,
+    author: { uid: me.uid, name: me.name, photoURL: me.photoURL || null },
+    mentionedUids: [],
+    replyTo: null,
+    forwardedFrom: payload.forwardedFrom,
+    savedFrom: payload.savedFrom,
+    createdAt: serverTimestamp(),
+    pinned: false,
+  })
+  return 'saved'
 }
 
 // Toggle the pinned flag on a single message

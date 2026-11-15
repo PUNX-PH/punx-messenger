@@ -14,7 +14,7 @@ export default function MyNotes() {
       composerPlaceholder="Jot something down…"
       empty={{
         title: 'Your private notes',
-        desc: 'Only you can see these. Use it as a scratch pad — links, todos, anything.',
+        desc: 'Only you can see these. Save messages here with the bookmark button, or use it as a scratch pad: links, todos, anything.',
       }}
     />
   )

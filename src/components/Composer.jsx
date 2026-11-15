@@ -9,6 +9,10 @@ import { drafts } from '../lib/drafts'
 import { usePrefs } from '../lib/usePrefs'
 import { shouldSend } from '../lib/sendKey'
 import { shouldEditLast } from '../lib/editLast'
+import { useEmojis } from '../lib/emojis'
+import { MAX_VOICE_MS, formatDuration, voiceErrorText } from '../lib/voiceMessage'
+import { canRecord, finishRecording, startRecording } from '../lib/voiceRecorder'
+import { applySuggestion, detectEmojiQuery, suggestEmojis } from '../lib/emojiSuggest'
 
 const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
 
@@ -41,6 +45,13 @@ export default function Composer({
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [pickerTab, setPickerTab] = useState('emoji')
   const [mention, setMention] = useState(null) // { startIdx, query, selectedIdx }
+  const [emojiSug, setEmojiSug] = useState(null) // { startIdx, query, selectedIdx }: ":fir" typed, suggestions showing
+  const { emojis: customEmojis } = useEmojis()
+  // Recording a voice message: null, or { phase: 'starting' | 'recording' | 'sending', ms }.
+  const [voice, setVoice] = useState(null)
+  const recRef = useRef(null)          // the live recording (its microphone is on)
+  const sendVoiceRef = useRef(null)     // the latest sendVoice, for the time limit to call
+  const micOk = useMemo(() => typeof window !== 'undefined' && canRecord(window), [])
   const fileRef = useRef(null)
   const taRef = useRef(null)
   const emojiBtnRef = useRef(null)
@@ -100,6 +111,8 @@ export default function Composer({
     setFile(null)
     setError(null)
     setMention(null)
+    setEmojiSug(null)
+    cancelVoice() // a recording belongs to the conversation it was started in
     mentionHintsRef.current.clear()
   }, [draftKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -138,6 +151,49 @@ export default function Composer({
     setPickerTab(tab)
     setEmojiOpen(true)
   }
+
+  // ---------- voice messages ----------
+  // Whatever way a recording ends, the microphone is released (see voiceRecorder.js).
+  function cancelVoice() {
+    recRef.current?.cancel()
+    recRef.current = null
+    setVoice(null)
+  }
+  useEffect(() => () => { recRef.current?.cancel(); recRef.current = null }, []) // leaving the screen with the microphone on
+
+  const startVoice = async () => {
+    if (voice || sending || disabled) return
+    setError(null)
+    setVoice({ phase: 'starting', ms: 0 })
+    try {
+      recRef.current = await startRecording(window, {
+        onTick: (ms) => setVoice(v => (v && v.phase === 'recording' ? { ...v, ms } : v)),
+        onLimit: () => sendVoiceRef.current?.(),
+      })
+      setVoice({ phase: 'recording', ms: 0 })
+    } catch (err) {
+      setVoice(null)
+      setError(voiceErrorText(err?.code))
+    }
+  }
+
+  const sendVoice = async () => {
+    const rec = recRef.current
+    if (!rec) return
+    recRef.current = null
+    const sentKey = keyRef.current
+    setVoice({ phase: 'sending', ms: 0 })
+    try {
+      const audio = await finishRecording(rec, window)
+      if (keyRef.current !== sentKey) return // moved to another conversation meanwhile: it is not for this one
+      await onSend({ text: '', audio })
+    } catch (err) {
+      if (err?.code !== 'cancelled') { console.error(err); setError(err?.code ? voiceErrorText(err.code) : (err?.message || 'Failed to send.')) }
+    } finally {
+      setVoice(null)
+    }
+  }
+  sendVoiceRef.current = sendVoice
 
   // Picking a GIF sends it immediately (Discord-style), not inserted as text.
   const sendGif = async (url, meta) => {
@@ -180,10 +236,35 @@ export default function Composer({
     })
   }
 
+  // ---------- :emoji: suggestions ----------
+  const emojiCandidates = useMemo(
+    () => (emojiSug ? suggestEmojis(emojiSug.query, { custom: customEmojis }) : []),
+    [emojiSug, customEmojis],
+  )
+  const suggestOpen = !!emojiSug && emojiCandidates.length > 0 // (the picker button has its own `emojiOpen`)
+
+  const detectEmoji = (value, cursor) => {
+    const d = detectEmojiQuery(value, cursor)
+    if (!d) { setEmojiSug(null); return }
+    setEmojiSug(prev => (prev && prev.startIdx === d.startIdx && prev.query === d.query ? prev : { ...d, selectedIdx: 0 }))
+  }
+
+  const pickEmoji = (item) => {
+    if (!emojiSug || !item) return
+    const { text: next, caret } = applySuggestion(text, emojiSug.startIdx, emojiSug.query, item)
+    updateText(next)
+    setEmojiSug(null)
+    requestAnimationFrame(() => {
+      taRef.current?.focus()
+      taRef.current?.setSelectionRange(caret, caret)
+    })
+  }
+
   const onTextChange = (e) => {
     const v = e.target.value
     updateText(v)
     detectMention(v, e.target.selectionStart)
+    detectEmoji(v, e.target.selectionStart)
     if (v.trim().length > 0) pingTyping()
     else stopTypingNow()
   }
@@ -236,7 +317,7 @@ export default function Composer({
       await onSend({ text: resolved, imageFile: file })
       drafts.clear(sentKey)
       if (keyRef.current !== sentKey) return
-      setText(''); setFile(null)
+      setText(''); setFile(null); setEmojiSug(null)
       // The box grows with what is typed and only ever shrinks on input, so
       // after a long message it stayed tall around an empty field.
       if (taRef.current) taRef.current.style.height = 'auto'
@@ -334,7 +415,29 @@ export default function Composer({
           className="hidden"
           onChange={(e) => accept(e.target.files?.[0])}
         />
-        <div className="relative flex-1">
+        {voice && (
+          <div className="flex-1 flex items-center gap-3 py-1.5 min-w-0" role="status" aria-live="polite">
+            {voice.phase === 'recording' ? (
+              <>
+                <span className="w-2.5 h-2.5 rounded-full bg-bad animate-pulse shrink-0" aria-hidden="true" />
+                <span className="text-sm tabular-nums">{formatDuration(voice.ms)} / {formatDuration(MAX_VOICE_MS)}</span>
+                <span className="text-xs text-ink-dim truncate">Recording a voice message</span>
+              </>
+            ) : (
+              <span className="text-sm text-ink-muted">{voice.phase === 'starting' ? 'Waiting for the microphone…' : 'Sending…'}</span>
+            )}
+          </div>
+        )}
+        <div className={'relative flex-1' + (voice ? ' hidden' : '')}>
+          {suggestOpen && (
+            <EmojiSuggestDropdown
+              query={emojiSug.query}
+              items={emojiCandidates}
+              selectedIdx={Math.min(emojiSug.selectedIdx, emojiCandidates.length - 1)}
+              onPick={pickEmoji}
+              onHover={(idx) => setEmojiSug(m => m ? { ...m, selectedIdx: idx } : m)}
+            />
+          )}
           {mention && mentionCandidates.length > 0 && (
             <MentionDropdown
               items={mentionCandidates}
@@ -347,10 +450,11 @@ export default function Composer({
             ref={taRef}
             value={text}
             onChange={onTextChange}
-            onClick={(e) => detectMention(text, e.target.selectionStart)}
+            onClick={(e) => { detectMention(text, e.target.selectionStart); detectEmoji(text, e.target.selectionStart) }}
             onKeyUp={(e) => {
               if (['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) {
                 detectMention(text, e.target.selectionStart)
+                detectEmoji(text, e.target.selectionStart)
               }
             }}
             onInput={(e) => {
@@ -360,6 +464,14 @@ export default function Composer({
             }}
             onPaste={onPaste}
             onKeyDown={e => {
+              if (suggestOpen) {
+                const last = emojiCandidates.length - 1
+                const at = Math.min(emojiSug.selectedIdx, last)
+                if (e.key === 'ArrowDown') { e.preventDefault(); setEmojiSug(m => ({ ...m, selectedIdx: Math.min(at + 1, last) })); return }
+                if (e.key === 'ArrowUp') { e.preventDefault(); setEmojiSug(m => ({ ...m, selectedIdx: Math.max(at - 1, 0) })); return }
+                if ((e.key === 'Enter' || e.key === 'Tab') && !e.isComposing) { e.preventDefault(); pickEmoji(emojiCandidates[at]); return }
+                if (e.key === 'Escape') { e.preventDefault(); setEmojiSug(null); return }
+              }
               if (mention && mentionCandidates.length > 0) {
                 if (e.key === 'ArrowDown') {
                   e.preventDefault()
@@ -382,7 +494,7 @@ export default function Composer({
                   return
                 }
               }
-              if (onEditLast && shouldEditLast(e, { text, hasFile: !!file, mentionOpen: !!(mention && mentionCandidates.length > 0) })) {
+              if (onEditLast && shouldEditLast(e, { text, hasFile: !!file, mentionOpen: !!(mention && mentionCandidates.length > 0) || suggestOpen })) {
                 if (onEditLast()) e.preventDefault()
                 return
               }
@@ -400,7 +512,7 @@ export default function Composer({
             className="w-full bg-transparent text-ink placeholder:text-ink-dim resize-none outline-none max-h-40 leading-6 py-1.5 disabled:opacity-50 align-middle"
           />
         </div>
-        <div ref={emojiBtnRef} className="relative shrink-0 flex items-center">
+        <div ref={emojiBtnRef} className={'relative shrink-0 flex items-center' + (voice ? ' hidden' : '')}>
           <button
             type="button"
             onClick={() => openPicker('gif')}
@@ -439,6 +551,20 @@ export default function Composer({
           )}
         </div>
 
+        {voice ? (
+          <>
+            <button type="button" onClick={cancelVoice} disabled={voice.phase === 'sending'} title="Cancel recording" aria-label="Cancel recording" className="text-ink-dim hover:text-bad transition-colors p-1.5 shrink-0 disabled:opacity-50">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            </button>
+            <button type="button" onClick={sendVoice} disabled={voice.phase !== 'recording'} title="Send voice message" aria-label="Send voice message" className="text-brand-text hover:text-ink transition-colors p-1.5 shrink-0 disabled:text-ink-dim disabled:cursor-not-allowed">
+              <SendIcon />
+            </button>
+          </>
+        ) : micOk && !text.trim() && !file && !sending && !disabled ? (
+          <button type="button" onClick={startVoice} title="Record a voice message" aria-label="Record a voice message" className="text-ink-dim hover:text-ink transition-colors p-1.5 shrink-0">
+            <MicIcon />
+          </button>
+        ) : (
         <button
           type="submit"
           disabled={(!text.trim() && !file) || sending || disabled}
@@ -448,8 +574,41 @@ export default function Composer({
         >
           {sending ? <SpinnerIcon /> : <SendIcon />}
         </button>
+        )}
       </div>
     </form>
+  )
+}
+
+function EmojiSuggestDropdown({ query, items, selectedIdx, onPick, onHover }) {
+  return (
+    <div className="absolute bottom-full left-0 right-0 mb-2 bg-bg-raised border border-line-subtle rounded-lg shadow-elev2 overflow-hidden z-30" role="listbox" aria-label="Emoji suggestions">
+      <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-ink-dim font-semibold border-b border-line-subtle bg-bg-deepest">
+        Emoji matching :{query}
+      </div>
+      <div className="max-h-64 overflow-y-auto scrollbar-thin">
+        {items.map((it, idx) => (
+          <button
+            key={`${it.kind}:${it.name}`}
+            type="button"
+            role="option"
+            aria-selected={idx === selectedIdx}
+            onMouseDown={(e) => { e.preventDefault(); onPick(it) }}
+            onMouseEnter={() => onHover?.(idx)}
+            className={[
+              'w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors',
+              idx === selectedIdx ? 'bg-bg-hover text-ink' : 'text-ink-muted hover:bg-bg-hover hover:text-ink',
+            ].join(' ')}
+          >
+            <span className="w-6 h-6 grid place-items-center text-xl leading-none shrink-0" aria-hidden="true">
+              {it.kind === 'custom' ? <img src={it.dataURL} alt="" className="w-6 h-6 object-contain" /> : it.char}
+            </span>
+            <span className="text-sm truncate flex-1">:{it.name}:</span>
+            {it.kind === 'custom' && <span className="text-[10px] text-ink-dim">custom</span>}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -507,6 +666,16 @@ function PlusIcon() {
     </svg>
   )
 }
+function MicIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="2" width="6" height="12" rx="3"/>
+      <path d="M5 11a7 7 0 0 0 14 0"/>
+      <line x1="12" y1="18" x2="12" y2="22"/>
+    </svg>
+  )
+}
+
 function SendIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">

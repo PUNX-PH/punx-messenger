@@ -12,6 +12,7 @@
 //   CalendarPanel       the DTR calendar popup, opened from the toolbox
 //   ShortcutsHelp       the keyboard shortcuts sheet, opened with "?"
 //   StatusEditor        the "set a status" dialog, opened from the bottom-left panel
+//   ForwardDialog       the "forward to..." picker, opened from a message's toolbar
 import { lazyWithPreload, preloadWhenIdle } from './lazy'
 
 export const AdminPanel = lazyWithPreload(() => import('../views/AdminPanel'))
@@ -25,6 +26,7 @@ export const QuickSwitcher = lazyWithPreload(() => import('../components/QuickSw
 export const CalendarPanel = lazyWithPreload(() => import('../components/CalendarPanel'))
 export const ShortcutsHelp = lazyWithPreload(() => import('../components/ShortcutsHelp'))
 export const StatusEditor = lazyWithPreload(() => import('../components/StatusEditor'))
+export const ForwardDialog = lazyWithPreload(() => import('../components/ForwardDialog'))
 
 /**
  * Warms up what nearly everyone ends up using, once the app is up. The admin panel

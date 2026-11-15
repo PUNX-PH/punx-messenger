@@ -4,7 +4,7 @@ What was done, what is still waiting on you, and what was found but not fixed.
 
 ## 1. Where things stand (updated 2026-10-16)
 
-PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#60 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
+PRs #1–#9, #11–#17, #19–#22, #24, #26–#28, #30–#65 are merged (#29 was a small fix to #28) (#10 was closed unmerged; #18, #23 and #25 were notes updates). Up to #13 (`2e15ef0`) I checked the deploy: Vercel and both Cloudflare Workers builds succeeded and https://plexus.punxai.online/ served it (the split bundle and its on-demand parts, the sound files, and the one-day cache on built files, section 13). **#15 (chat re-renders, section 14) and #16 (background blur, section 15) are merged to `main` (`f79b3c5`); their PR checks, including the Vercel build, were green. **Checked on the live site afterwards (2026-10-16, after #21): the login page loads four files and has no console errors, and the bundle contains the blur, chat-error and listener-banner code. It also showed that the blur model files were NOT being deployed: `/mediapipe/...` answered with the app's HTML, so blur would have failed on production with "Couldn't blur your background". Fixed in #22 and confirmed on the live site after it deployed (section 15).** None of these has been tried in the signed-in app. #14 was the notes, and #17 added CI and `CLAUDE.md` (section 16).
 
 **Done in production**
 - Firestore rules deployed to `punx-msg`; new guests can redeem invites again. The rules on `main` were later corrected on the other PC, because the ones I wrote exceeded Firestore's 1000-expression budget (section 3), and per that commit's message they were deployed from there.
@@ -32,7 +32,7 @@ The script takes either a service-account key (`GOOGLE_APPLICATION_CREDENTIALS=/
 
 In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
-## 2. What shipped (PRs #1–#60)
+## 2. What shipped (PRs #1–#65)
 
 **#1 — UI and logo**
 - `--ink-dim` raised to ≥4.5:1 on every surface (was 3.45:1 on dark); Android palette matched.
@@ -99,6 +99,16 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#29 — a fix to #28**: the app now cleans up every preference variable, including ones the start-up script set (section 24).
 
+**#65 — saved messages: a bookmark button that keeps a copy in My Notes** (section 58).
+
+**#64 — forward a message to another conversation** (section 57).
+
+**#63 — :emoji: suggestions in the message box** (section 56): type a colon and two letters.
+
+**#62 — a visible Group settings button on the phone app's group screen** (section 55).
+
+**#61 — an Add member button on the phone app's group screen** (section 54).
+
 **#60 — link to a message** (section 53): a Copy link button in channels, and opening one scrolls to the message.
 
 **#59 — a Copy text button on every message** (section 52).
@@ -161,7 +171,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 339**, **Node 601** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 362**, **Node 713** (sound, presence identity, lazy loader, iOS setup, chat identity, camera), Worker 102, Firestore rules 204 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -876,3 +886,85 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** 16 new tests and 57 deliberate breakages: 56 caught, 1 equivalent (an `else` written as `if (step !== 'jump')`); three redundant guards found by the first run were deleted rather than tested. In a real browser (the real chat with a 400-message stub and the real router; Firestore stubbed): a link to a message on the first page jumped to it with one read and removed `?m=`; one older than that read 50, then 300 (exactly once), found it, centred it (after the smooth scroll finished) and removed `?m=`; one older than 300 read 50 then 300, showed the note and removed `?m=`; Copy link in a channel wrote exactly `http://localhost:5199/g/G1abc/c/C2def?m=id399`, the label went to "Link copied" and back after about 1.5 seconds; the same toolbar in a DM had no Copy link. 601 web tests and the build pass.
 
 **NOT checked.** The real sign-in redirect (read, not run: the sign-in page is rendered for every address when signed out, and the router keeps the query when it switches to the app). Real Firestore. A phone or Safari/Firefox. The real clipboard, as for Copy text. **A link pasted into a message opens in a new tab** (links in messages always do), so it reloads the app rather than moving within it; it works, it is just not instant. The phone app does not have it.
+
+## 54. An Add member button on the phone app's group screen (PR #61)
+
+**Why.** On the phone, adding someone to a group meant: Groups tab, **press and hold** the group, **Group settings**, scroll to Members, **Add member**. The long-press is invisible, so a group's owner could not find how to add people. The capability existed (ported with the settings screen, section on the phone app) but nothing on screen led to it, and the earlier quality-of-life scans looked at the web app and missed it.
+
+**What.** Open a group on iPhone or Android: a **person-plus icon** ("Add member") sits in the top bar, for the people who may add (workspace admins, the group's admins, its owner; the same rule as the button inside Group settings, and the same one firestore.rules enforces: the owner is also in adminUids). Tapping it lists the people **who are not in the group yet, by name** (removed accounts never offered); picking one adds them and a note says "Added <name> to <group>", or says why not (the shared `describeError` wording, e.g. "You don't have permission to add that person..."). "Everyone is already in this group." when there is nobody left. Group settings keeps its own **Add member** button and now opens the **same sheet** (`add_member_sheet.dart`), so both behave alike.
+
+**Not changed.** Group settings is still only reachable by press-and-hold; it was left alone on purpose (one concern per PR). A visible settings entry would be a sensible follow-up. No write is new: it is the existing `addMember`. **No rules change.**
+
+**Checked.** 19 new Flutter tests (the rule for who may add, in every combination including "not known yet"; who is offered; the screen showing the button to the owner, a group admin and a workspace admin and not to a plain member; the list; adding exactly that person and closing; a failure saying so in words; the empty list; settings still adding through the shared sheet) and 22 deliberate breakages: 18 caught at once, 4 survived and were closed (sorting ignoring case; the workspace-admin case, which a test missed because three screens were pumped in one test and the later ones reused the first one's state, so the test was split; the error wording; settings still adding). Re-run: all caught. `flutter analyze` clean, 358 Flutter tests pass. Only changed files were formatted.
+
+**NOT checked.** On a phone or an emulator (no Android build here, by design; no iPhone or Mac). The look of the icon in the top bar on small or large-text screens. Real Firestore (the add is the existing call). The web app is untouched by this PR (not re-checked here).
+
+## 55. A visible Group settings button on the phone app (PR #62)
+
+**Why.** Follow-up to section 54: Group settings was reachable only by pressing and holding the group on the Groups tab, which nobody finds without being told.
+
+**What.** Open a group on iPhone or Android: a **gear icon** ("Group settings") in the top bar, next to Add member for those who may add. It is shown to **everyone in the group**, as the press-and-hold menu's item always was; what can be changed inside depends on the role, as before. It opens the same `GroupSettingsScreen`. The press-and-hold menu is unchanged. Hidden until the group is known.
+
+**Checked.** 4 new Flutter tests (a plain member sees it, the owner sees it beside Add member, tapping opens the settings of *that* group, not before the group is known) and 6 deliberate breakages: 4 caught; 2 survived and are not worth a test (a different gear glyph; a commented-out blank line, which is no change). `flutter analyze` clean, 362 Flutter tests pass. A first run of the tap test failed because the settings screen reads the groups repository and the test had no Firebase; it now gives it a fake.
+
+**NOT checked.** On a phone or emulator (no Android build here; no iPhone). How the two icons fit on a narrow screen with a long group name (the title truncates; not seen).
+
+## 56. :emoji: suggestions in the message box (PR #63)
+
+**Why.** Last of four small changes asked for together (the up arrow, section 51; Copy text, 52; link to a message, 53). Adding an emoji meant opening the picker with the mouse; the workspace's custom emojis could only be typed from memory.
+
+**What.** In the message box, type a colon and at least two letters (`:fi`): a list of up to eight matches appears above the box ("Emoji matching :fi"). **Up/Down** move, **Enter or Tab** pick, **Esc** closes it, a click picks too (the cursor stays in the box). Picking replaces what was typed with the emoji and a space and puts the cursor after it. Two kinds are offered, best match first (exact, then starts-with, then contains; the workspace's own before the everyday ones at the same match): the **workspace's custom emojis** (written as their `:name:` token, which messages already turn into the picture, shown with a "custom" tag and their image) and **134 everyday emoji** by their usual names and the other names people type (`+1`, `lol`, `thanks`, `done`, `party`...). While the list is open Enter picks and does not send; with no matches (or Esc) Enter sends as always.
+
+**When a colon counts** (`detectEmojiQuery`, `src/lib/emojiSuggest.js`): at the start of the text or after a space, a name starting with a letter (or `+`/`-`) and two or more name characters, at the caret. Times (`10:30`, `at :30`), links (`http://`), smileys (`:)`, `:3`), a lone `:o` and a finished `:fire:` are not taken. The list is cleared on sending and on moving to another conversation; the up-arrow-to-edit shortcut (section 51) still never fires while it is open.
+
+**Safe by construction.** Nothing is written anywhere and nothing goes over the network: the everyday list is a table in the file (no invisible characters in the source: the picture-form marker is written by its code, and a test fails if one appears raw), the custom ones are the list the app already holds. A custom emoji entry that is malformed is skipped. No rules change.
+
+**Checked.** 33 new tests and 57 deliberate breakages, all caught (12 first survived: ties broken by name, the best of an emoji's several names, a negative limit, the highlight staying inside the list, picking by mouse keeping the cursor, and four more wiring lines; each closed with a test, and one test I had written wrong was fixed before re-running so the second run was against a green baseline). In a real browser (the real message box, the custom emojis stubbed): `:fi` listed the custom `fire_dance` (tagged, with its picture) above 🔥 fire, 👊 fist, 🤞 crossed fingers; Down moved the highlight and Enter inserted 🔥 with a space, the cursor after it, nothing sent and the text kept; `:partyp` then Tab inserted `:partyparrot: `; `:smi` then Esc closed it and kept the text; `10:30` and `:zzqq` showed no list and Enter then sent (the box emptied); `:roc` then a mouse click inserted 🚀 and left the cursor in the box. 634 web tests and the build pass.
+
+**NOT checked.** An input method (IME) composing: the list ignores Enter during composition (in the code, and pinned by a test), not tried with a real one. Safari, Firefox, a phone keyboard. Very long custom emoji lists (it shows eight). The list's look on a narrow screen. The phone app does not have it. A fully typed `:fire:` for an everyday emoji is not converted on send (only picked ones are), as before.
+
+## 57. Forward a message (PR #64)
+
+**Why.** Passing a message on meant copying its text by hand and losing who wrote it. First of three Discord/Viber-style features asked for together (forward, then saved messages, then voice messages; each its own PR).
+
+**What.** Every message that has text or a picture gets a **Forward** button in its hover toolbar (after Copy text), except in a read-only oversight view. It opens **Forward message**: a one-line preview of what is being sent, a search box, and the places it can go: **people, text channels and your own notes** (not voice rooms, and not the conversation it is already in). **Up/Down** move, **Enter** or a click forwards, **Esc** closes. It says "Forwarded to <where>." and closes. The forward is a **new message from you**, shown with a small line **"Forwarded from <who wrote it>"** above it. Forwarding a forward keeps the ORIGINAL writer. For a person you have not messaged yet, the conversation is created first (as opening the DM does). One destination at a time.
+
+**What is copied** (`src/lib/forward.js`): the text and the picture (with its details). **Not** copied: reactions, pin, reply, edit stamp, and where it was: a message from a private channel must not name that channel to people outside it. **Mentions are written as @Name**, not copied as tokens, so a forward cannot ping the people in it or tint the row as a mention for them (an unknown person reads @Unknown, as in Copy text).
+
+**How it is stored.** One extra field on the new message, `forwardedFrom: { uid, name }` (null on every other message), written by the normal `sendMessage`. **No rules change**: the message rules check the author and membership, and they accept any other field (the rules were read to confirm this). The name shown is cleaned again on reading (one line, 60 characters, control and text-direction characters removed, nothing shown if unusable), because any member can write anything into a message.
+
+**Checked.** 21 new tests and 58 deliberate breakages, all caught (6 first survived: a guard that turned out redundant and was deleted, the dialog re-enabling after a failure, which conversation is left out, the ranking, and the label's condition; closed with tests or deleted). In a real browser (the real chat with stubbed Firestore): the toolbar shows Forward; a forwarded message shows "Forwarded from Cara Diaz"; the dialog listed people, the other text channel and My Notes, and not the current channel or the voice room; the preview showed the mention as @Cara Diaz; Down then Enter ensured the DM exists, then sent to the right conversation path with the text (mention as a name), the original writer and no picture, showed "Forwarded to Cara Diaz.", and closed by itself. 655 web tests and the build pass.
+
+**NOT checked.** Real Firestore (the write is the normal message create, which the rules accept on a reading of them). Forwarding a picture in the browser (copied in code and tested, not clicked). Sending to a channel you cannot post in: the send fails and the dialog says "Couldn't forward it" and stays open, which is tested in code only. Several destinations at once; forwarding with a comment added. A phone or Safari/Firefox. The phone app neither forwards nor shows the "Forwarded from" line (it shows the text as an ordinary message).
+
+## 58. Saved messages (PR #65)
+
+**Why.** Second of three Discord/Viber-style features asked for together (forward, section 57; saved messages; then voice messages). There was no way to keep a message to come back to.
+
+**What.** Every message with text or a picture gets a **bookmark** button in its hover toolbar (after Forward), except in My Notes itself and in a read-only oversight view. Clicking it keeps a copy in **My Notes** and the icon turns into a tick saying **"Saved to My Notes"**; clicking it again says **"Already saved"**. In My Notes the copy shows **"Saved from <who wrote it>"** and, for a message that came from a **channel**, a **Go to message** link that takes you back into the app to that message (the link-following of section 53, scrolling to it and lighting it up, or telling you it is gone). The list of saved messages is My Notes (its empty text now says so).
+
+**Why notes, and not a new list.** My Notes is already private (the rules let only its owner read or write `users/{uid}/notes`), so **no rules change and nothing new is stored where others can read it**. The first idea was a list on the person's profile; that document is readable by every signed-in person, so it would have copied private-channel text into it. A saved message is one note whose id comes from the message's id (`s_<message id>`), so saving twice is still one note. DMs are saved too but have no way back (a DM's address means different things to its two people, as in section 53).
+
+**What is kept** (`src/lib/saved.js`, on the forward copy of section 57): the text and picture, who wrote it, mentions as names (a note never pings anyone), and where it came from. Not kept: reactions, pin, reply. The way back is read again on display and must be exactly `/g/<group>/c/<channel>?m=<id>`, so a note can only ever lead into this app.
+
+**Checked.** 15 new tests and 53 deliberate breakages, all caught (3 first survived: a path anchor, one field of the stored note, and the icon swap; closed with tests). In a real browser (the real chat, Firestore stubbed): the toolbar shows the bookmark; the first click wrote one note to the right id with the text (mention as a name), the original writer and the way back, and the label read "Saved to My Notes" then went back after about 1.5 seconds; the second click wrote nothing and said "Already saved"; a saved note showed "Saved from Cara Diaz" with a Go to message link whose address was exactly the in-app route, and clicking it navigated inside the app (the message was too old for the stub, so it showed the "isn't here any more" note, as designed). 670 web tests and the build pass.
+
+**NOT checked.** Against real Firestore (the write is a create in the owner's own notes, which the rules allow; the exists-check is a read of the same place). Saving a picture by clicking (copied in code and tested). Unsaving: delete the note in My Notes like any message of yours; there is no "remove bookmark" on the original. A phone or Safari/Firefox. The phone app has no bookmark button; it shows saved notes as ordinary notes.
+
+## 59. Voice messages on the web (PR #66)
+
+**Why.** Third of three Discord/Viber-style features asked for together (forward, section 57; saved messages, section 58; voice messages). Talking is quicker than typing, above all on a phone.
+
+**What.** When the message box is empty, a **microphone** button replaces Send (and is not shown where the browser cannot record). Pressing it asks for the microphone, then the box becomes a recording bar: a pulsing dot, `0:07 / 1:00`, **Cancel** (bin) and **Send**. At one minute it stops and sends by itself. A recording shorter than 0.7 s is not sent ("too short"), and a refused or missing microphone says so in words. Leaving the conversation or the screen while recording throws the recording away and turns the microphone off. In the list a voice message is a pill: play/pause, a slider you can drag, and the time; only one plays at a time, and a recording that will not play says "Can't play". A voice message can be forwarded (section 57) and saved to My Notes (section 58); replying to one quotes it as `[voice message]`, and a DM's last-message line reads "🎤 Voice message".
+
+**How it is stored.** Like pictures: there is no file storage, so the recording is embedded in the message as a base64 `data:` address (`audioURL`) with `audioMeta: { durationMs, mime }`. A minute at the speech bit rate (16 kbit/s) is about 160 KB of text; the limit is 700,000 characters, which leaves room in the 1 MiB document. **No rules change**: the message rules check the author and membership, not the fields (`firestore.rules` untouched).
+
+**Only that exact shape is ever played** (`isPlayableAudioURL`): `data:audio/...;base64,...` and nothing else. A message from someone else cannot make a viewer's browser fetch from a stranger's server, because a web address, a `blob:` address, a non-audio type or a non-base64 string is simply not a voice message.
+
+**Which format (this matters for phones).** An iPhone cannot play WebM or Ogg, which is what Chrome and Firefox record by default, so a voice message recorded on a Windows or Android Chrome would have been **silent for an iPhone user**. The recorder therefore asks first for **AAC in MP4** (`audio/mp4;codecs=mp4a.40.2`), which every phone and browser plays; Safari and Chrome 126+ can make it. Firefox cannot, and falls back to Opus in WebM or Ogg (those play on Android and on desktop, and show "Can't play" on an iPhone: see section 60 for what the phone app does). Asking for plain `audio/mp4` is not enough: a real Chrome answers it with **Opus inside MP4**, which was found only by recording in a real browser; it is now the last resort only.
+
+**The microphone is never left on.** Every way out of a recording (sent, cancelled, ran out of time, failed, the box unmounted, the conversation changed) stops every track (`src/lib/voiceRecorder.js`, tested with a stand-in recorder including one that never reports that it stopped).
+
+**Checked.** 43 new web tests (713 in all pass) and about 130 deliberate breakages across the recorder, the format rules, the box, the player, send, forward and save: all caught after closing the first survivors, of which some were real: a limit that said "time is up" on every tick after the limit instead of once and stopped by itself, a cancel that did not turn the microphone off if the recorder never reported stopping, and source checks that an older line elsewhere in the file satisfied. A first breakage run died when a failing test left a timer running; each check now has a time limit. In a real browser (Chrome 156, a synthetic tone as the microphone, the real `MediaRecorder` and the real player): it recorded `audio/mp4;codecs=mp4a.40.2`, the result passed the playable check, the player played it (position advanced, 0:01 / 0:02, the slider moved, pause showed), the microphone track was stopped, and the pill fits a 375 px screen with no sideways scroll. The build passes.
+
+**NOT checked.** A real microphone and the browser's permission prompt. Real Firestore (the write is the normal message create, which the rules accept on a reading of them). **Safari, an iPhone, an Android phone, Firefox**: the format choice is by what each browser says it supports, and AAC/MP4 playback on an iPhone is the documented behaviour, not something seen here. Recording while a call is live (the browser may refuse or share the microphone). A very long recording on a slow device (the one-minute limit stops it, but its memory use was not measured). The phone app does not record or play yet: see section 60.

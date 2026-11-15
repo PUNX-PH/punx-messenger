@@ -15,6 +15,10 @@ import { firstUnreadId, needsMarkRead } from '../lib/unread'
 import { pathToReadKey } from '../lib/db'
 import { lastEditableMessage } from '../lib/editLast'
 import { copyToClipboard } from '../lib/clipboard'
+import { saveMessageToNotes } from '../lib/db'
+import { savedNoteId, savedPayload } from '../lib/saved'
+import LazySlot from './LazySlot'
+import { ForwardDialog } from '../lib/lazyParts'
 import { LINK_LOOKBACK, MESSAGE_PARAM, messageIdFromSearch, messageLink, nextLinkStep } from '../lib/messageLink'
 import ErrorBoundary from './ErrorBoundary'
 import MessageList, { PinIcon } from './MessageList'
@@ -68,6 +72,7 @@ export default function ChatSurface({
   const [searchOpen, setSearchOpen] = useState(false)
   const [jumpId, setJumpId] = useState(null)
   const [replyingTo, setReplyingTo] = useState(null)
+  const [forwarding, setForwarding] = useState(null) // the message being forwarded (its picker is open)
   const [container, setContainer] = useState(null)
   const [nowTick, setNowTick] = useState(() => Date.now())
   const pinnedRef = useRef(null)
@@ -124,6 +129,7 @@ export default function ChatSurface({
   // "replying to" chosen in one channel was still pending in the next.
   useEffect(() => {
     setReplyingTo(null)
+    setForwarding(null)
     setPinnedOpen(false)
     setSearchOpen(false)
     setJumpId(null)
@@ -225,8 +231,8 @@ export default function ChatSurface({
     return () => window.removeEventListener('mousedown', onClick)
   }, [pinnedOpen])
 
-  const onSend = async ({ text, imageFile, imageURL, imageMeta }) => {
-    await sendMessage(path, { text, imageFile, imageURL, imageMeta, author: profile, replyTo: replyingTo })
+  const onSend = async ({ text, imageFile, imageURL, imageMeta, audio }) => {
+    await sendMessage(path, { text, imageFile, imageURL, imageMeta, audio, author: profile, replyTo: replyingTo })
     setReplyingTo(null)
     // Clear our typing state on send
     if (containerPath && profile?.uid) setTyping(containerPath, profile.uid, false)
@@ -305,6 +311,14 @@ export default function ChatSurface({
 
   // "Copy link" is offered only in channels (messageLink gives null for DMs and notes).
   const hasLinks = messageLink('https://x.example', path, 'a') !== null
+  // "Save" keeps a copy in My Notes. Not offered in My Notes itself, nor in a read-only view.
+  const inNotes = path.startsWith('users/')
+  const saveMessage = useCallback(async (m) => {
+    const id = savedNoteId(m.id)
+    const payload = savedPayload(m, usersByIdRef.current, path)
+    if (!id || !payload || !profile?.uid) return false
+    try { return await saveMessageToNotes(profile, id, payload) } catch { return false }
+  }, [path, profile])
   const copyLink = useCallback((m) => copyToClipboard(messageLink(window.location.origin, path, m.id)), [path])
 
   return (
@@ -418,6 +432,8 @@ export default function ChatSurface({
           onReply={readOnly ? null : setReplyingTo}
           onJumpToMessage={jumpTo}
           onCopyLink={hasLinks ? copyLink : null}
+          onForward={readOnly ? null : setForwarding}
+          onSave={readOnly || inNotes ? null : saveMessage}
           meUid={profile?.uid}
           scrollToId={jumpId}
           highlightId={jumpId}
@@ -425,6 +441,12 @@ export default function ChatSurface({
           onEditEnded={() => setComposerFocus((n) => n + 1)}
         />
       </ErrorBoundary>
+      )}
+
+      {forwarding && (
+        <LazySlot overlay title="The forward box couldn't be opened" onDismiss={() => setForwarding(null)}>
+          <ForwardDialog message={forwarding} currentPath={path} onClose={() => setForwarding(null)} />
+        </LazySlot>
       )}
 
       {linkNote && (
