@@ -3,9 +3,11 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../markdown/mention_resolver.dart';
+import '../models/forwarded_from.dart';
 import '../models/message.dart';
 import '../models/reply_snapshot.dart';
 import '../models/user_profile.dart';
+import '../models/voice_clip.dart';
 import '../utils/constants.dart';
 import '../utils/firestore_paths.dart';
 import '../utils/saved.dart';
@@ -69,9 +71,16 @@ class MessagesRepository {
     ChatMessage? replyTo,
     String? remoteImageUrl,
     Map<String, dynamic>? remoteImageMeta,
+    VoiceClip? voice,
+    ForwardedFrom? forwardedFrom,
   }) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty && imageBytes == null && remoteImageUrl == null) return;
+    if (trimmed.isEmpty &&
+        imageBytes == null &&
+        remoteImageUrl == null &&
+        voice == null) {
+      return;
+    }
 
     final msgRef = _db.collection(path).doc();
 
@@ -116,6 +125,11 @@ class MessagesRepository {
       'text': trimmed,
       'imageURL': imageUrl,
       'imageMeta': imageMeta,
+      'audioURL': voice?.dataUrl,
+      'audioMeta': voice == null
+          ? null
+          : {'durationMs': voice.durationMs, 'mime': voice.storedMime},
+      'forwardedFrom': forwardedFrom?.toMap(),
       'author': {
         'uid': author.id,
         'name': author.name,
@@ -134,7 +148,9 @@ class MessagesRepository {
         final convoId = path.split('/')[1];
         await _db.collection('dms').doc(convoId).set({
           'lastMessageAt': FieldValue.serverTimestamp(),
-          'lastMessageText': trimmed.isNotEmpty ? trimmed : '📷 Image',
+          'lastMessageText': trimmed.isNotEmpty
+              ? trimmed
+              : (voice != null ? '🎤 Voice message' : '📷 Image'),
           'lastMessageAuthorUid': author.id,
         }, SetOptions(merge: true));
       } else if (path.startsWith('groups/') && path.contains('/channels/')) {

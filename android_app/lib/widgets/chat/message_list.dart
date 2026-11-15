@@ -46,6 +46,7 @@ class MessageListView extends StatefulWidget {
     this.onReact,
     this.onJumpToMessage,
     this.onSave,
+    this.onForward,
   });
 
   final List<ChatMessage> messages;
@@ -80,6 +81,9 @@ class MessageListView extends StatefulWidget {
 
   /// Keeps a copy of a message in My Notes; null where that is not offered (My Notes itself).
   final Future<SaveResult> Function(ChatMessage message)? onSave;
+
+  /// Opens the Forward box for a message; null where forwarding is not offered.
+  final ValueChanged<ChatMessage>? onForward;
   final void Function(ChatMessage message, String key)? onReact;
   final ValueChanged<String>? onJumpToMessage;
 
@@ -467,6 +471,7 @@ class _MessageListViewState extends State<MessageListView> {
               onReact: widget.onReact,
               onJumpToMessage: widget.onJumpToMessage,
               onSave: widget.onSave,
+              onForward: widget.onForward,
             ),
           );
         },

@@ -17,6 +17,7 @@ import '../../utils/constants.dart';
 import '../../utils/firestore_paths.dart';
 import '../../utils/new_line.dart';
 import 'composer.dart';
+import 'forward_sheet.dart';
 import 'message_list.dart';
 import 'pinned_messages_sheet.dart';
 import 'search_sheet.dart';
@@ -294,6 +295,12 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
                   onSave: widget.path.startsWith('users/')
                       ? null
                       : controller.saveToNotes,
+                  onForward: (m) => showForwardSheet(
+                    context,
+                    message: m,
+                    currentPath: widget.path,
+                    send: (target) => controller.forwardMessage(m, target),
+                  ),
                 ),
               ),
               TypingIndicator(label: typingLabel),
