@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/dm_providers.dart';
+import '../../providers/users_providers.dart';
 import '../../services/dm_open_error.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
+import '../../utils/status.dart';
 import '../../widgets/calls/call_button.dart';
 import '../../widgets/chat/chat_surface.dart';
 
@@ -65,6 +67,11 @@ class DmChatScreen extends ConsumerWidget {
       },
       data: (dmContext) => ChatSurface(
         title: dmContext.other.name,
+        // Their status as it is now (the context was read once, this follows the directory).
+        subtitle: activeStatusOf(
+          ref.watch(usersByIdProvider)[otherUid] ?? dmContext.other,
+          DateTime.now(),
+        )?.text,
         icon: '@',
         path: dmContext.messagesPath,
         composerPlaceholder: 'Message @${dmContext.other.name}',

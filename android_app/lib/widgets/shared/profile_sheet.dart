@@ -9,6 +9,7 @@ import '../../providers/voice_channel_providers.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
 import 'avatar.dart';
+import 'status_editor_sheet.dart';
 import 'role_badge.dart';
 
 /// The Android counterpart of `components/UserPanel.jsx` — your own avatar row
@@ -94,6 +95,8 @@ class ProfileSheet extends ConsumerWidget {
             ),
           ),
           const Divider(height: 1),
+          // Your status: what shows next to your name for everyone you work with.
+          const StatusRow(),
           // The web's gear menu, which is the closest thing it has to a
           // settings screen: voice settings while connected, then
           // notifications. Admin panel is omitted because it is a bottom-nav

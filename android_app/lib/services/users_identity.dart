@@ -29,6 +29,7 @@ UserProfile identityOf(UserProfile u) => UserProfile(
   role: u.role,
   createdAt: u.createdAt,
   mutedGroups: u.mutedGroups,
+  customStatus: u.customStatus,
   deactivated: u.deactivated,
   // lastSeen, presence and lastRead are left at their defaults ON PURPOSE: anything
   // still reading them off this object gets nothing, not a value frozen at
@@ -50,6 +51,8 @@ String identityKey(UserProfile u) {
     ms(u.createdAt),
     u.deactivated,
     u.mutedGroups.join('\u0001'),
+    u.customStatus?.text,
+    u.customStatus?.until,
   ].join('\u0000');
 }
 
