@@ -5,6 +5,7 @@ export default function Avatar({ name, src, size = 32, status, ringColor = 'bord
     status === 'online' ? 'bg-ok'
       : status === 'away' ? 'bg-warn'
       : status === 'offline' ? 'bg-ink-dim'
+      : status === 'dnd' ? 'bg-bad' // do not disturb: only ever your own avatar, nobody else sees it
       : null
 
   const dotSize = Math.max(8, Math.round(size * 0.30))

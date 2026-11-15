@@ -172,7 +172,7 @@ test('your own panel shows it in place of your role, and a click on your name op
   assert.ok(p.includes('onClick={() => setStatusOpen(true)}'))
   assert.ok(p.includes("label: myStatus ? 'Change your status' : 'Set a status',"), 'and the gear menu has it too')
   assert.ok(p.includes('<StatusEditor open onClose={() => setStatusOpen(false)} current={me?.status} />'))
-  assert.ok(p.includes("import { PreferencesModal, StatusEditor } from '../lib/lazyParts'"), 'loaded when first opened, not up front')
+  assert.ok(p.includes("import { DndDialog, PreferencesModal, StatusEditor } from '../lib/lazyParts'"), 'loaded when first opened, not up front')
 })
 
 test('the member list, the DM list and the DM header show other people\'s', () => {

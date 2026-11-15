@@ -12,9 +12,12 @@ import { isEnabled as sfxEnabled, play as playSfx, setEnabled as setSfxEnabled }
 import GroupContextMenu from './GroupContextMenu'
 import VoiceSettingsPopover from './voice/VoiceSettingsPopover'
 import LazySlot from './LazySlot'
-import { PreferencesModal, StatusEditor } from '../lib/lazyParts'
+import { DndDialog, PreferencesModal, StatusEditor } from '../lib/lazyParts'
 import { statusOf } from '../lib/status'
 import { OPEN_EVENT } from '../lib/quickSwitch'
+import { dndLabel, dndOf } from '../lib/dnd'
+import { setMyDnd } from '../lib/db'
+import { usePrefs } from '../lib/usePrefs'
 
 // Compact, Discord-style bottom bar: avatar + name/role, then whatever
 // icons are actually relevant right now. Mic/deafen only show up while
@@ -33,6 +36,8 @@ export default function UserPanel() {
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false)
   const [prefsOpen, setPrefsOpen] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
+  const [dndOpen, setDndOpen] = useState(false)
+  const [prefs] = usePrefs()
   // Mirrors the class already on <html>, which the inline script in
   // index.html may have set before React ever mounted.
   const [light, setLightState] = useState(() => isLight())
@@ -45,11 +50,17 @@ export default function UserPanel() {
   const status = computeStatus(presence[profile?.id] || me, now)
   // What you have written next to your name (not the green/grey dot, which is `status` above).
   const myStatus = statusOf(me, now)
+  // Do not disturb (lib/dnd.js): null when off or run out. Only your own device ever reads it.
+  const dnd = dndOf(me, now)
+  const turnOffDnd = () => { setMyDnd(profile?.id, null).catch(() => {}) }
 
   const openMenu = (e) => setMenu({ open: true, x: e.clientX, y: e.clientY })
 
   const items = [
     { label: myStatus ? 'Change your status' : 'Set a status', icon: <SmileIcon />, onClick: () => setStatusOpen(true) },
+    dnd
+      ? { label: `Turn off do not disturb (${dndLabel(dnd, now, prefs.timeFormat)})`, icon: <BellOffIcon />, onClick: turnOffDnd }
+      : { label: 'Do not disturb…', icon: <BellOffIcon />, onClick: () => setDndOpen(true) },
     ...(activeChannel ? [
       { label: 'Voice Settings', icon: <GearIcon />, onClick: () => setVoiceSettingsOpen(true) },
       { separator: true },
@@ -95,7 +106,7 @@ export default function UserPanel() {
 
   return (
     <div className="h-14 bg-bg-deepest border-t border-line-subtle px-2 flex items-center gap-1.5 shrink-0">
-      <Avatar name={profile?.name} src={profile?.photoURL} size={32} status={status} ringColor="border-bg-deepest" />
+      <Avatar name={profile?.name} src={profile?.photoURL} size={32} status={dnd ? 'dnd' : status} ringColor="border-bg-deepest" />
       <button
         type="button"
         onClick={() => setStatusOpen(true)}
@@ -107,6 +118,12 @@ export default function UserPanel() {
           {activeChannel ? 'In voice' : myStatus ? myStatus.text : roleLabel(profile?.role)}
         </div>
       </button>
+
+      {dnd && (
+        <FlatIconButton onClick={turnOffDnd} active label={`Do not disturb ${dndLabel(dnd, now, prefs.timeFormat)}. Click to turn it off.`}>
+          <BellOffIcon />
+        </FlatIconButton>
+      )}
 
       {activeChannel && (
         <>
@@ -130,6 +147,11 @@ export default function UserPanel() {
       {prefsOpen && (
         <LazySlot overlay title="Preferences couldn't be opened" onDismiss={() => setPrefsOpen(false)}>
           <PreferencesModal open onClose={() => setPrefsOpen(false)} />
+        </LazySlot>
+      )}
+      {dndOpen && (
+        <LazySlot overlay title="The do not disturb box couldn't be opened" onDismiss={() => setDndOpen(false)}>
+          <DndDialog open onClose={() => setDndOpen(false)} />
         </LazySlot>
       )}
       {statusOpen && (

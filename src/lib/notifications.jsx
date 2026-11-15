@@ -6,6 +6,7 @@ import { useAuth } from './auth'
 import { useUsers } from './users'
 import { listenMyDmConvos } from './db'
 import { mutedChatsOf } from './muted'
+import { announcePlan, dndOf } from './dnd'
 import { pathToReadKey } from './unread'
 import { play as playSfx } from './sfx'
 
@@ -96,8 +97,14 @@ export function NotificationDaemon() {
     // front too, because that is when you are most likely to be using the app
     // with the sound on. The one exception is the conversation you are looking
     // at — it is already on screen, and pinging for it would be noise.
-    if (sound && !isLookingAt(path)) playSfx('dm_ping')
-    if (!shouldNotify()) return
+    // Do not disturb (lib/dnd.js) turns off both. It is read now, from the ref, so a switch
+    // you flip (or one that runs out) applies to the next message with no re-subscribing.
+    const plan = announcePlan({
+      dnd: !!dndOf(byIdRef.current[profile?.id]),
+      sound, looking: isLookingAt(path), canNotify: shouldNotify(),
+    })
+    if (plan.ping) playSfx('dm_ping')
+    if (!plan.notify) return
     try {
       const n = new Notification(title, {
         body: stripTokens(body),
