@@ -78,7 +78,7 @@ test('nothing, or nonsense, gives the defaults', () => {
 test('a valid set is kept as it is', () => {
   const p = {
     theme: 'light', background: 'ocean', accent: '#e8552b', textSize: 'large', density: 'compact', font: 'readable',
-    contrast: 'high', pattern: 'punx-corner', patternStrength: 'strong', reduceMotion: true, timeFormat: '24h', sendKey: 'mod-enter', groupMinutes: 15, tabTitleCount: false, updatedAt: 1234,
+    contrast: 'high', pattern: 'punx-corner', patternStrength: 'strong', reduceMotion: true, timeFormat: '24h', sendKey: 'mod-enter', groupMinutes: 15, tabTitleCount: false, shareSeen: false, updatedAt: 1234,
   }
   assert.deepEqual(normalizePrefs(p), p)
 })
@@ -86,7 +86,7 @@ test('a valid set is kept as it is', () => {
 test('each field falls back on its own when its value is not on the list', () => {
   const n = normalizePrefs({
     theme: 'sepia', background: 'neon', accent: 'red', textSize: 'huge', density: 'tight', font: 'comic',
-    contrast: 'max', pattern: 'confetti', patternStrength: 'loud', reduceMotion: 'yes', timeFormat: '48h', sendKey: 'tab', groupMinutes: 7, tabTitleCount: 'no', updatedAt: -3,
+    contrast: 'max', pattern: 'confetti', patternStrength: 'loud', reduceMotion: 'yes', timeFormat: '48h', sendKey: 'tab', groupMinutes: 7, tabTitleCount: 'no', shareSeen: 'no', updatedAt: -3,
   })
   assert.deepEqual(n, DEFAULT_PREFS)
   assert.equal(normalizePrefs({ theme: 'light', background: 'neon' }).theme, 'light', 'a bad field does not discard a good one')

@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs'
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing'
 import {
   doc, getDoc, setDoc, updateDoc, deleteDoc, deleteField, collection, getDocs, query, where, writeBatch,
+  serverTimestamp,
 } from 'firebase/firestore'
 
 const PROJECT = 'punx-rules-test'
@@ -846,6 +847,39 @@ await t('a group admin can still pin it', () => assertSucceeds(updateDoc(authore
 await t('any member who can see the channel can still react to it', () => assertSucceeds(
   updateDoc(authored(T1), { reactions: { '👍': [T1] } })))
 before = async () => {}
+
+console.log('\n-- "Seen" in DMs: a receipt on your own profile --')
+// users/{uid}.seen.<dm key> is a server time written by the open conversation (lib/seen.js). It needs
+// no rules of its own: it is a field of your own profile, which the general rule already lets you
+// write and nobody else, and which every signed-in account can read (that is how the other person's
+// app finds it). These pin all three, so a tightening of the users rule cannot silently end "Seen".
+await testEnv.withSecurityRulesDisabled(async (ctx) => {
+  const admin = ctx.firestore() // one handle per context: asking twice is an error
+  for (const u of ['seenreader', 'seenpeer']) {
+    await setDoc(doc(admin, 'users', u), { uid: u, role: 'employee', email: `${u}@punx.ai`, name: u })
+  }
+})
+const seenKey = 'seen.dms__seenpeer__seenreader'
+await t('you can write your own receipt', () => assertSucceeds(
+  updateDoc(doc(as('seenreader'), 'users', 'seenreader'), { [seenKey]: serverTimestamp() })))
+await t('...and the other person can read it from your profile', async () => {
+  const snap = await assertSucceeds(getDoc(doc(as('seenpeer'), 'users', 'seenreader')))
+  if (!snap.data().seen?.dms__seenpeer__seenreader) throw new Error('the receipt is not readable')
+})
+await t('nobody else can write a receipt on YOUR profile (no forging "Seen")', () => assertFails(
+  updateDoc(doc(as('seenpeer'), 'users', 'seenreader'), { [seenKey]: serverTimestamp() })))
+await t('...not a guest either', () => assertFails(
+  updateDoc(doc(as(GUEST), 'users', 'seenreader'), { [seenKey]: serverTimestamp() })))
+await t('you can remove all of your own receipts (turning sharing off)', () => assertSucceeds(
+  updateDoc(doc(as('seenreader'), 'users', 'seenreader'), { seen: deleteField() })))
+await t('...and then there is nothing to read', async () => {
+  const snap = await assertSucceeds(getDoc(doc(as('seenpeer'), 'users', 'seenreader')))
+  if (snap.data().seen) throw new Error('receipts are still there')
+})
+await t('nobody else can remove them either', async () => {
+  await assertSucceeds(updateDoc(doc(as('seenreader'), 'users', 'seenreader'), { [seenKey]: serverTimestamp() }))
+  await assertFails(updateDoc(doc(as('seenpeer'), 'users', 'seenreader'), { seen: deleteField() }))
+})
 
 // Anything the budget swallowed outside a test — during a `before` reseed, or
 // logged too late to be attributed to its own assertion — still gets reported.

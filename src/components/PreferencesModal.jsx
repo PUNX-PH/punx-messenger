@@ -1,6 +1,8 @@
 import { useId, useSyncExternalStore } from 'react'
 import Modal from './Modal'
 import { usePrefs, useSyncStatus } from '../lib/usePrefs'
+import { useAuth } from '../lib/auth'
+import { clearMySeen } from '../lib/db'
 import {
   ACCENTS, CONTRASTS, DEFAULT_ACCENT_HEX, DENSITIES, FONTS, GROUP_MINUTES, PALETTES, SEND_KEYS,
   TEXT_SIZES, THEMES, TIME_FORMATS, isDefault,
@@ -20,6 +22,7 @@ import { OPEN_SHORTCUTS_EVENT } from '../lib/shortcuts'
  */
 export default function PreferencesModal({ open, onClose }) {
   const [prefs, set, reset] = usePrefs()
+  const { profile } = useAuth()
   const sync = useSyncStatus()
   const sfxOn = useSyncExternalStore(sfxSubscribe, sfxEnabled, sfxEnabled)
   const { supported: notifSupported, permission: notifPerm, request: requestNotif } = useNotifications()
@@ -212,6 +215,19 @@ export default function PreferencesModal({ open, onClose }) {
               )}
             </div>
           )}
+        </div>
+
+        <h3 className="mt-8 mb-1 text-base font-semibold">Privacy</h3>
+        <div className="space-y-2 mt-3">
+          <Switch
+            label="Let others see when I've read their messages"
+            hint={'In a direct message, the other person sees "Seen 3:41 PM" under their message once you have opened the chat. Turn it off and nobody sees yours, and you do not see theirs.'}
+            checked={prefs.shareSeen}
+            onChange={(on) => {
+              set({ shareSeen: on })
+              if (!on) clearMySeen(profile?.id).catch(() => {})
+            }}
+          />
         </div>
 
         <div className="flex items-center justify-between gap-4 mt-8 pt-4 border-t border-line-subtle">

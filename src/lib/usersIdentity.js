@@ -27,8 +27,10 @@ const VOLATILE = ['presence', 'lastSeen']
  * muted) is the same kind of thing: personal, drives only their own badges and dots,
  * and nobody else's screen has any use for it or any reason to redraw when it changes.
  * `dnd` (do not disturb, lib/dnd.js) is too: it only decides whether THEIR device pings.
+ * `seen` (when they last had each DM open, lib/seen.js) changes whenever they read one; a DM reads
+ * the other person's from that person's own document while it is open, not from this list.
  */
-const OWN_ONLY = ['lastRead', 'mutedChats', 'dnd']
+const OWN_ONLY = ['lastRead', 'mutedChats', 'dnd', 'seen']
 
 /** A person without the fields that change on their own. */
 export function identityOf(user, isMe = false) {

@@ -26,7 +26,7 @@ test('a failed listener leaves this conversation with no messages, not the previ
 
 test('a conversation is not marked read before its own messages are in', () => {
   assert.ok(surface.includes('if (!profile?.uid || !path || readOnly || !looking || !loaded) return'))
-  assert.ok(surface.includes('[profile?.uid, path, newestId, readOnly, looking, loaded])'), 'and it runs again once they arrive')
+  assert.ok(surface.includes('[profile?.uid, path, newestId, readOnly, looking, loaded, shareSeen])'), 'and it runs again once they arrive')
 })
 
 test('while they load the list shows a blank pane, never "start of the conversation"', () => {

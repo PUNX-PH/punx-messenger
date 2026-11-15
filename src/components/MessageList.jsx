@@ -36,6 +36,8 @@ export default function MessageList({
   onSave = null,          // (message) => Promise<'saved'|'exists'|false>: keep a copy in My Notes; null where it is not offered
   meUid,
   highlightId,
+  seenId = null,          // a DM: the id of your latest message the other person has read
+  seenText = '',          // and what to say under it ("Seen 3:41 PM")
   scrollToId,
   newFromId = null,       // the first message you had not read when you opened this chat
   editRequest = null,     // { id, n }: open this message of mine for editing (the up arrow in the box)
@@ -259,6 +261,9 @@ export default function MessageList({
               canPin={canPin}
               onTogglePin={onTogglePin}
               highlightId={highlightId}
+              // Only the group that holds it is told, so moving the line re-renders that group and the one it left.
+              seenId={b.items.some(m => m.id === seenId) ? seenId : null}
+              seenText={seenText}
               usersById={usersById}
               emojiByName={emojiByName}
               tickNow={now}
@@ -345,7 +350,7 @@ function ArrowDownIcon({ className }) {
 }
 
 const Group = memo(function Group({
-  group, timeFormat, onZoom, canPin, onTogglePin, highlightId, usersById, presenceById, emojiByName, tickNow,
+  group, timeFormat, onZoom, canPin, onTogglePin, highlightId, seenId, seenText, usersById, presenceById, emojiByName, tickNow,
   canDeleteAny, readOnly, meUid, editingId, setEditingId, onEdit, onDelete, onReact,
   onReply, onJumpToMessage, onCopyLink, onForward, onSave,
 }) {
@@ -375,6 +380,7 @@ const Group = memo(function Group({
           canPin={canPin}
           onTogglePin={onTogglePin}
           highlighted={highlightId === m.id}
+          seenText={seenId === m.id ? seenText : ''}
           emojiByName={emojiByName}
           isAuthor={meUid === m.author?.uid}
           canDeleteAny={canDeleteAny}
@@ -402,7 +408,7 @@ const Group = memo(function Group({
 // markdown of every message on screen used to be parsed again each time. A row
 // now renders again only when its own message, or something it shows, changes.
 const Row = memo(function Row({
-  message, showHeader, author, firstTime, timeFormat, onZoom, canPin, onTogglePin, highlighted,
+  message, showHeader, author, firstTime, timeFormat, onZoom, canPin, onTogglePin, highlighted, seenText,
   emojiByName, isAuthor, canDeleteAny, readOnly, editing, setEditingId, onEdit, onDelete,
   onReact, onReply, onJumpToMessage, onCopyLink, onForward, onSave, meUid, usersById,
 }) {
@@ -564,6 +570,9 @@ const Row = memo(function Row({
                   </button>
                 )}
               </div>
+            )}
+            {seenText && (
+              <div className="mt-0.5 text-right text-[11px] text-ink-dim" data-seen>{seenText}</div>
             )}
           </div>
         )}

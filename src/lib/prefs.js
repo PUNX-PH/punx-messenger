@@ -68,6 +68,7 @@ export const DEFAULT_PREFS = Object.freeze({
   sendKey: 'enter',
   groupMinutes: 5,
   tabTitleCount: true,
+  shareSeen: true,               // let others see when I have read their DMs (lib/seen.js), and see theirs
   updatedAt: 0,                  // when it was last changed, to tell which copy is newer
 })
 
@@ -101,6 +102,7 @@ export function normalizePrefs(raw) {
     sendKey: oneOf(r.sendKey, SEND_KEYS, d.sendKey),
     groupMinutes: oneOf(r.groupMinutes, GROUP_MINUTES, d.groupMinutes),
     tabTitleCount: typeof r.tabTitleCount === 'boolean' ? r.tabTitleCount : d.tabTitleCount,
+    shareSeen: typeof r.shareSeen === 'boolean' ? r.shareSeen : d.shareSeen,
     updatedAt,
   }
 }

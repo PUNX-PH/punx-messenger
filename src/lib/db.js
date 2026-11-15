@@ -13,6 +13,7 @@ import { watched } from './dataHealth'
 import { chunkKeys, dmConvoId, isUnread, pathToReadKey } from './unread'
 import { cleanStatusText } from './status'
 import { isPlayableAudioURL } from './voiceMessage'
+import { isDmPath, seenAtOf } from './seen'
 export { dmConvoId, isUnread, pathToReadKey }
 
 // Listen to all users (workspace directory)
@@ -99,12 +100,31 @@ export function listenMessages(path, cb, lim = MESSAGE_PAGE, onError) {
 
 // Mark a channel or DM convo as read by the current user.
 // `containerPath` is the path WITHOUT trailing /messages (e.g. "dms/abc", "groups/x/channels/y").
-export async function markRead(uid, containerPath) {
+// `marks` says what to write (see marksNeeded in lib/seen.js): `read` is the unread bookkeeping, and
+// `seen` the receipt another person's "Seen" is built on, for a DM that was really open. The two are
+// separate on purpose: "Mark as read" writes only `read`.
+export async function markRead(uid, containerPath, marks = { read: true }) {
   if (!uid || !containerPath) return
   const key = pathToReadKey(containerPath)
-  await updateDoc(doc(db, 'users', uid), {
-    [`lastRead.${key}`]: serverTimestamp(),
-  })
+  const fields = {}
+  if (marks.read) fields[`lastRead.${key}`] = serverTimestamp()
+  if (marks.seen && isDmPath(containerPath)) fields[`seen.${key}`] = serverTimestamp()
+  if (!Object.keys(fields).length) return
+  await updateDoc(doc(db, 'users', uid), fields)
+}
+
+// Stop sharing "Seen": remove every receipt from your own profile (the preference in lib/seen.js).
+export async function clearMySeen(uid) {
+  if (!uid) return
+  await updateDoc(doc(db, 'users', uid), { seen: deleteField() })
+}
+
+// When the OTHER person last had this DM open (ms, or null), from their profile: one document, while
+// the conversation is on screen. Not through the shared user list, which leaves `seen` out on
+// purpose. A failure reads as "not seen", and is not worth a banner.
+export function listenPeerSeen(otherUid, containerPath, cb) {
+  const key = pathToReadKey(containerPath)
+  return onSnapshot(doc(db, 'users', otherUid), (snap) => cb(seenAtOf(snap.data(), key)), () => cb(null))
 }
 
 // Mark many conversations read at once ("mark all as read"). `keys` are read keys (pathToReadKey),
