@@ -383,9 +383,7 @@ class _ReplyPreviewBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final snippet = replyingTo.text.isNotEmpty
-        ? replyingTo.text
-        : (replyingTo.imageURL != null ? '[image]' : '');
+    final snippet = replyingTo.previewText;
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

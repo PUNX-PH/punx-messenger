@@ -99,9 +99,7 @@ class MessagesRepository {
 
     Map<String, dynamic>? replyToMap;
     if (replyTo != null) {
-      final rawSnippet = replyTo.text.isNotEmpty
-          ? replyTo.text
-          : (replyTo.imageURL != null ? '[image]' : '');
+      final rawSnippet = replyTo.previewText;
       final snippet = rawSnippet.length > 160
           ? rawSnippet.substring(0, 160)
           : rawSnippet;

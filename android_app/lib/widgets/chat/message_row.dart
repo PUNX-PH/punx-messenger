@@ -20,6 +20,7 @@ import 'emoji_picker_sheet.dart';
 import 'lightbox_viewer.dart';
 import 'message_renderer.dart';
 import 'reaction_chip.dart';
+import 'voice_clip_tile.dart';
 
 /// One message row — port of the per-message rendering in MessageList.jsx
 /// (author/name/time header shown once per 5-min author-cluster, reply
@@ -169,6 +170,7 @@ class MessageRow extends ConsumerWidget {
                     ),
                   if (message.imageURL != null)
                     _MessageImage(dataUrl: message.imageURL!),
+                  if (message.voice != null) VoiceClipTile(clip: message.voice!),
                   if (message.text.isNotEmpty)
                     MessageRenderer(
                       text: message.text,
