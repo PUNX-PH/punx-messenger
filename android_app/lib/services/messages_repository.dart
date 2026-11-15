@@ -8,6 +8,7 @@ import '../models/reply_snapshot.dart';
 import '../models/user_profile.dart';
 import '../utils/constants.dart';
 import '../utils/firestore_paths.dart';
+import '../utils/saved.dart';
 import 'image_service.dart';
 
 /// 1:1 port of the message-level functions in src/lib/db.js. `path` is a
@@ -217,6 +218,40 @@ class MessagesRepository {
     } catch (_) {
       // non-fatal, matches db.js's setTyping
     }
+  }
+
+  /// Keeps a copy of a message in the person's own notes (see utils/saved.dart), under an id made
+  /// from the message's, so saving it twice is one note. Same fields as the web's
+  /// saveMessageToNotes (db.js).
+  Future<SaveResult> saveMessageToNotes(
+    UserProfile me,
+    String noteId,
+    SavedPayload saved,
+  ) async {
+    final ref = _db
+        .collection('users')
+        .doc(me.id)
+        .collection('notes')
+        .doc(noteId);
+    if ((await ref.get()).exists) return SaveResult.exists;
+    final c = saved.copy;
+    await ref.set({
+      'text': c.text,
+      'imageURL': c.imageURL,
+      'imageMeta': c.imageMeta?.toMap(),
+      'audioURL': c.voice?.dataUrl,
+      'audioMeta': c.voice == null
+          ? null
+          : {'durationMs': c.voice!.durationMs, 'mime': c.voice!.storedMime},
+      'author': {'uid': me.id, 'name': me.name, 'photoURL': me.photoURL},
+      'mentionedUids': <String>[],
+      'replyTo': null,
+      'forwardedFrom': c.forwardedFrom.toMap(),
+      'savedFrom': {'route': saved.route},
+      'createdAt': FieldValue.serverTimestamp(),
+      'pinned': false,
+    });
+    return SaveResult.saved;
   }
 
   /// Marks a channel/DM as read by the current user.

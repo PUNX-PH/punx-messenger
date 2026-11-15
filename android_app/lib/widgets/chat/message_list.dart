@@ -7,6 +7,7 @@ import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
 import '../../utils/constants.dart';
 import '../../utils/new_line.dart';
+import '../../utils/saved.dart';
 import '../../utils/time_format.dart';
 import 'message_row.dart';
 
@@ -44,6 +45,7 @@ class MessageListView extends StatefulWidget {
     this.onTogglePin,
     this.onReact,
     this.onJumpToMessage,
+    this.onSave,
   });
 
   final List<ChatMessage> messages;
@@ -75,6 +77,9 @@ class MessageListView extends StatefulWidget {
   final void Function(ChatMessage message, String newText)? onEdit;
   final ValueChanged<ChatMessage>? onDelete;
   final ValueChanged<ChatMessage>? onTogglePin;
+
+  /// Keeps a copy of a message in My Notes; null where that is not offered (My Notes itself).
+  final Future<SaveResult> Function(ChatMessage message)? onSave;
   final void Function(ChatMessage message, String key)? onReact;
   final ValueChanged<String>? onJumpToMessage;
 
@@ -461,6 +466,7 @@ class _MessageListViewState extends State<MessageListView> {
               onTogglePin: widget.onTogglePin,
               onReact: widget.onReact,
               onJumpToMessage: widget.onJumpToMessage,
+              onSave: widget.onSave,
             ),
           );
         },

@@ -27,13 +27,21 @@ bool isPlayableAudioUrl(Object? url) =>
     url is String && url.length <= maxVoiceChars && _audioUrl.hasMatch(url);
 
 class VoiceClip {
-  const VoiceClip({required this.dataUrl, required this.durationMs});
+  const VoiceClip({
+    required this.dataUrl,
+    required this.durationMs,
+    this.storedMime,
+  });
 
   final String dataUrl;
 
   /// How long it is, as stored with the message; 0 when it was not stored (the
   /// player then reads the length from the file itself).
   final int durationMs;
+
+  /// The type the web wrote with the message (`audioMeta.mime`), when it did. Kept so a copy of
+  /// the message can carry it on; the type that is PLAYED comes from the address ([mime]).
+  final String? storedMime;
 
   /// Reads a message's fields. Null when it has no voice message, or one that
   /// must not be played.
@@ -46,7 +54,12 @@ class VoiceClip {
         ms = d.round() > maxVoiceMs ? maxVoiceMs : d.round();
       }
     }
-    return VoiceClip(dataUrl: audioUrl as String, durationMs: ms);
+    final mime = audioMeta is Map ? audioMeta['mime'] : null;
+    return VoiceClip(
+      dataUrl: audioUrl as String,
+      durationMs: ms,
+      storedMime: mime is String ? mime : null,
+    );
   }
 
   /// `audio/mp4`, `audio/webm`... from the address.

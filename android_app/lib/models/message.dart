@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'forwarded_from.dart';
 import 'image_meta.dart';
 import 'message_author.dart';
 import 'reply_snapshot.dart';
@@ -21,6 +22,13 @@ class ChatMessage {
   /// A voice message (`audioURL` + `audioMeta`), null when there is none or it
   /// is not one that may be played (see [VoiceClip.fromFields]).
   final VoiceClip? voice;
+
+  /// Who wrote it first, when this is a forward or a saved copy (see utils/forward.dart).
+  final ForwardedFrom? forwardedFrom;
+
+  /// A copy kept in My Notes with the bookmark (`savedFrom` is on the note), as opposed to a
+  /// plain forward or something typed there.
+  final bool isSavedNote;
   final MessageAuthor author;
   final List<String> mentionedUids;
   final ReplySnapshot? replyTo;
@@ -36,6 +44,8 @@ class ChatMessage {
     this.imageURL,
     this.imageMeta,
     this.voice,
+    this.forwardedFrom,
+    this.isSavedNote = false,
     this.mentionedUids = const [],
     this.replyTo,
     this.createdAt,
@@ -73,6 +83,8 @@ class ChatMessage {
         rawImageMeta is Map<String, dynamic> ? rawImageMeta : null,
       ),
       voice: VoiceClip.fromFields(data['audioURL'], data['audioMeta']),
+      forwardedFrom: ForwardedFrom.parse(data['forwardedFrom']),
+      isSavedNote: data['savedFrom'] is Map,
       author: MessageAuthor.fromMap(
         rawAuthor is Map<String, dynamic> ? rawAuthor : null,
       ),
@@ -109,6 +121,8 @@ class ChatMessage {
     imageURL: imageURL,
     imageMeta: imageMeta,
     voice: voice,
+    forwardedFrom: forwardedFrom,
+    isSavedNote: isSavedNote,
     author: author,
     mentionedUids: mentionedUids,
     replyTo: replyTo,
