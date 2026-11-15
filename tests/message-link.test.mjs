@@ -146,7 +146,7 @@ test('the chat follows ?m=, widens once, says so when it is gone, and removes th
   assert.ok(s.includes('setTimeout(() => setLinkNote(null), 8000)'))
   // It floats over the top of the list: in the column it would shrink the list and unstick it from the bottom.
   assert.ok(s.includes('className="absolute top-14 left-4 right-4 z-10 '))
-  assert.ok(s.includes('<main className="relative flex-1 flex flex-col'))
+  assert.ok(s.includes('<main ref={surfaceRef} className="relative flex-1 flex flex-col'))
 })
 
 test('the window size is remembered with each batch, so a bigger window is told from the old one', () => {

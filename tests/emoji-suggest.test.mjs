@@ -236,7 +236,7 @@ test('picking closes the list, moves the caret after the emoji, and is cleared o
   const c = read('src/components/Composer.jsx')
   assert.ok(c.includes('applySuggestion(text, emojiSug.startIdx, emojiSug.query, item)'))
   assert.ok(c.includes('setSelectionRange(caret, caret)'))
-  assert.ok(c.includes("setText(''); setFile(null); setEmojiSug(null)"))
+  assert.ok(c.includes("setText(''); setFiles([]); setEmojiSug(null)"))
   assert.ok(c.includes('setMention(null)\n    setEmojiSug(null)'))
 })
 

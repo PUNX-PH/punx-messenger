@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import LazySlot from './LazySlot'
 import { EmojiPicker } from '../lib/lazyParts'
 import Avatar from './Avatar'
+import AttachmentTray from './AttachmentTray'
 import { useUsers } from '../lib/users'
 import { useAuth } from '../lib/auth'
 import { resolveMentions } from '../lib/markdown'
@@ -13,8 +15,7 @@ import { useEmojis } from '../lib/emojis'
 import { MAX_VOICE_MS, formatDuration, voiceErrorText } from '../lib/voiceMessage'
 import { canRecord, finishRecording, startRecording } from '../lib/voiceRecorder'
 import { applySuggestion, detectEmojiQuery, suggestEmojis } from '../lib/emojiSuggest'
-
-const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
+import { MAX_FILES, addAttachments, dragHasFiles, filesOf, pastedImages, remainingAfter, sendAttachments, uploadingText } from '../lib/attachments'
 
 export default function Composer({
   placeholder = 'Message', onSend, disabled, onTyping,
@@ -27,6 +28,8 @@ export default function Composer({
   onEditLast = null,
   // Bumped to put the cursor back in the box (after an edit started from here ends).
   focusNonce = 0,
+  // The element a picture can be dropped on: the whole conversation, not just the box.
+  dropZoneRef = null,
 }) {
   const { profile } = useAuth()
   const [{ sendKey }] = usePrefs()
@@ -38,10 +41,15 @@ export default function Composer({
   const [text, setText] = useState(() => drafts.get(draftKey))
   // Every change to the text goes through here, so the draft is always current.
   const updateText = (v) => { setText(v); drafts.set(keyRef.current, v) }
-  const [file, setFile] = useState(null)
-  const [preview, setPreview] = useState(null)
+  // The pictures waiting to be sent, in the order they were chosen. filesRef is the same list,
+  // for the drop handler, which outlives a render.
+  const [files, setFilesState] = useState([])
+  const filesRef = useRef([])
+  const setFiles = (next) => { filesRef.current = next; setFilesState(next) }
   const [error, setError] = useState(null)
   const [sending, setSending] = useState(false)
+  const [progress, setProgress] = useState({ done: 0, total: 0 }) // which picture is going, of how many
+  const [dragging, setDragging] = useState(false) // pictures are being dragged over the conversation
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [pickerTab, setPickerTab] = useState('emoji')
   const [mention, setMention] = useState(null) // { startIdx, query, selectedIdx }
@@ -108,7 +116,7 @@ export default function Composer({
     stopTypingNow()
     keyRef.current = draftKey
     setText(drafts.get(draftKey))
-    setFile(null)
+    setFiles([])
     setError(null)
     setMention(null)
     setEmojiSug(null)
@@ -288,36 +296,73 @@ export default function Composer({
     })
   }
 
-  useEffect(() => {
-    if (!file) { setPreview(null); return }
-    const url = URL.createObjectURL(file)
-    setPreview(url)
-    return () => URL.revokeObjectURL(url)
-  }, [file])
-
-  const accept = (f) => {
-    if (!f) return
-    if (!f.type.startsWith('image/')) { setError('Only image files for now.'); return }
-    if (f.size > MAX_BYTES) { setError('Image must be under 10 MB.'); return }
-    setError(null)
-    setFile(f)
+  // Put more pictures in the tray (picked, pasted or dropped). While one is going out the list is
+  // not touched: what is left after it is worked out from the list that was sent.
+  const attach = (incoming) => {
+    if (sending || disabled || voice) return
+    const r = addAttachments(filesRef.current, incoming)
+    setFiles(r.files)
+    setError(r.problem)
   }
+  const attachRef = useRef(attach)
+  attachRef.current = attach
+
+  // Dropping pictures anywhere on the conversation, with a cue while they are over it.
+  useEffect(() => {
+    const el = dropZoneRef?.current
+    if (!el || disabled) return
+    let depth = 0 // dragenter/dragleave fire for every child, so count in and out
+    const reset = () => { depth = 0; setDragging(false) }
+    const enter = (e) => { if (!dragHasFiles(e.dataTransfer)) return; e.preventDefault(); depth++; setDragging(true) }
+    const over = (e) => { if (!dragHasFiles(e.dataTransfer)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }
+    const leave = (e) => { if (!dragHasFiles(e.dataTransfer)) return; depth = Math.max(0, depth - 1); if (depth === 0) setDragging(false) }
+    const drop = (e) => { if (!dragHasFiles(e.dataTransfer)) return; e.preventDefault(); reset(); attachRef.current(filesOf(e.dataTransfer)) }
+    el.addEventListener('dragenter', enter)
+    el.addEventListener('dragover', over)
+    el.addEventListener('dragleave', leave)
+    el.addEventListener('drop', drop)
+    // A drag that ends elsewhere (Esc, dropped outside) must not leave the cue up.
+    window.addEventListener('dragend', reset)
+    window.addEventListener('drop', reset)
+    return () => {
+      el.removeEventListener('dragenter', enter)
+      el.removeEventListener('dragover', over)
+      el.removeEventListener('dragleave', leave)
+      el.removeEventListener('drop', drop)
+      window.removeEventListener('dragend', reset)
+      window.removeEventListener('drop', reset)
+      reset()
+    }
+  }, [dropZoneRef, disabled])
 
   const submit = async (e) => {
     e?.preventDefault?.()
     if (sending || disabled) return
-    if (!text.trim() && !file) return
+    if (!text.trim() && files.length === 0) return
     setSending(true); setError(null)
+    setProgress({ done: 0, total: files.length })
     stopTypingNow()
     // Which conversation this message is for. If you moved to another while it was
     // sending, the box now belongs to that one and must not be emptied.
     const sentKey = keyRef.current
     try {
       const resolved = resolveMentions(text.trim(), users, mentionHintsRef.current)
-      await onSend({ text: resolved, imageFile: file })
-      drafts.clear(sentKey)
+      const sentFiles = files
+      const { sent, error: failure } = await sendAttachments({
+        text: resolved,
+        files: sentFiles,
+        send: onSend,
+        onProgress: (done, total) => setProgress({ done, total }),
+      })
+      // The text goes with the first message, so once anything has gone it is spent. If nothing
+      // went, all of it is kept for another try.
+      if (sent > 0) drafts.clear(sentKey)
       if (keyRef.current !== sentKey) return
-      setText(''); setFile(null); setEmojiSug(null)
+      if (failure) {
+        if (sent > 0) { setText(''); setFiles(remainingAfter(sentFiles, sent)) }
+        throw sentFiles.length > 1 && sent > 0 ? new Error(`Sent ${sent} of ${sentFiles.length}. ${failure?.message || 'Failed to send.'}`) : failure
+      }
+      setText(''); setFiles([]); setEmojiSug(null)
       // The box grows with what is typed and only ever shrinks on input, so
       // after a long message it stayed tall around an empty field.
       if (taRef.current) taRef.current.style.height = 'auto'
@@ -331,20 +376,10 @@ export default function Composer({
     }
   }
 
-  // Paste image from clipboard
+  // Paste pictures from the clipboard (text pasted with them is left alone).
   const onPaste = (e) => {
-    const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'))
-    if (item) {
-      const f = item.getAsFile()
-      if (f) { e.preventDefault(); accept(f) }
-    }
-  }
-
-  // Drag-drop onto textarea
-  const onDrop = (e) => {
-    e.preventDefault()
-    const f = e.dataTransfer.files?.[0]
-    if (f) accept(f)
+    const pics = pastedImages(e.clipboardData)
+    if (pics.length) { e.preventDefault(); attach(pics) }
   }
 
   return (
@@ -376,34 +411,16 @@ export default function Composer({
         </div>
       )}
 
-      {preview && (
-        <div className="mb-2 inline-flex items-center gap-2 bg-bg-raised border border-line-subtle rounded-md p-2">
-          <img src={preview} alt="" className="w-14 h-14 object-cover rounded" />
-          <div className="text-xs text-ink-muted">
-            <div className="truncate max-w-[180px] text-ink">{file?.name}</div>
-            <div>{formatBytes(file?.size)}</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setFile(null)}
-            className="text-ink-dim hover:text-bad p-1"
-            title="Remove"
-          >
-            <XIcon />
-          </button>
-        </div>
-      )}
+      <AttachmentTray files={files} busy={sending} onRemove={(i) => setFiles(files.filter((_, j) => j !== i))} />
 
       <div
         className="bg-bg-raised border border-line-subtle rounded-lg flex items-end gap-1.5 pl-2 pr-2.5 py-1.5"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={onDrop}
       >
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          title="Attach image"
-          aria-label="Attach image"
+          title="Attach images"
+          aria-label="Attach images"
           className="text-ink-dim hover:text-ink p-1.5 transition-colors shrink-0"
         >
           <PlusIcon />
@@ -412,8 +429,9 @@ export default function Composer({
           ref={fileRef}
           type="file"
           accept="image/*"
+          multiple
           className="hidden"
-          onChange={(e) => accept(e.target.files?.[0])}
+          onChange={(e) => { attach(Array.from(e.target.files || [])); e.target.value = '' }}
         />
         {voice && (
           <div className="flex-1 flex items-center gap-3 py-1.5 min-w-0" role="status" aria-live="polite">
@@ -494,7 +512,7 @@ export default function Composer({
                   return
                 }
               }
-              if (onEditLast && shouldEditLast(e, { text, hasFile: !!file, mentionOpen: !!(mention && mentionCandidates.length > 0) || suggestOpen })) {
+              if (onEditLast && shouldEditLast(e, { text, hasFile: files.length > 0, mentionOpen: !!(mention && mentionCandidates.length > 0) || suggestOpen })) {
                 if (onEditLast()) e.preventDefault()
                 return
               }
@@ -503,7 +521,7 @@ export default function Composer({
               if (shouldSend(e, sendKey)) { e.preventDefault(); submit() }
             }}
             rows={1}
-            placeholder={sending ? 'Uploading…' : placeholder}
+            placeholder={sending ? uploadingText(progress.done, progress.total) : placeholder}
             disabled={disabled}
             // readOnly, not disabled, while sending: a disabled field cannot take
             // focus, so the refocus after a send did nothing and the next message
@@ -560,14 +578,14 @@ export default function Composer({
               <SendIcon />
             </button>
           </>
-        ) : micOk && !text.trim() && !file && !sending && !disabled ? (
+        ) : micOk && !text.trim() && files.length === 0 && !sending && !disabled ? (
           <button type="button" onClick={startVoice} title="Record a voice message" aria-label="Record a voice message" className="text-ink-dim hover:text-ink transition-colors p-1.5 shrink-0">
             <MicIcon />
           </button>
         ) : (
         <button
           type="submit"
-          disabled={(!text.trim() && !file) || sending || disabled}
+          disabled={(!text.trim() && files.length === 0) || sending || disabled}
           className="text-brand-text disabled:text-ink-dim hover:text-ink transition-colors p-1.5 disabled:cursor-not-allowed shrink-0"
           title="Send"
           aria-label="Send"
@@ -576,6 +594,15 @@ export default function Composer({
         </button>
         )}
       </div>
+      {dragging && dropZoneRef?.current && createPortal(
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-bg-main/80 backdrop-blur-[1px]" data-drop-cue>
+          <div className="rounded-xl border-2 border-dashed border-brand-text/70 px-8 py-6 text-center">
+            <div className="text-ink font-semibold">Drop to attach</div>
+            <div className="text-xs text-ink-muted mt-1">Pictures, up to {MAX_FILES} at a time</div>
+          </div>
+        </div>,
+        dropZoneRef.current,
+      )}
     </form>
   )
 }
@@ -682,19 +709,6 @@ function SendIcon() {
       <path d="M3 11l18-8-8 18-2-8-8-2z"/>
     </svg>
   )
-}
-function XIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
-      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-    </svg>
-  )
-}
-function formatBytes(n) {
-  if (!n && n !== 0) return ''
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function SpinnerIcon() {

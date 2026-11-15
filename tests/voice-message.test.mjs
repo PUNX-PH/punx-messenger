@@ -295,8 +295,8 @@ test('saving a voice message to notes keeps the recording', () => {
 
 test('the chat passes the recording on to the send', () => {
   const s = read('src/components/ChatSurface.jsx')
-  assert.ok(s.includes('const onSend = async ({ text, imageFile, imageURL, imageMeta, audio }) => {'))
-  assert.ok(s.includes('imageMeta, audio, author: profile, replyTo: replyingTo'))
+  assert.ok(s.includes('const onSend = async ({ text, imageFile, imageURL, imageMeta, audio, followUp = false }) => {'))
+  assert.ok(s.includes('imageMeta, audio, author: profile, replyTo: followUp ? null : replyingTo'))
 })
 
 test('the list plays only what audioOf accepts, once per message', () => {
@@ -325,7 +325,7 @@ test('the player takes one recording at a time and plays nothing it was not give
 test('the box shows a microphone only when nothing is written, and only where recording works', () => {
   const c = read('src/components/Composer.jsx')
   assert.ok(c.includes("const micOk = useMemo(() => typeof window !== 'undefined' && canRecord(window), [])"))
-  assert.ok(c.includes('micOk && !text.trim() && !file && !sending && !disabled'))
+  assert.ok(c.includes('micOk && !text.trim() && files.length === 0 && !sending && !disabled'))
   assert.ok(c.includes('title="Record a voice message"'))
 })
 
