@@ -69,7 +69,7 @@ const msg = { id: 'Xy12abCD', author: { uid: 'u1', name: 'Ana' }, text: 'ship it
 
 test('the same copy a forward makes, plus where it came from', () => {
   const p = savedPayload(msg, users, CH)
-  assert.deepEqual(Object.keys(p).sort(), ['forwardedFrom', 'imageMeta', 'imageURL', 'savedFrom', 'text'])
+  assert.deepEqual(Object.keys(p).sort(), ['audio', 'forwardedFrom', 'imageMeta', 'imageURL', 'savedFrom', 'text'])
   assert.equal(p.text, 'ship it, @Me Myself', 'mentions as names, so a note never pings')
   assert.deepEqual(p.forwardedFrom, { uid: 'u1', name: 'Ana Reyes' })
   assert.deepEqual(p.savedFrom, { route: '/g/G1abc/c/C2def?m=Xy12abCD' })

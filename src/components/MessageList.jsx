@@ -14,6 +14,8 @@ import { copyableText, hasCopyableText } from '../lib/copyText'
 import { copyToClipboard } from '../lib/clipboard'
 import { Link } from 'react-router-dom'
 import { canForward, forwardedFromOf } from '../lib/forward'
+import { audioOf } from '../lib/voiceMessage'
+import VoicePlayer from './VoicePlayer'
 import { isSavedNote, savedRouteOf } from '../lib/saved'
 import * as tf from '../lib/timeFormat'
 import { usePrefs } from '../lib/usePrefs'
@@ -430,6 +432,7 @@ const Row = memo(function Row({
   // so this is not tied to canEdit or readOnly. A picture on its own has no text to copy.
   const canCopy = hasCopyableText(message)
   const forwarded = forwardedFromOf(message)
+  const audio = useMemo(() => audioOf(message), [message]) // checked once per message, not on every draw
   const savedNote = isSavedNote(message)
   const savedRoute = savedRouteOf(message)
   const [copied, flashCopied] = useFlash(1500)
@@ -528,6 +531,7 @@ const Row = memo(function Row({
                 <img src={message.imageURL} alt="" className="max-w-md max-h-80 object-contain bg-bg-deepest" />
               </button>
             )}
+            {audio && <VoicePlayer audio={audio} />}
             {message.text && (
               <div className={onlyEmojis ? 'py-0.5' : 'whitespace-pre-wrap'}>
                 {renderMessage(message.text, { emojiByName, usersById, emojiSize })}

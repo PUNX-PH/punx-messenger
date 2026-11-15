@@ -10,10 +10,11 @@
 
 import { copyableText, hasCopyableText } from './copyText.js'
 import { cleanStatusText } from './status.js'
+import { audioOf } from './voiceMessage.js'
 
-/** Does this message have something to forward? Text or a picture. */
+/** Does this message have something to forward? Text, a picture or a voice message. */
 export function canForward(message) {
-  return hasCopyableText(message) || (typeof message?.imageURL === 'string' && message.imageURL !== '')
+  return hasCopyableText(message) || (typeof message?.imageURL === 'string' && message.imageURL !== '') || audioOf(message) !== null
 }
 
 /**
@@ -30,7 +31,7 @@ export function forwardedFromOf(message) {
 }
 
 /**
- * What to send when forwarding `message`: { text, imageURL, imageMeta, forwardedFrom }.
+ * What to send when forwarding `message`: { text, imageURL, imageMeta, audio, forwardedFrom }.
  * `usersById` turns mentions into names. A message that was itself forwarded keeps its ORIGINAL
  * writer, not the person who passed it on. Null when there is nothing to forward.
  */
@@ -40,10 +41,12 @@ export function forwardPayload(message, usersById = {}) {
   const authorName = usersById?.[message.author?.uid]?.name || message.author?.name
   const from = earlier || { uid: message.author?.uid ?? null, name: cleanStatusText(authorName) || 'Unknown' }
   const hasImage = typeof message.imageURL === 'string' && message.imageURL !== ''
+  const voice = audioOf(message)
   return {
     text: copyableText(message, usersById),
     imageURL: hasImage ? message.imageURL : null,
     imageMeta: hasImage && message.imageMeta && typeof message.imageMeta === 'object' ? message.imageMeta : null,
+    audio: voice ? { dataURL: voice.url, durationMs: voice.durationMs, mime: typeof message.audioMeta?.mime === 'string' ? message.audioMeta.mime : null } : null,
     forwardedFrom: from,
   }
 }
@@ -52,7 +55,7 @@ export function forwardPayload(message, usersById = {}) {
 export function forwardPreview(message, max = 160, usersById = {}) {
   const text = copyableText(message, usersById).replace(/\s+/g, ' ').trim()
   const shown = Array.from(text).slice(0, max).join('')
-  if (!shown) return '[image]'
+  if (!shown) return audioOf(message) ? '[voice message]' : '[image]'
   return Array.from(text).length > max ? shown + '…' : shown
 }
 

@@ -10,6 +10,8 @@ import { usePrefs } from '../lib/usePrefs'
 import { shouldSend } from '../lib/sendKey'
 import { shouldEditLast } from '../lib/editLast'
 import { useEmojis } from '../lib/emojis'
+import { MAX_VOICE_MS, formatDuration, voiceErrorText } from '../lib/voiceMessage'
+import { canRecord, finishRecording, startRecording } from '../lib/voiceRecorder'
 import { applySuggestion, detectEmojiQuery, suggestEmojis } from '../lib/emojiSuggest'
 
 const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
@@ -45,6 +47,11 @@ export default function Composer({
   const [mention, setMention] = useState(null) // { startIdx, query, selectedIdx }
   const [emojiSug, setEmojiSug] = useState(null) // { startIdx, query, selectedIdx }: ":fir" typed, suggestions showing
   const { emojis: customEmojis } = useEmojis()
+  // Recording a voice message: null, or { phase: 'starting' | 'recording' | 'sending', ms }.
+  const [voice, setVoice] = useState(null)
+  const recRef = useRef(null)          // the live recording (its microphone is on)
+  const sendVoiceRef = useRef(null)     // the latest sendVoice, for the time limit to call
+  const micOk = useMemo(() => typeof window !== 'undefined' && canRecord(window), [])
   const fileRef = useRef(null)
   const taRef = useRef(null)
   const emojiBtnRef = useRef(null)
@@ -105,6 +112,7 @@ export default function Composer({
     setError(null)
     setMention(null)
     setEmojiSug(null)
+    cancelVoice() // a recording belongs to the conversation it was started in
     mentionHintsRef.current.clear()
   }, [draftKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -143,6 +151,49 @@ export default function Composer({
     setPickerTab(tab)
     setEmojiOpen(true)
   }
+
+  // ---------- voice messages ----------
+  // Whatever way a recording ends, the microphone is released (see voiceRecorder.js).
+  function cancelVoice() {
+    recRef.current?.cancel()
+    recRef.current = null
+    setVoice(null)
+  }
+  useEffect(() => () => { recRef.current?.cancel(); recRef.current = null }, []) // leaving the screen with the microphone on
+
+  const startVoice = async () => {
+    if (voice || sending || disabled) return
+    setError(null)
+    setVoice({ phase: 'starting', ms: 0 })
+    try {
+      recRef.current = await startRecording(window, {
+        onTick: (ms) => setVoice(v => (v && v.phase === 'recording' ? { ...v, ms } : v)),
+        onLimit: () => sendVoiceRef.current?.(),
+      })
+      setVoice({ phase: 'recording', ms: 0 })
+    } catch (err) {
+      setVoice(null)
+      setError(voiceErrorText(err?.code))
+    }
+  }
+
+  const sendVoice = async () => {
+    const rec = recRef.current
+    if (!rec) return
+    recRef.current = null
+    const sentKey = keyRef.current
+    setVoice({ phase: 'sending', ms: 0 })
+    try {
+      const audio = await finishRecording(rec, window)
+      if (keyRef.current !== sentKey) return // moved to another conversation meanwhile: it is not for this one
+      await onSend({ text: '', audio })
+    } catch (err) {
+      if (err?.code !== 'cancelled') { console.error(err); setError(err?.code ? voiceErrorText(err.code) : (err?.message || 'Failed to send.')) }
+    } finally {
+      setVoice(null)
+    }
+  }
+  sendVoiceRef.current = sendVoice
 
   // Picking a GIF sends it immediately (Discord-style), not inserted as text.
   const sendGif = async (url, meta) => {
@@ -364,7 +415,20 @@ export default function Composer({
           className="hidden"
           onChange={(e) => accept(e.target.files?.[0])}
         />
-        <div className="relative flex-1">
+        {voice && (
+          <div className="flex-1 flex items-center gap-3 py-1.5 min-w-0" role="status" aria-live="polite">
+            {voice.phase === 'recording' ? (
+              <>
+                <span className="w-2.5 h-2.5 rounded-full bg-bad animate-pulse shrink-0" aria-hidden="true" />
+                <span className="text-sm tabular-nums">{formatDuration(voice.ms)} / {formatDuration(MAX_VOICE_MS)}</span>
+                <span className="text-xs text-ink-dim truncate">Recording a voice message</span>
+              </>
+            ) : (
+              <span className="text-sm text-ink-muted">{voice.phase === 'starting' ? 'Waiting for the microphone…' : 'Sending…'}</span>
+            )}
+          </div>
+        )}
+        <div className={'relative flex-1' + (voice ? ' hidden' : '')}>
           {suggestOpen && (
             <EmojiSuggestDropdown
               query={emojiSug.query}
@@ -448,7 +512,7 @@ export default function Composer({
             className="w-full bg-transparent text-ink placeholder:text-ink-dim resize-none outline-none max-h-40 leading-6 py-1.5 disabled:opacity-50 align-middle"
           />
         </div>
-        <div ref={emojiBtnRef} className="relative shrink-0 flex items-center">
+        <div ref={emojiBtnRef} className={'relative shrink-0 flex items-center' + (voice ? ' hidden' : '')}>
           <button
             type="button"
             onClick={() => openPicker('gif')}
@@ -487,6 +551,20 @@ export default function Composer({
           )}
         </div>
 
+        {voice ? (
+          <>
+            <button type="button" onClick={cancelVoice} disabled={voice.phase === 'sending'} title="Cancel recording" aria-label="Cancel recording" className="text-ink-dim hover:text-bad transition-colors p-1.5 shrink-0 disabled:opacity-50">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            </button>
+            <button type="button" onClick={sendVoice} disabled={voice.phase !== 'recording'} title="Send voice message" aria-label="Send voice message" className="text-brand-text hover:text-ink transition-colors p-1.5 shrink-0 disabled:text-ink-dim disabled:cursor-not-allowed">
+              <SendIcon />
+            </button>
+          </>
+        ) : micOk && !text.trim() && !file && !sending && !disabled ? (
+          <button type="button" onClick={startVoice} title="Record a voice message" aria-label="Record a voice message" className="text-ink-dim hover:text-ink transition-colors p-1.5 shrink-0">
+            <MicIcon />
+          </button>
+        ) : (
         <button
           type="submit"
           disabled={(!text.trim() && !file) || sending || disabled}
@@ -496,6 +574,7 @@ export default function Composer({
         >
           {sending ? <SpinnerIcon /> : <SendIcon />}
         </button>
+        )}
       </div>
     </form>
   )
@@ -587,6 +666,16 @@ function PlusIcon() {
     </svg>
   )
 }
+function MicIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="2" width="6" height="12" rx="3"/>
+      <path d="M5 11a7 7 0 0 0 14 0"/>
+      <line x1="12" y1="18" x2="12" y2="22"/>
+    </svg>
+  )
+}
+
 function SendIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
