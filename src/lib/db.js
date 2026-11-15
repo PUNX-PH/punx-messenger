@@ -98,6 +98,18 @@ export function listenMessages(path, cb, lim = MESSAGE_PAGE, onError) {
   }, onError)
 }
 
+// Every reply to one message, live: the thread of that message (see lib/threads.js). A query of its own
+// rather than a filter on what is loaded, so replies older than the loaded window are there too. No
+// ordering in the query (that would need an index of its own): the caller sorts. Capped, so a runaway
+// thread cannot load without end.
+export const THREAD_LIMIT = 200
+export function listenReplies(path, rootId, cb, onError) {
+  const q = query(collection(db, ...path.split('/')), where('replyTo.messageId', '==', rootId), fbLimit(THREAD_LIMIT))
+  return onSnapshot(q, (snap) => {
+    cb(snap.docs.map(d => ({ id: d.id, ...cleanMessage(d.data()) })))
+  }, onError)
+}
+
 // Mark a channel or DM convo as read by the current user.
 // `containerPath` is the path WITHOUT trailing /messages (e.g. "dms/abc", "groups/x/channels/y").
 // `marks` says what to write (see marksNeeded in lib/seen.js): `read` is the unread bookkeeping, and

@@ -881,6 +881,52 @@ await t('nobody else can remove them either', async () => {
   await assertFails(updateDoc(doc(as('seenpeer'), 'users', 'seenreader'), { seen: deleteField() }))
 })
 
+console.log('\n-- threads: the query for the replies to one message --')
+// A thread is every message whose replyTo.messageId is the root (src/lib/threads.js, listenReplies).
+// It is an ordinary list query on a messages collection, so the existing read rule decides who may
+// run it. These pin that it is not wider than reading the messages one by one: a member gets the
+// replies, someone outside the group or the DM gets nothing, in both kinds of conversation.
+const replyDoc = (author, to) => ({
+  text: 'a reply', author: { uid: author, name: 'x' }, createdAt: new Date(), pinned: false,
+  replyTo: { messageId: to, authorUid: author, authorName: 'x', snippet: 'hi' },
+})
+const seedReplies = () => testEnv.withSecurityRulesDisabled(async (ctx) => {
+  const db = ctx.firestore()
+  await setDoc(doc(db, 'groups', GM), { name: 'Mine', ownerUid: ADMIN, memberUids: [EMP, ADMIN, GUEST, GUEST2, T1, GONE], adminUids: [ADMIN] })
+  await setDoc(doc(db, 'groups', GM, 'channels', 'c1'), { name: 'general', type: 'text', private: false, allowUids: [] })
+  await setDoc(doc(db, 'groups', GM, 'channels', 'c1', 'messages', 'm1'), { text: 'hi', author: { uid: EMP } })
+  await setDoc(doc(db, 'dms', DM), { members: [EMP, ADMIN].sort(), memberInfo: {}, lastMessageText: 'hi', lastMessageAt: new Date() })
+  await setDoc(doc(db, 'dms', DM, 'messages', 'a1'), { text: 'from admin', author: { uid: ADMIN, name: 'a' }, createdAt: new Date(), pinned: false })
+  await setDoc(doc(db, 'groups', GM, 'channels', 'c1', 'messages', 'r1'), replyDoc(ADMIN, 'm1'))
+  await setDoc(doc(db, 'groups', GM, 'channels', 'c1', 'messages', 'r2'), replyDoc(EMP, 'm1'))
+  await setDoc(doc(db, 'groups', GM, 'channels', 'c1', 'messages', 'other'), replyDoc(EMP, 'someone-else'))
+  await setDoc(doc(db, 'dms', DM, 'messages', 'dr1'), replyDoc(EMP, 'a1'))
+})
+const must = (cond, msg) => { if (!cond) throw new Error(msg) }
+const replies = (db, parts, root) => getDocs(query(collection(db, ...parts, 'messages'), where('replyTo.messageId', '==', root)))
+await t('a member lists the replies to a message in a channel, and only those', async () => {
+  await seedReplies()
+  const snap = await assertSucceeds(replies(as(EMP), ['groups', GM, 'channels', 'c1'], 'm1'))
+  must(snap.docs.map(d => d.id).sort().join() === 'r1,r2', 'got ' + snap.docs.map(d => d.id))
+})
+await t('someone outside the group CANNOT list them', async () => {
+  await seedReplies()
+  await assertFails(replies(as(PLAIN), ['groups', GM, 'channels', 'c1'], 'm1'))
+})
+await t('a participant lists the replies to a message in a DM', async () => {
+  await seedReplies()
+  const snap = await assertSucceeds(replies(as(ADMIN), ['dms', DM], 'a1'))
+  must(snap.docs.map(d => d.id).join() === 'dr1', 'got ' + snap.docs.map(d => d.id))
+})
+await t('someone who is not in the DM CANNOT list them', async () => {
+  await seedReplies()
+  await assertFails(replies(as(PLAIN), ['dms', DM], 'a1'))
+})
+await t('a reply written for a thread is an ordinary message: a member can post it, an outsider cannot', async () => {
+  await assertSucceeds(setDoc(doc(as(EMP), 'groups', GM, 'channels', 'c1', 'messages', 'newreply'), replyDoc(EMP, 'm1')))
+  await assertFails(setDoc(doc(as(PLAIN), 'groups', GM, 'channels', 'c1', 'messages', 'badreply'), replyDoc(PLAIN, 'm1')))
+})
+
 // Anything the budget swallowed outside a test — during a `before` reseed, or
 // logged too late to be attributed to its own assertion — still gets reported.
 if (overBudget.length) {
