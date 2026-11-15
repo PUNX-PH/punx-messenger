@@ -20,11 +20,12 @@ import { copyToClipboard } from '../lib/clipboard'
 import { saveMessageToNotes } from '../lib/db'
 import { savedNoteId, savedPayload } from '../lib/saved'
 import LazySlot from './LazySlot'
-import { ForwardDialog } from '../lib/lazyParts'
+import { ForwardDialog, ThreadPanel } from '../lib/lazyParts'
 import { LINK_LOOKBACK, MESSAGE_PARAM, messageIdFromSearch, messageLink, nextLinkStep } from '../lib/messageLink'
 import ErrorBoundary from './ErrorBoundary'
 import MessageList, { PinIcon } from './MessageList'
 import Composer from './Composer'
+import { currentRoot, threadsAllowed } from '../lib/threads'
 import TypingIndicator from './TypingIndicator'
 import SearchDropdown from './SearchDropdown'
 import AppsMenu from './AppsMenu'
@@ -79,6 +80,9 @@ export default function ChatSurface({
   const [container, setContainer] = useState(null)
   const [nowTick, setNowTick] = useState(() => Date.now())
   const pinnedRef = useRef(null)
+  // The thread open beside the conversation: a copy of its first message, taken when it was opened.
+  const [openThread, setOpenThread] = useState(null)
+  useEffect(() => { setOpenThread(null) }, [path]) // a thread belongs to the conversation it was opened in
   const surfaceRef = useRef(null) // the whole conversation: pictures can be dropped anywhere on it
   const searchRef = useRef(null)
   // Where the "New" line goes in the conversation you just opened: the first message you
@@ -264,6 +268,12 @@ export default function ChatSurface({
     if (containerPath && profile?.uid) setTyping(containerPath, profile.uid, false)
   }
 
+  // A reply written in a thread: the same send, quoting the message the thread is about (no typing
+  // marker, no clearing of the conversation's own reply).
+  const threadSend = async ({ text, imageFile, imageURL, imageMeta, audio, replyTo }) => {
+    await sendMessage(path, { text, imageFile, imageURL, imageMeta, audio, author: profile, replyTo })
+  }
+
   const onTyping = containerPath && profile?.uid && !readOnly
     ? (isTyping) => setTyping(containerPath, profile.uid, isTyping)
     : null
@@ -348,6 +358,7 @@ export default function ChatSurface({
   const copyLink = useCallback((m) => copyToClipboard(messageLink(window.location.origin, path, m.id)), [path])
 
   return (
+    <div className="relative flex-1 flex min-w-0">
     <main ref={surfaceRef} className="relative flex-1 flex flex-col min-w-0 bg-bg-main">
       <header className="h-12 border-b border-line-subtle flex items-center px-3 md:px-4 gap-2 shadow-elev1 shrink-0">
         <MenuButton />
@@ -456,6 +467,7 @@ export default function ChatSurface({
           onDelete={onDelete}
           onReact={readOnly ? null : onReact}
           onReply={readOnly ? null : setReplyingTo}
+          onOpenThread={threadsAllowed(path) ? setOpenThread : null}
           onJumpToMessage={jumpTo}
           onCopyLink={hasLinks ? copyLink : null}
           onForward={readOnly ? null : setForwarding}
@@ -507,6 +519,26 @@ export default function ChatSurface({
         />
       )}
     </main>
+    {openThread && threadsAllowed(path) && (
+      <LazySlot
+        overlay
+        title="The thread couldn't be opened"
+        onDismiss={() => setOpenThread(null)}
+        fallback={<div className="hidden md:block md:w-[360px] md:shrink-0 border-l border-line-subtle bg-bg-main" />}
+      >
+        <ThreadPanel
+          path={path}
+          root={currentRoot(messages, openThread)}
+          usersById={usersById}
+          meUid={profile?.uid}
+          readOnly={readOnly}
+          onSend={threadSend}
+          onJump={(id) => { if (window.matchMedia?.('(max-width: 767px)').matches) setOpenThread(null); jumpTo(id) }}
+          onClose={() => setOpenThread(null)}
+        />
+      </LazySlot>
+    )}
+    </div>
   )
 }
 

@@ -19,6 +19,7 @@ import VoicePlayer from './VoicePlayer'
 import { isSavedNote, savedRouteOf } from '../lib/saved'
 import * as tf from '../lib/timeFormat'
 import { usePrefs } from '../lib/usePrefs'
+import { replyCounts as countReplies, replyLabel, sameCounts } from '../lib/threads'
 
 export default function MessageList({
   messages, emptyTitle, emptyDesc,
@@ -30,6 +31,7 @@ export default function MessageList({
   onEdit, onDelete,
   onReact,
   onReply,                // (message) => void  (start replying)
+  onOpenThread = null,    // (message) => void: open the thread of a message; null where threads are not offered
   onJumpToMessage,        // (messageId) => void (for replyTo preview jump)
   onCopyLink = null,      // (message) => Promise<boolean>: copy a link to it; null where there is no link (DMs, notes)
   onForward = null,       // (message) => void: open the "forward to..." picker; null where forwarding is not offered
@@ -70,6 +72,15 @@ export default function MessageList({
   }, [editingId])
   const { byId: usersById } = useUsers()
   const { byName: emojiByName } = useEmojis()
+  // How many replies each message has. The SAME map while nothing changed, so a message that arrives
+  // redraws only the rows whose count moved, not every group.
+  const countsRef = useRef(new Map())
+  const replyCounts = useMemo(() => {
+    const next = countReplies(messages)
+    if (sameCounts(countsRef.current, next)) return countsRef.current
+    countsRef.current = next
+    return next
+  }, [messages])
   const now = useTickNow()
   const presence = usePresence()
   const [prefs] = usePrefs()
@@ -278,6 +289,8 @@ export default function MessageList({
               onDelete={onDelete}
               onReact={onReact}
               onReply={onReply}
+              onOpenThread={onOpenThread}
+              replyCounts={replyCounts}
               onJumpToMessage={onJumpToMessage}
               onCopyLink={onCopyLink}
               onForward={onForward}
@@ -352,7 +365,7 @@ function ArrowDownIcon({ className }) {
 const Group = memo(function Group({
   group, timeFormat, onZoom, canPin, onTogglePin, highlightId, seenId, seenText, usersById, presenceById, emojiByName, tickNow,
   canDeleteAny, readOnly, meUid, editingId, setEditingId, onEdit, onDelete, onReact,
-  onReply, onJumpToMessage, onCopyLink, onForward, onSave,
+  onReply, onOpenThread, replyCounts, onJumpToMessage, onCopyLink, onForward, onSave,
 }) {
   const currentAuthor = usersById?.[group.author?.uid]
   const name = currentAuthor?.name || group.author?.name
@@ -391,6 +404,8 @@ const Group = memo(function Group({
           onDelete={onDelete}
           onReact={onReact}
           onReply={onReply}
+          onOpenThread={onOpenThread}
+          replyCount={replyCounts?.get(m.id) || 0}
           onJumpToMessage={onJumpToMessage}
           onCopyLink={onCopyLink}
           onForward={onForward}
@@ -410,7 +425,7 @@ const Group = memo(function Group({
 const Row = memo(function Row({
   message, showHeader, author, firstTime, timeFormat, onZoom, canPin, onTogglePin, highlighted, seenText,
   emojiByName, isAuthor, canDeleteAny, readOnly, editing, setEditingId, onEdit, onDelete,
-  onReact, onReply, onJumpToMessage, onCopyLink, onForward, onSave, meUid, usersById,
+  onReact, onReply, onOpenThread, replyCount, onJumpToMessage, onCopyLink, onForward, onSave, meUid, usersById,
 }) {
   const setEditing = (on) => setEditingId(on ? message.id : null)
   const onlyEmojis = isOnlyEmojis(message.text)
@@ -546,6 +561,18 @@ const Row = memo(function Row({
                 )}
               </div>
             )}
+            {replyCount > 0 && onOpenThread && (
+              <button
+                type="button"
+                onClick={() => onOpenThread(message)}
+                className="mt-1 flex items-center gap-1.5 text-xs font-medium text-brand-text hover:underline"
+                title="Open the thread"
+                data-reply-count
+              >
+                <ThreadIcon />
+                {replyLabel(replyCount)}
+              </button>
+            )}
             {reactionEntries.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1.5">
                 {reactionEntries.map(([key, uids]) => (
@@ -579,7 +606,7 @@ const Row = memo(function Row({
       </div>
 
       {/* Hover toolbar */}
-      {!editing && (onReact || onReply || canCopy || onCopyLink || onForward || onSave || canPin || canEdit || canDelete) && (
+      {!editing && (onReact || onReply || onOpenThread || canCopy || onCopyLink || onForward || onSave || canPin || canEdit || canDelete) && (
         <div className="absolute -top-3 right-3 opacity-0 group-hover/msg:opacity-100 group-focus-within/msg:opacity-100 transition-opacity bg-bg-raised border border-line-subtle rounded-md shadow-elev1 flex">
           {onReact && (
             <div className="relative">
@@ -615,6 +642,16 @@ const Row = memo(function Row({
               aria-label="Reply"
             >
               <ReplyIcon />
+            </button>
+          )}
+          {onOpenThread && (
+            <button
+              onClick={() => onOpenThread(message)}
+              className="p-1.5 text-ink-muted hover:text-ink hover:bg-bg-hover rounded transition-colors"
+              title={replyCount > 0 ? 'Open thread' : 'Start a thread'}
+              aria-label={replyCount > 0 ? 'Open thread' : 'Start a thread'}
+            >
+              <ThreadIcon />
             </button>
           )}
           {canCopy && (
@@ -783,6 +820,15 @@ function CheckIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <polyline points="20 6 9 17 4 12"/>
+    </svg>
+  )
+}
+
+function ThreadIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.6-.8L3 21l1.9-5.1A8.4 8.4 0 0 1 3 11.5 8.5 8.5 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5z"/>
+      <line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="13" y2="14"/>
     </svg>
   )
 }
