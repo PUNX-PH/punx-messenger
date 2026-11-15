@@ -51,9 +51,7 @@ void showPinnedMessagesSheet(
                     style: AppTextStyles.sm(weight: FontWeight.w600),
                   ),
                   subtitle: Text(
-                    m.text.isNotEmpty
-                        ? m.text
-                        : (m.imageURL != null ? '[image]' : ''),
+                    m.previewText,
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     style: AppTextStyles.sm(color: Palette.inkMuted),

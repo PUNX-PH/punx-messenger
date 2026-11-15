@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'image_meta.dart';
 import 'message_author.dart';
 import 'reply_snapshot.dart';
+import 'voice_clip.dart';
 
 /// Mirrors the shared message document shape used under
 /// `groups/{g}/channels/{c}/messages`, `dms/{id}/messages`, and
@@ -16,6 +17,10 @@ class ChatMessage {
   /// Anything rendering it must handle BOTH; see ImageService.isRemoteUrl.
   final String? imageURL;
   final ImageMeta? imageMeta;
+
+  /// A voice message (`audioURL` + `audioMeta`), null when there is none or it
+  /// is not one that may be played (see [VoiceClip.fromFields]).
+  final VoiceClip? voice;
   final MessageAuthor author;
   final List<String> mentionedUids;
   final ReplySnapshot? replyTo;
@@ -30,6 +35,7 @@ class ChatMessage {
     this.text = '',
     this.imageURL,
     this.imageMeta,
+    this.voice,
     this.mentionedUids = const [],
     this.replyTo,
     this.createdAt,
@@ -66,6 +72,7 @@ class ChatMessage {
       imageMeta: ImageMeta.fromMap(
         rawImageMeta is Map<String, dynamic> ? rawImageMeta : null,
       ),
+      voice: VoiceClip.fromFields(data['audioURL'], data['audioMeta']),
       author: MessageAuthor.fromMap(
         rawAuthor is Map<String, dynamic> ? rawAuthor : null,
       ),
@@ -88,11 +95,20 @@ class ChatMessage {
 
   bool get isImageOnly => text.trim().isEmpty && imageURL != null;
 
+  /// What stands for this message where there is room for words only (a reply's
+  /// quote, the pinned list): its text, else what it carries.
+  String get previewText => text.isNotEmpty
+      ? text
+      : (imageURL != null
+            ? '[image]'
+            : (voice != null ? '[voice message]' : ''));
+
   ChatMessage copyWith({bool? pinned}) => ChatMessage(
     id: id,
     text: text,
     imageURL: imageURL,
     imageMeta: imageMeta,
+    voice: voice,
     author: author,
     mentionedUids: mentionedUids,
     replyTo: replyTo,
