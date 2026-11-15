@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../models/message.dart';
 import '../../providers/auth_providers.dart';
@@ -16,6 +17,7 @@ import '../../theme/text_styles.dart';
 import '../../utils/constants.dart';
 import '../../utils/firestore_paths.dart';
 import '../../utils/new_line.dart';
+import '../../utils/seen.dart';
 import 'composer.dart';
 import 'forward_sheet.dart';
 import 'message_list.dart';
@@ -39,12 +41,17 @@ class ChatSurface extends ConsumerStatefulWidget {
     this.canPin = false,
     this.headerActions,
     this.subtitle,
+    this.seenBy,
   });
 
   final String title;
 
   /// A line under the title (a person's status, in a DM). Nothing when null.
   final String? subtitle;
+
+  /// A DM: the other person's uid, so "Seen" can go under your latest message they have read
+  /// (utils/seen.dart). Null everywhere else: a channel or notes watch nobody.
+  final String? seenBy;
   final String
   path; // e.g. 'dms/<id>/messages', 'groups/<g>/channels/<c>/messages'
   final String icon; // '#' | '@' | '✎'
@@ -59,7 +66,7 @@ class ChatSurface extends ConsumerStatefulWidget {
   ConsumerState<ChatSurface> createState() => _ChatSurfaceState();
 }
 
-class _ChatSurfaceState extends ConsumerState<ChatSurface> {
+class _ChatSurfaceState extends ConsumerState<ChatSurface> with WidgetsBindingObserver {
   Timer? _markReadDebounce;
   String? _jumpToId;
 
@@ -79,7 +86,24 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _captureOpening();
+  }
+
+  /// Is the app in front? (Unknown, as in a test, counts as yes.) A chat left open in a pocket has
+  /// not been read, so no receipt is recorded for it.
+  bool get _inFront {
+    final s = WidgetsBinding.instance.lifecycleState;
+    return s == null || s == AppLifecycleState.resumed;
+  }
+
+  /// Coming back to the app with this chat open is reading it again: record what arrived meanwhile.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        ref.read(messagesProvider(widget.path)).valueOrNull != null) {
+      _scheduleMarkRead();
+    }
   }
 
   @override
@@ -108,6 +132,7 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _markReadDebounce?.cancel();
     super.dispose();
   }
@@ -121,7 +146,13 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
   void _scheduleMarkRead() {
     if (_markReadDebounce?.isActive ?? false) return;
     _markReadDebounce = Timer(const Duration(milliseconds: 400), () {
-      ref.read(chatControllerProvider(widget.path).notifier).markRead();
+      final messages = ref.read(messagesProvider(widget.path)).valueOrNull?.messages;
+      ref
+          .read(chatControllerProvider(widget.path).notifier)
+          .markRead(
+            newest: messages == null || messages.isEmpty ? null : messages.last.createdAt,
+            visible: _inFront,
+          );
     });
   }
 
@@ -179,6 +210,30 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
     ref.listen(messagesProvider(widget.path), (prev, next) {
       if (next.valueOrNull != null) _scheduleMarkRead();
     });
+
+    // "Seen" (a DM only): when the other person last had it open, from their own profile, and the
+    // message of yours to put the line under. Nothing when you do not share yours: it goes both ways.
+    final shareSeen = ref.watch(
+      profileProvider.select((p) => p.valueOrNull?.shareSeen ?? true),
+    );
+    final watchPeer = shareSeen && widget.seenBy != null && containerPath != null && isDmPath(containerPath);
+    final peerSeenAt = watchPeer
+        ? ref.watch(
+            peerSeenProvider((
+              otherUid: widget.seenBy!,
+              key: pathToReadKey(containerPath),
+            )),
+          ).valueOrNull
+        : null;
+    final seen = watchPeer ? seenMarker(messages, meUid, peerSeenAt) : null;
+    final use24h = MediaQuery.alwaysUse24HourFormatOf(context);
+    final seenText = seen == null
+        ? ''
+        : seenLabel(
+            seen.at,
+            DateTime.now(),
+            (t) => (use24h ? DateFormat.Hm() : DateFormat.jm()).format(t),
+          );
 
     return Scaffold(
       backgroundColor: Palette.bgMain,
@@ -285,6 +340,8 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
                   emptyDesc: widget.emptyDesc,
                   scrollToId: _jumpToId,
                   newFromId: _newFromId,
+                  seenId: seen?.id,
+                  seenText: seenText,
                   onReply: controller.setReplyingTo,
                   onEdit: (m, text) => controller.edit(m, text),
                   onDelete: (m) => controller.delete(m),

@@ -39,6 +39,7 @@ class MessageRow extends ConsumerWidget {
     required this.canDeleteAny,
     this.canPin = false,
     this.highlighted = false,
+    this.seenText = '',
     this.onReply,
     this.onEdit,
     this.onDelete,
@@ -57,6 +58,10 @@ class MessageRow extends ConsumerWidget {
   final bool canDeleteAny;
   final bool canPin;
   final bool highlighted;
+
+  /// "Seen 3:41 PM" under this message (a DM, your latest one the other person has read); nothing
+  /// when empty.
+  final String seenText;
   final ValueChanged<ChatMessage>? onReply;
   final void Function(ChatMessage message, String newText)? onEdit;
   final ValueChanged<ChatMessage>? onDelete;
@@ -210,6 +215,17 @@ class MessageRow extends ConsumerWidget {
                           onReact!(message, token);
                         }
                       },
+                    ),
+                  if (seenText.isNotEmpty)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          seenText,
+                          style: AppTextStyles.xs(color: Palette.inkDim),
+                        ),
+                      ),
                     ),
                 ],
               ),

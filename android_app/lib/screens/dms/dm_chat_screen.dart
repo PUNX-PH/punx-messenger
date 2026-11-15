@@ -73,6 +73,7 @@ class DmChatScreen extends ConsumerWidget {
           DateTime.now(),
         )?.text,
         icon: '@',
+        seenBy: otherUid,
         path: dmContext.messagesPath,
         composerPlaceholder: 'Message @${dmContext.other.name}',
         emptyTitle:

@@ -31,6 +31,15 @@ class UserProfile {
   /// is read from profileProvider and left out of the shared identity (users_identity.dart).
   final Dnd? dnd;
 
+  /// When this person last had each DM open (read key -> server time): the receipt another person's
+  /// "Seen" is built on (utils/seen.dart). Their own only: read from profileProvider and left out of
+  /// the shared identity, like [lastRead]; a DM reads the OTHER person's from their document directly.
+  final Map<String, Timestamp> seen;
+
+  /// Whether they let others see when they have read their messages (the web's Preferences switch,
+  /// `prefs.shareSeen`). On unless it was switched off. Their own only, like [seen].
+  final bool shareSeen;
+
   /// Removed from the workspace. isHuman() in firestore.rules refuses a
   /// deactivated account everything, so this is not a display preference — it
   /// is whether the app answers to them at all. Absent reads as active, the
@@ -51,6 +60,8 @@ class UserProfile {
     this.mutedChats = const [],
     this.customStatus,
     this.dnd,
+    this.seen = const {},
+    this.shareSeen = true,
     this.deactivated = false,
   });
 
@@ -75,6 +86,8 @@ class UserProfile {
       mutedChats: _cleanMutedChats(data['mutedChats']),
       customStatus: CustomStatus.parse(data['status']),
       dnd: Dnd.parse(data['dnd']),
+      seen: _cleanSeen(data['seen']),
+      shareSeen: _shareSeenOf(data['prefs']),
       deactivated: data['deactivated'] == true,
     );
   }
@@ -88,3 +101,16 @@ List<String> _cleanMutedChats(Object? raw) => raw is List
           if (k is String && k.isNotEmpty) k,
       ]
     : const [];
+
+/// The entries of a profile's `seen` that are real times. Anything else is dropped.
+Map<String, Timestamp> _cleanSeen(Object? raw) => raw is Map
+    ? {
+        for (final e in raw.entries)
+          if (e.key is String && e.value is Timestamp) e.key as String: e.value as Timestamp,
+      }
+    : const {};
+
+/// `prefs.shareSeen`: false only when it is explicitly switched off. Missing or not a yes/no is on,
+/// the web's default.
+bool _shareSeenOf(Object? prefs) =>
+    !(prefs is Map && prefs['shareSeen'] == false);
