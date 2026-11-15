@@ -15,6 +15,11 @@ class UserProfile {
   final Map<String, Timestamp> lastRead; // pathKey -> last-read timestamp
   final List<String> mutedGroups;
 
+  /// Conversations (DMs and single channels) this person has muted, as read keys
+  /// (see utils/muted.dart). Their own only: like `lastRead`, it is read from
+  /// profileProvider and left out of the shared identity (users_identity.dart).
+  final List<String> mutedChats;
+
   /// Removed from the workspace. isHuman() in firestore.rules refuses a
   /// deactivated account everything, so this is not a display preference — it
   /// is whether the app answers to them at all. Absent reads as active, the
@@ -32,6 +37,7 @@ class UserProfile {
     this.presence = 'online',
     this.lastRead = const {},
     this.mutedGroups = const [],
+    this.mutedChats = const [],
     this.deactivated = false,
   });
 
@@ -53,7 +59,17 @@ class UserProfile {
       presence: (data['presence'] as String?) ?? 'online',
       lastRead: rawLastRead.map((k, v) => MapEntry(k, v as Timestamp)),
       mutedGroups: List<String>.from(data['mutedGroups'] as List? ?? const []),
+      mutedChats: _cleanMutedChats(data['mutedChats']),
       deactivated: data['deactivated'] == true,
     );
   }
 }
+
+/// The entries of a profile's `mutedChats` that are real read keys (`dms__<id>` or
+/// `groups__<g>__channels__<c>`). Anything that is not a list of non-empty text is none.
+List<String> _cleanMutedChats(Object? raw) => raw is List
+    ? [
+        for (final k in raw)
+          if (k is String && k.isNotEmpty) k,
+      ]
+    : const [];

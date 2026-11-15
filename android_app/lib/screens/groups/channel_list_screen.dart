@@ -21,6 +21,7 @@ import '../../utils/add_member.dart';
 import '../../utils/firestore_paths.dart';
 import 'add_member_sheet.dart';
 import 'channel_access_sheet.dart';
+import 'chat_mute_sheet.dart';
 import 'group_settings_screen.dart';
 
 /// Mobile equivalent of ChannelSidebar.jsx — the channel picker for a group.
@@ -248,7 +249,13 @@ class _ChannelRow extends ConsumerWidget {
     final lastReadAt = ref.watch(
       profileProvider.select((p) => p.valueOrNull?.lastRead[readKey]),
     );
-    final unread = isUnread(c.lastMessageAt, lastReadAt);
+    // Muted: quiet, not hidden. No unread dot, a bell with a line through it instead.
+    final muted = ref.watch(
+      profileProvider.select(
+        (p) => p.valueOrNull?.mutedChats.contains(readKey) ?? false,
+      ),
+    );
+    final unread = !muted && isUnread(c.lastMessageAt, lastReadAt);
 
     return ListTile(
       // Every leading variant in the same 24x24 centred box.
@@ -292,7 +299,14 @@ class _ChannelRow extends ConsumerWidget {
       ),
       // An unread dot is meaningless for a voice channel: there are no
       // messages to have missed.
-      trailing: unread && !isVoice
+      trailing: muted && !isVoice
+          ? Icon(
+              Icons.notifications_off_outlined,
+              size: 16,
+              color: Palette.inkDim,
+              semanticLabel: 'Muted',
+            )
+          : unread && !isVoice
           ? SizedBox(
               width: 8,
               height: 8,
@@ -305,17 +319,41 @@ class _ChannelRow extends ConsumerWidget {
             )
           : null,
       onTap: () => context.push(RoutePaths.channelPath(groupId, c.id)),
-      // Long-press for access control, admins only. `elevated` is the same test
-      // as adminOverGroup() on the channel update rule, so the UI never offers
-      // a write Firestore will refuse.
-      onLongPress: !elevated
+      // Long-press: a text channel offers Mute to everyone; access control is added
+      // for admins only (a voice channel has only that, there being nothing to mute).
+      // `elevated` is the same test as adminOverGroup() on the channel update rule,
+      // so the UI never offers a write Firestore will refuse.
+      onLongPress: isVoice && !elevated
           ? null
-          : () => ChannelAccessSheet.show(
-              context,
-              groupId: groupId,
-              channel: c,
-              memberUids: memberUids,
-            ),
+          : () {
+              void access() => ChannelAccessSheet.show(
+                context,
+                groupId: groupId,
+                channel: c,
+                memberUids: memberUids,
+              );
+              if (isVoice) {
+                access();
+                return;
+              }
+              showChatMenuSheet(
+                context,
+                ref,
+                readKey: readKey,
+                what: 'channel',
+                extra: [
+                  if (elevated)
+                    (sheetContext) => ListTile(
+                      leading: Icon(Icons.lock_outline, color: Palette.ink),
+                      title: const Text('Channel access'),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        access();
+                      },
+                    ),
+                ],
+              );
+            },
     );
   }
 }

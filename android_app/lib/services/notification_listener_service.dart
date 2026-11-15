@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../providers/auth_providers.dart';
+import '../utils/firestore_paths.dart';
+import '../utils/muted.dart';
 import '../providers/users_providers.dart';
 import '../providers/sfx_providers.dart';
 import '../router/app_router.dart';
@@ -102,6 +104,14 @@ class NotificationListenerService {
     final members = List<String>.from(data['members'] as List? ?? const []);
     final otherUid = members.firstWhere((m) => m != uid, orElse: () => '');
     if (otherUid.isEmpty) return;
+
+    // A muted conversation neither pings nor notifies (an @mention in a channel still does).
+    if (isChatMuted(
+      _ref.read(profileProvider).valueOrNull,
+      pathToReadKey('dms/${doc.id}'),
+    )) {
+      return;
+    }
 
     _pingIfNew(doc.id, ts.millisecondsSinceEpoch, '/dms/$otherUid');
     // Resolves the author's live display name from the workspace directory

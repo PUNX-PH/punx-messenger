@@ -7,6 +7,7 @@ import '../models/group_invite.dart';
 import '../services/groups_repository.dart';
 import '../services/invites_repository.dart';
 import '../utils/firestore_paths.dart';
+import '../utils/muted.dart';
 import 'auth_providers.dart';
 
 final groupsRepositoryProvider = Provider<GroupsRepository>(
@@ -81,12 +82,12 @@ final groupHasUnreadProvider = Provider.family<bool, String>((ref, groupId) {
   final profile = ref.watch(profileProvider).valueOrNull;
   if (profile == null || profile.mutedGroups.contains(groupId)) return false;
   final channels = ref.watch(channelsProvider(groupId)).valueOrNull ?? const [];
-  return channels.any(
-    (c) => isUnread(
-      c.lastMessageAt,
-      profile.lastRead[pathToReadKey('groups/$groupId/channels/${c.id}')],
-    ),
-  );
+  return channels.any((c) {
+    final key = pathToReadKey('groups/$groupId/channels/${c.id}');
+    // A muted channel does not light its group up.
+    return !isChatMuted(profile, key) &&
+        isUnread(c.lastMessageAt, profile.lastRead[key]);
+  });
 });
 
 final invitesRepositoryProvider = Provider<InvitesRepository>(
