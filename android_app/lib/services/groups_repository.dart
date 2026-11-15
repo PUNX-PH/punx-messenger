@@ -318,6 +318,16 @@ class GroupsRepository {
     });
   }
 
+  /// Mutes or unmutes one conversation (a DM or a single channel) for [uid]: the
+  /// same `mutedChats` list the web writes, holding read keys. Quiet, not hidden.
+  Future<void> setChatMuted(String uid, String readKey, bool mute) async {
+    await _db.collection('users').doc(uid).update({
+      'mutedChats': mute
+          ? FieldValue.arrayUnion([readKey])
+          : FieldValue.arrayRemove([readKey]),
+    });
+  }
+
   /// Owners can't leave (must transfer ownership first — not otherwise
   /// exposed in the UI, so this is a hard rule).
   Future<void> leaveGroup(String groupId, String uid, String ownerUid) async {

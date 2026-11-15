@@ -12,9 +12,11 @@ import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
 import '../../utils/firestore_paths.dart';
+import '../../utils/muted.dart';
 import '../../widgets/shared/avatar.dart';
 import '../../widgets/shared/role_badge.dart';
 import '../../widgets/shared/profile_sheet.dart';
+import '../groups/chat_mute_sheet.dart';
 
 /// Directory of teammates + pinned "My Notes" entry — port of
 /// DMsSidebar.jsx/DMsHome.jsx, merged into one mobile list screen (there's
@@ -127,9 +129,15 @@ class _DmsListScreenState extends ConsumerState<DmsListScreen> {
                     itemBuilder: (context, index) {
                       final u = visible[index];
                       final convo = convosByOther[u.id];
+                      final readKey = convo == null
+                          ? null
+                          : pathToReadKey('dms/${convo.id}');
+                      final muted =
+                          readKey != null && isChatMuted(profile, readKey);
                       final unread =
                           profile != null &&
                           convo != null &&
+                          !muted &&
                           isUnread(
                             convo.lastMessageAt,
                             profile.lastRead[pathToReadKey('dms/${convo.id}')],
@@ -137,7 +145,17 @@ class _DmsListScreenState extends ConsumerState<DmsListScreen> {
                       return _DmRow(
                         user: u,
                         unread: unread,
+                        muted: muted,
                         onTap: () => context.push(RoutePaths.dmConvoPath(u.id)),
+                        // Nothing to mute until the two have written to each other.
+                        onLongPress: readKey == null
+                            ? null
+                            : () => showChatMenuSheet(
+                                context,
+                                ref,
+                                readKey: readKey,
+                                what: 'conversation',
+                              ),
                       );
                     },
                   ),
@@ -149,16 +167,25 @@ class _DmsListScreenState extends ConsumerState<DmsListScreen> {
 }
 
 class _DmRow extends ConsumerWidget {
-  const _DmRow({required this.user, required this.unread, required this.onTap});
+  const _DmRow({
+    required this.user,
+    required this.unread,
+    required this.muted,
+    required this.onTap,
+    this.onLongPress,
+  });
   final UserProfile user;
   final bool unread;
+  final bool muted;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final status = ref.watch(statusOfProvider(user.id));
     return ListTile(
       onTap: onTap,
+      onLongPress: onLongPress,
       leading: Avatar(
         name: user.name,
         src: user.photoURL,
@@ -181,7 +208,16 @@ class _DmRow extends ConsumerWidget {
           RoleBadge(role: user.role, size: RoleBadgeSize.xs),
         ],
       ),
-      trailing: unread ? const _UnreadDot() : null,
+      trailing: muted
+          ? Icon(
+              Icons.notifications_off_outlined,
+              size: 16,
+              color: Palette.inkDim,
+              semanticLabel: 'Muted',
+            )
+          : unread
+          ? const _UnreadDot()
+          : null,
     );
   }
 }
