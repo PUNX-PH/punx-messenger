@@ -79,6 +79,7 @@ export default function ChatSurface({
   const [container, setContainer] = useState(null)
   const [nowTick, setNowTick] = useState(() => Date.now())
   const pinnedRef = useRef(null)
+  const surfaceRef = useRef(null) // the whole conversation: pictures can be dropped anywhere on it
   const searchRef = useRef(null)
   // Where the "New" line goes in the conversation you just opened: the first message you
   // had not read at that moment. Decided once per opening, from the first batch of
@@ -253,8 +254,11 @@ export default function ChatSurface({
     return () => window.removeEventListener('mousedown', onClick)
   }, [pinnedOpen])
 
-  const onSend = async ({ text, imageFile, imageURL, imageMeta, audio }) => {
-    await sendMessage(path, { text, imageFile, imageURL, imageMeta, audio, author: profile, replyTo: replyingTo })
+  // `followUp`: the second and later pictures of one go. Only the first quotes the message being
+  // replied to (this function is the one from the render the send started in, so replyingTo would
+  // still be set for all of them).
+  const onSend = async ({ text, imageFile, imageURL, imageMeta, audio, followUp = false }) => {
+    await sendMessage(path, { text, imageFile, imageURL, imageMeta, audio, author: profile, replyTo: followUp ? null : replyingTo })
     setReplyingTo(null)
     // Clear our typing state on send
     if (containerPath && profile?.uid) setTyping(containerPath, profile.uid, false)
@@ -344,7 +348,7 @@ export default function ChatSurface({
   const copyLink = useCallback((m) => copyToClipboard(messageLink(window.location.origin, path, m.id)), [path])
 
   return (
-    <main className="relative flex-1 flex flex-col min-w-0 bg-bg-main">
+    <main ref={surfaceRef} className="relative flex-1 flex flex-col min-w-0 bg-bg-main">
       <header className="h-12 border-b border-line-subtle flex items-center px-3 md:px-4 gap-2 shadow-elev1 shrink-0">
         <MenuButton />
         <span className="text-ink-dim">{icon}</span>
@@ -499,6 +503,7 @@ export default function ChatSurface({
           onCancelReply={() => setReplyingTo(null)}
           onEditLast={editLast}
           focusNonce={composerFocus}
+          dropZoneRef={surfaceRef}
         />
       )}
     </main>
