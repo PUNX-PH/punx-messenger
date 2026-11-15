@@ -7,6 +7,7 @@ import '../models/message.dart';
 import '../services/messages_repository.dart';
 import '../utils/constants.dart';
 import '../utils/firestore_paths.dart';
+import '../utils/saved.dart';
 import 'auth_providers.dart';
 import 'users_providers.dart';
 
@@ -146,6 +147,20 @@ class ChatController extends StateNotifier<ChatUiState> {
     );
     setReplyingTo(null);
     setTyping(false);
+  }
+
+  /// Keeps a copy of [message] in My Notes. The result says whether it was saved, was already
+  /// there, or could not be (nothing to save, or the write failed).
+  Future<SaveResult> saveToNotes(ChatMessage message) async {
+    final me = _ref.read(profileProvider).valueOrNull;
+    final id = savedNoteId(message.id);
+    final payload = savedPayload(message, _ref.read(usersByIdProvider), path);
+    if (me == null || id == null || payload == null) return SaveResult.failed;
+    try {
+      return await _repo.saveMessageToNotes(me, id, payload);
+    } catch (_) {
+      return SaveResult.failed;
+    }
   }
 
   Future<void> togglePin(ChatMessage message) =>

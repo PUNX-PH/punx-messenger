@@ -14,6 +14,8 @@ import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
 import '../../utils/copy_text.dart';
+import '../../utils/forward.dart';
+import '../../utils/saved.dart';
 import '../../utils/time_format.dart';
 import '../shared/avatar.dart';
 import 'emoji_picker_sheet.dart';
@@ -43,6 +45,7 @@ class MessageRow extends ConsumerWidget {
     this.onTogglePin,
     this.onReact,
     this.onJumpToMessage,
+    this.onSave,
   });
 
   final ChatMessage message;
@@ -59,6 +62,9 @@ class MessageRow extends ConsumerWidget {
   final ValueChanged<ChatMessage>? onTogglePin;
   final void Function(ChatMessage message, String key)? onReact;
   final ValueChanged<String>? onJumpToMessage;
+
+  /// Keeps a copy of this message in My Notes; null where that is not offered.
+  final Future<SaveResult> Function(ChatMessage message)? onSave;
 
   bool get _isAuthor => meUid != null && message.author.uid == meUid;
   bool get _mentionsMe => mentionsUid(message.text, meUid);
@@ -163,6 +169,11 @@ class MessageRow extends ConsumerWidget {
                         ],
                       ),
                     ),
+                  if (message.forwardedFrom != null)
+                    _ForwardedLabel(
+                      name: message.forwardedFrom!.name,
+                      saved: message.isSavedNote,
+                    ),
                   if (message.replyTo != null)
                     _ReplyStrip(
                       reply: message.replyTo!,
@@ -224,6 +235,21 @@ class MessageRow extends ConsumerWidget {
       );
   }
 
+  /// Keeps a copy in My Notes, and says how it went.
+  Future<void> _save(ScaffoldMessengerState? messenger) async {
+    final result = await onSave!(message);
+    final said = switch (result) {
+      SaveResult.saved => 'Saved to My Notes',
+      SaveResult.exists => 'Already saved',
+      SaveResult.failed => "Couldn't save",
+    };
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(said), duration: const Duration(seconds: 2)),
+      );
+  }
+
   void _showActions(BuildContext context) {
     final canEdit = _isAuthor && message.text.isNotEmpty;
     final canDelete = _isAuthor || canDeleteAny;
@@ -267,6 +293,15 @@ class MessageRow extends ConsumerWidget {
                   onTap: () {
                     Navigator.of(context).pop();
                     _copy(messenger);
+                  },
+                ),
+              if (onSave != null && canForward(message))
+                ListTile(
+                  leading: Icon(Icons.bookmark_border, color: Palette.ink),
+                  title: const Text('Save to My Notes'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _save(messenger);
                   },
                 ),
               if (canPin)
@@ -456,6 +491,48 @@ class _MessageImage extends StatelessWidget {
             child: image,
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// "Forwarded from Cara" / "Saved from Cara": who wrote a message that is a copy.
+class _ForwardedLabel extends StatelessWidget {
+  const _ForwardedLabel({required this.name, required this.saved});
+
+  final String name;
+  final bool saved;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            saved ? Icons.bookmark_border : Icons.forward,
+            size: 12,
+            color: Palette.inkDim,
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text.rich(
+              TextSpan(
+                text: saved ? 'Saved from ' : 'Forwarded from ',
+                style: AppTextStyles.xs(color: Palette.inkDim),
+                children: [
+                  TextSpan(
+                    text: name,
+                    style: AppTextStyles.xs(color: Palette.inkMuted),
+                  ),
+                ],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }

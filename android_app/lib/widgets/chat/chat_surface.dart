@@ -290,6 +290,10 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
                   onTogglePin: (m) => controller.togglePin(m),
                   onReact: (m, key) => controller.react(m, key),
                   onJumpToMessage: _jumpTo,
+                  // Keeping a message is not offered inside My Notes, where it already is.
+                  onSave: widget.path.startsWith('users/')
+                      ? null
+                      : controller.saveToNotes,
                 ),
               ),
               TypingIndicator(label: typingLabel),
