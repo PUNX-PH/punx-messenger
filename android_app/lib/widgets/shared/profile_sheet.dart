@@ -13,6 +13,7 @@ import 'avatar.dart';
 import 'dnd_sheet.dart';
 import 'status_editor_sheet.dart';
 import 'role_badge.dart';
+import 'seen_switch.dart';
 
 /// The Android counterpart of `components/UserPanel.jsx` — your own avatar row
 /// and the actions behind it.
@@ -101,6 +102,8 @@ class ProfileSheet extends ConsumerWidget {
           const StatusRow(),
           // Do not disturb: no sounds or notifications for a while (same switch as the web's).
           const DndRow(),
+          // "Seen" in DMs: the same switch as the web's Preferences.
+          const SeenSwitch(),
           // The web's gear menu, which is the closest thing it has to a
           // settings screen: voice settings while connected, then
           // notifications. Admin panel is omitted because it is a bottom-nav

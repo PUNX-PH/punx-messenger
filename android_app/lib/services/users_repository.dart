@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/custom_status.dart';
 import '../models/role.dart';
 import '../models/user_profile.dart';
+import '../utils/seen.dart';
 
 /// 1:1 port of the read-side of src/lib/users.jsx / db.js's listenUsers.
 class UsersRepository {
@@ -39,6 +40,27 @@ class UsersRepository {
       'dnd': dnd == null
           ? FieldValue.delete()
           : {'until': until is num && until.isFinite ? until : null},
+    });
+  }
+
+  /// When the OTHER person last had this DM open (ms), from their profile: one document, while the
+  /// conversation is on screen. A failure reads as "not seen", so it is swallowed.
+  Stream<int?> listenPeerSeen(String otherUid, String key) => _db
+      .collection('users')
+      .doc(otherUid)
+      .snapshots()
+      .map((snap) => seenAtFromProfile(snap.data(), key))
+      .handleError((_) {});
+
+  /// The web's Preferences switch "Let others see when I've read their messages" (`prefs.shareSeen`),
+  /// written the way the web writes preferences: the choice plus `updatedAt`, which is how the web
+  /// tells a newer copy from an older one. Switching it OFF also removes every receipt already written,
+  /// in the same write.
+  Future<void> setShareSeen(String uid, bool on) async {
+    await _db.collection('users').doc(uid).update({
+      'prefs.shareSeen': on,
+      'prefs.updatedAt': DateTime.now().millisecondsSinceEpoch,
+      if (!on) 'seen': FieldValue.delete(),
     });
   }
 

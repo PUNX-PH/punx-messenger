@@ -39,6 +39,8 @@ class MessageListView extends StatefulWidget {
     this.onLoadOlder,
     this.scrollToId,
     this.newFromId,
+    this.seenId,
+    this.seenText = '',
     this.onReply,
     this.onEdit,
     this.onDelete,
@@ -50,6 +52,11 @@ class MessageListView extends StatefulWidget {
   });
 
   final List<ChatMessage> messages;
+
+  /// A DM: the id of your latest message the other person has read, and what to say under it
+  /// ("Seen 3:41 PM").
+  final String? seenId;
+  final String seenText;
   final String? meUid;
   final Map<String, UserProfile> usersById;
   final Map<String, CustomEmoji> emojiByName;
@@ -464,6 +471,7 @@ class _MessageListViewState extends State<MessageListView> {
               canDeleteAny: widget.canDeleteAny,
               canPin: widget.canPin,
               highlighted: _highlightId == entry.message.id,
+              seenText: widget.seenId == entry.message.id ? widget.seenText : '',
               onReply: widget.onReply,
               onEdit: widget.onEdit,
               onDelete: widget.onDelete,

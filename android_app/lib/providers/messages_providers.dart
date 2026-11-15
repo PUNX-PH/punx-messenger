@@ -10,6 +10,7 @@ import '../utils/firestore_paths.dart';
 import '../utils/forward.dart';
 import '../utils/forward_targets.dart';
 import '../utils/saved.dart';
+import '../utils/seen.dart';
 import 'auth_providers.dart';
 import 'dm_providers.dart';
 import 'users_providers.dart';
@@ -216,10 +217,22 @@ class ChatController extends StateNotifier<ChatUiState> {
   }
 
   /// Skips the personal notes path — nothing to track unread for there.
-  Future<void> markRead() async {
-    final uid = _ref.read(profileProvider).valueOrNull?.id;
+  ///
+  /// [newest] is the time of the newest message on screen and [visible] whether the app is in front:
+  /// together with your own receipt and your sharing choice they decide whether this also records
+  /// that you had the DM open (shouldRecordSeen), for the other person's "Seen".
+  Future<void> markRead({Timestamp? newest, bool visible = true}) async {
+    final me = _ref.read(profileProvider).valueOrNull;
+    final uid = me?.id;
     if (uid == null || path.startsWith('users/')) return;
-    await _repo.markRead(uid, containerPath);
+    final seen = shouldRecordSeen(
+      containerPath: containerPath,
+      newestCreatedAt: newest,
+      seen: me!.seen[pathToReadKey(containerPath)],
+      share: me.shareSeen,
+      visible: visible,
+    );
+    await _repo.markRead(uid, containerPath, seen: seen);
   }
 }
 

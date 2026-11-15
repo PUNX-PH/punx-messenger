@@ -38,7 +38,7 @@ void main() {
       );
       // Captured in initState, before the mark-read timer (400 ms) can fire.
       final init = surface.indexOf('_captureOpening();');
-      final markRead = surface.indexOf('.markRead();');
+      final markRead = surface.indexOf('.markRead(');
       expect(init, greaterThan(0));
       expect(markRead, greaterThan(init));
     },

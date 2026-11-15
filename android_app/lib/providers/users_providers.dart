@@ -9,6 +9,12 @@ final usersRepositoryProvider = Provider<UsersRepository>(
   (ref) => UsersRepository(),
 );
 
+/// When the other person in a DM last had it open (ms; null when never, or unreadable). One document,
+/// only while a conversation is listening, and left out of the shared directory on purpose.
+final peerSeenProvider = StreamProvider.autoDispose.family<int?, ({String otherUid, String key})>(
+  (ref, p) => ref.watch(usersRepositoryProvider).listenPeerSeen(p.otherUid, p.key),
+);
+
 /// Live workspace directory.
 ///
 /// Emits only when WHO people are changes — a name, photo, role, deactivation.

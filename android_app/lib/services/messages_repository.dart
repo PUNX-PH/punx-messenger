@@ -11,6 +11,7 @@ import '../models/voice_clip.dart';
 import '../utils/constants.dart';
 import '../utils/firestore_paths.dart';
 import '../utils/saved.dart';
+import '../utils/seen.dart';
 import 'image_service.dart';
 
 /// 1:1 port of the message-level functions in src/lib/db.js. `path` is a
@@ -270,12 +271,15 @@ class MessagesRepository {
     return SaveResult.saved;
   }
 
-  /// Marks a channel/DM as read by the current user.
-  Future<void> markRead(String uid, String containerPath) async {
+  /// Marks a channel/DM as read by the current user. With [seen] (a DM that really was open: see
+  /// shouldRecordSeen in utils/seen.dart) it also records the receipt another person's "Seen" is built
+  /// on, in the same write. Marking as read from a list never passes it.
+  Future<void> markRead(String uid, String containerPath, {bool seen = false}) async {
     if (uid.isEmpty || containerPath.isEmpty) return;
     final key = pathToReadKey(containerPath);
     await _db.collection('users').doc(uid).update({
       'lastRead.$key': FieldValue.serverTimestamp(),
+      if (seen && isDmPath(containerPath)) 'seen.$key': FieldValue.serverTimestamp(),
     });
   }
 }
