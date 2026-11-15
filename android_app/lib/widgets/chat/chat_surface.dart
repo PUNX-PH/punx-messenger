@@ -12,6 +12,7 @@ import '../../providers/emojis_providers.dart';
 import '../../providers/messages_providers.dart';
 import '../../providers/users_providers.dart';
 import '../../theme/palette.dart';
+import '../../theme/text_styles.dart';
 import '../../utils/constants.dart';
 import '../../utils/firestore_paths.dart';
 import '../../utils/new_line.dart';
@@ -36,9 +37,13 @@ class ChatSurface extends ConsumerStatefulWidget {
     this.canDeleteAny = false,
     this.canPin = false,
     this.headerActions,
+    this.subtitle,
   });
 
   final String title;
+
+  /// A line under the title (a person's status, in a DM). Nothing when null.
+  final String? subtitle;
   final String
   path; // e.g. 'dms/<id>/messages', 'groups/<g>/channels/<c>/messages'
   final String icon; // '#' | '@' | '✎'
@@ -182,7 +187,20 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> {
             Text(widget.icon, style: TextStyle(color: Palette.inkDim)),
             const SizedBox(width: 6),
             Flexible(
-              child: Text(widget.title, overflow: TextOverflow.ellipsis),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(widget.title, overflow: TextOverflow.ellipsis),
+                  if (widget.subtitle != null)
+                    Text(
+                      widget.subtitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.xs(color: Palette.inkDim),
+                    ),
+                ],
+              ),
             ),
           ],
         ),

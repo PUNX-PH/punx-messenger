@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'custom_status.dart';
 import 'role.dart';
 
 /// Mirrors the `/users/{uid}` document shape from src/lib/auth.jsx + users.jsx.
@@ -20,6 +21,10 @@ class UserProfile {
   /// profileProvider and left out of the shared identity (users_identity.dart).
   final List<String> mutedChats;
 
+  /// What they wrote next to their name ("On leave"), cleaned; null when there is none. Not the
+  /// same thing as [presence]. It may have EXPIRED: show it through activeStatusOf().
+  final CustomStatus? customStatus;
+
   /// Removed from the workspace. isHuman() in firestore.rules refuses a
   /// deactivated account everything, so this is not a display preference — it
   /// is whether the app answers to them at all. Absent reads as active, the
@@ -38,6 +43,7 @@ class UserProfile {
     this.lastRead = const {},
     this.mutedGroups = const [],
     this.mutedChats = const [],
+    this.customStatus,
     this.deactivated = false,
   });
 
@@ -60,6 +66,7 @@ class UserProfile {
       lastRead: rawLastRead.map((k, v) => MapEntry(k, v as Timestamp)),
       mutedGroups: List<String>.from(data['mutedGroups'] as List? ?? const []),
       mutedChats: _cleanMutedChats(data['mutedChats']),
+      customStatus: CustomStatus.parse(data['status']),
       deactivated: data['deactivated'] == true,
     );
   }

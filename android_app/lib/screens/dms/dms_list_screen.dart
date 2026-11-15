@@ -13,6 +13,7 @@ import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
 import '../../utils/firestore_paths.dart';
 import '../../utils/muted.dart';
+import '../../utils/status.dart';
 import '../../widgets/shared/avatar.dart';
 import '../../widgets/shared/role_badge.dart';
 import '../../widgets/shared/profile_sheet.dart';
@@ -183,9 +184,18 @@ class _DmRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final status = ref.watch(statusOfProvider(user.id));
+    final custom = activeStatusOf(user, DateTime.now())?.text;
     return ListTile(
       onTap: onTap,
       onLongPress: onLongPress,
+      subtitle: custom == null
+          ? null
+          : Text(
+              custom,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.xs(color: Palette.inkMuted),
+            ),
       leading: Avatar(
         name: user.name,
         src: user.photoURL,
