@@ -20,14 +20,13 @@ import { copyToClipboard } from '../lib/clipboard'
 import { saveMessageToNotes } from '../lib/db'
 import { savedNoteId, savedPayload } from '../lib/saved'
 import LazySlot from './LazySlot'
-import { ForwardDialog, ThreadPanel } from '../lib/lazyParts'
+import { ForwardDialog, SearchDropdown, ThreadPanel } from '../lib/lazyParts'
 import { LINK_LOOKBACK, MESSAGE_PARAM, messageIdFromSearch, messageLink, nextLinkStep } from '../lib/messageLink'
 import ErrorBoundary from './ErrorBoundary'
 import MessageList, { PinIcon } from './MessageList'
 import Composer from './Composer'
 import { currentRoot, threadsAllowed } from '../lib/threads'
 import TypingIndicator from './TypingIndicator'
-import SearchDropdown from './SearchDropdown'
 import AppsMenu from './AppsMenu'
 import { MenuButton } from './AppShell'
 
@@ -389,12 +388,15 @@ export default function ChatSurface({
             <SearchIcon />
           </button>
           {searchOpen && (
-            <SearchDropdown
-              messages={messages}
-              usersById={usersById}
-              onJump={jumpTo}
-              onClose={() => setSearchOpen(false)}
-            />
+            <LazySlot overlay title="The search box couldn't be opened" onDismiss={() => setSearchOpen(false)}>
+              <SearchDropdown
+                messages={messages}
+                usersById={usersById}
+                meUid={profile?.uid}
+                onJump={jumpTo}
+                onClose={() => setSearchOpen(false)}
+              />
+            </LazySlot>
           )}
         </div>
 

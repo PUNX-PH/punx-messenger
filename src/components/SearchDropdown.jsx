@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { FILTER_CHIPS, hasToken, searchMessages, toggleToken } from '../lib/searchFilters'
 
 /**
- * In-chat search dropdown. Filters currently-loaded messages by substring.
+ * In-chat search dropdown. Searches the currently-loaded messages for words and for filters
+ * (from:, has:image, before:..., see lib/searchFilters.js), which can be typed or pressed.
  * Props:
  *   messages:   the full loaded message list from ChatSurface
  *   usersById:  workspace user map (for author name resolution)
+ *   meUid:      who is searching (for from:me and mentions:me)
  *   onJump:     (messageId) => void
  *   onClose:    () => void
  */
-export default function SearchDropdown({ messages, usersById, onJump, onClose }) {
+export default function SearchDropdown({ messages, usersById, meUid, onJump, onClose }) {
   const [q, setQ] = useState('')
   const ref = useRef(null)
+  const inputRef = useRef(null)
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
@@ -25,15 +29,10 @@ export default function SearchDropdown({ messages, usersById, onJump, onClose })
     }
   }, [onClose])
 
-  const results = useMemo(() => {
-    const ql = q.trim().toLowerCase()
-    if (!ql) return []
-    return messages
-      .filter(m => (m.text || '').toLowerCase().includes(ql))
-      .slice()
-      .reverse() // newest first
-      .slice(0, 100)
-  }, [messages, q])
+  const { results, parsed, active } = useMemo(
+    () => searchMessages(messages, q, { usersById, meUid }),
+    [messages, q, usersById, meUid],
+  )
 
   return (
     <div
@@ -42,13 +41,36 @@ export default function SearchDropdown({ messages, usersById, onJump, onClose })
     >
       <div className="px-3 py-2 border-b border-line-subtle bg-bg-deepest">
         <input
+          ref={inputRef}
           autoFocus
           value={q}
           onChange={e => setQ(e.target.value)}
           placeholder="Search this chat"
           className="w-full h-8 bg-bg-raised border border-line-subtle rounded-md px-2 text-sm outline-none focus:border-brand"
         />
-        {q.trim() && (
+        <div className="flex flex-wrap gap-1.5 mt-2" role="group" aria-label="Only messages with">
+          {FILTER_CHIPS.map(c => {
+            const on = hasToken(q, c.token)
+            return (
+              <button
+                key={c.token}
+                type="button"
+                aria-pressed={on}
+                onClick={() => { setQ(toggleToken(q, c.token)); inputRef.current?.focus() }}
+                className={[
+                  'h-6 px-2 rounded-full text-[11px] border transition-colors',
+                  on ? 'bg-brand/20 border-brand text-ink' : 'border-line-subtle text-ink-muted hover:text-ink hover:bg-bg-hover',
+                ].join(' ')}
+              >
+                {c.label}
+              </button>
+            )
+          })}
+        </div>
+        {parsed.problems.map(p => (
+          <div key={p} className="text-[11px] text-warn mt-1" role="status">{p}</div>
+        ))}
+        {active && (
           <div className="text-[11px] text-ink-dim mt-1">
             {results.length === 0 ? 'No matches' : `${results.length} match${results.length === 1 ? '' : 'es'}`}
           </div>
@@ -56,13 +78,16 @@ export default function SearchDropdown({ messages, usersById, onJump, onClose })
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {!q.trim() ? (
+        {!active ? (
           <div className="p-6 text-center text-sm text-ink-muted">
-            Type to search the currently loaded messages in this chat.
+            <div>Type to search the currently loaded messages in this chat.</div>
+            <div className="mt-2 text-xs text-ink-dim">
+              Narrow it down with <code>from:name</code> <code>has:image</code> <code>is:pinned</code> <code>before:2026-11-01</code> <code>after:…</code> <code>on:…</code> <code>mentions:me</code>
+            </div>
           </div>
         ) : results.length === 0 ? (
           <div className="p-6 text-center text-sm text-ink-muted">
-            Nothing matches “{q}”.
+            Nothing matches “{q.trim()}”.
           </div>
         ) : (
           results.map(m => (
@@ -78,7 +103,7 @@ export default function SearchDropdown({ messages, usersById, onJump, onClose })
                 <span className="text-[10px] text-ink-dim shrink-0">{formatTime(m.createdAt)}</span>
               </div>
               <div className="text-sm text-ink-muted mt-0.5 whitespace-pre-wrap line-clamp-3">
-                {highlight(m.text || '', q)}
+                {m.text ? highlight(m.text, parsed.text) : <span className="italic text-ink-dim">{kindOf(m)}</span>}
               </div>
             </button>
           ))
@@ -107,6 +132,13 @@ function highlight(text, q) {
     i = idx + q.length
   }
   return out
+}
+
+// What stands in for words in a result that has none (a picture or a voice message on its own).
+function kindOf(m) {
+  if (m.imageURL) return 'Picture'
+  if (m.audioURL) return 'Voice message'
+  return ''
 }
 
 function toDate(ts) {
