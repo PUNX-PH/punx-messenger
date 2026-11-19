@@ -4,6 +4,7 @@ import LazySlot from './LazySlot'
 import { EmojiPicker } from '../lib/lazyParts'
 import Avatar from './Avatar'
 import AttachmentTray from './AttachmentTray'
+import FormatBar from './FormatBar'
 import { useUsers } from '../lib/users'
 import { useAuth } from '../lib/auth'
 import { resolveMentions } from '../lib/markdown'
@@ -11,6 +12,7 @@ import { drafts } from '../lib/drafts'
 import { usePrefs } from '../lib/usePrefs'
 import { shouldSend } from '../lib/sendKey'
 import { hideSpoilers } from '../lib/spoilers'
+import { applyFormat, formatShortcut } from '../lib/formatting'
 import { shouldEditLast } from '../lib/editLast'
 import { useEmojis } from '../lib/emojis'
 import { MAX_VOICE_MS, formatDuration, voiceErrorText } from '../lib/voiceMessage'
@@ -64,6 +66,7 @@ export default function Composer({
   const fileRef = useRef(null)
   const taRef = useRef(null)
   const emojiBtnRef = useRef(null)
+  const [formatOpen, setFormatOpen] = useState(false) // the row of formatting buttons
   useEffect(() => { if (focusNonce) taRef.current?.focus() }, [focusNonce])
 
   // Mentions the user has explicitly picked in this composition
@@ -149,6 +152,19 @@ export default function Composer({
       ta.focus()
       const pos = start + token.length
       ta.setSelectionRange(pos, pos)
+    })
+  }
+
+  // Bold, italic, strikethrough, code or spoiler on what is selected (see lib/formatting.js). The
+  // selection afterwards is on the same words, so pressing it again takes the formatting off.
+  const format = (name) => {
+    const ta = taRef.current
+    if (!ta || sending || disabled) return
+    const r = applyFormat(text, ta.selectionStart ?? text.length, ta.selectionEnd ?? text.length, name)
+    updateText(r.text)
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(r.start, r.end)
     })
   }
 
@@ -414,6 +430,8 @@ export default function Composer({
 
       <AttachmentTray files={files} busy={sending} onRemove={(i) => setFiles(files.filter((_, j) => j !== i))} />
 
+      {formatOpen && !voice && <FormatBar onFormat={format} disabled={sending || disabled} />}
+
       <div
         className="bg-bg-raised border border-line-subtle rounded-lg flex items-end gap-1.5 pl-2 pr-2.5 py-1.5"
       >
@@ -513,6 +531,8 @@ export default function Composer({
                   return
                 }
               }
+              const fmt = formatShortcut(e)
+              if (fmt) { e.preventDefault(); format(fmt); return }
               if (onEditLast && shouldEditLast(e, { text, hasFile: files.length > 0, mentionOpen: !!(mention && mentionCandidates.length > 0) || suggestOpen })) {
                 if (onEditLast()) e.preventDefault()
                 return
@@ -531,6 +551,16 @@ export default function Composer({
             className="w-full bg-transparent text-ink placeholder:text-ink-dim resize-none outline-none max-h-40 leading-6 py-1.5 disabled:opacity-50 align-middle"
           />
         </div>
+        <button
+          type="button"
+          onClick={() => setFormatOpen(o => !o)}
+          title="Formatting"
+          aria-label="Formatting"
+          aria-pressed={formatOpen}
+          className={['p-1.5 text-sm font-semibold leading-none transition-colors shrink-0', formatOpen ? 'text-ink' : 'text-ink-dim hover:text-ink', voice ? 'hidden' : ''].join(' ')}
+        >
+          Aa
+        </button>
         <div ref={emojiBtnRef} className={'relative shrink-0 flex items-center' + (voice ? ' hidden' : '')}>
           <button
             type="button"
