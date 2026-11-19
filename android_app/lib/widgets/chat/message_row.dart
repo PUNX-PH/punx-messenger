@@ -117,7 +117,10 @@ class MessageRow extends ConsumerWidget {
       bg = Palette.warn.withValues(alpha: 0.06);
     }
 
+    // Opaque: the whole row is pressable, not only the words in it. A short message is mostly empty
+    // space, and a thumb does not aim for the letters.
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onLongPress: () => _showActions(context),
       child: Container(
         color: bg,
