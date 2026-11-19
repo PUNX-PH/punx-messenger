@@ -171,7 +171,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 977**, **Node 953** (sound, presence identity, lazy loader, iOS setup, chat identity, camera, attachments, threads, search filters, thread unread, spoilers), Worker 102, Firestore rules 216 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 977**, **Node 1006** (sound, presence identity, lazy loader, iOS setup, chat identity, camera, attachments, threads, search filters, thread unread, spoilers, formatting), Worker 102, Firestore rules 216 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -1288,7 +1288,7 @@ For channels the right-click menu is now open to every member on a text channel 
 
 **One flaky test, seen once (fixed in section 80).** In one of three full runs, `test/providers/presence_store_test.dart` ("20 heartbeats rebuild the directory zero times; a rename rebuilds it once") failed; it passed on its own and in the next full run. It does not touch anything changed here; it looks timing-sensitive under load. **Not investigated.**
 
-**NOT checked.** **No phone, emulator or Mac**: how the bar looks and wraps at large text sizes and in the light theme, TalkBack / VoiceOver actually reading it (the node, label and tap are tested, not heard), selecting hidden text (it is not painted, so there is nothing to select). Searching finds a message by what is inside a spoiler (the result says "[spoiler]"). Nesting such as `**||x||**` is not drawn as a spoiler (the bold wins and the bars show). **Not done:** a button or shortcut to wrap the selected text in `||`; hiding a picture as a spoiler.
+**NOT checked.** **No phone, emulator or Mac**: how the bar looks and wraps at large text sizes and in the light theme, TalkBack / VoiceOver actually reading it (the node, label and tap are tested, not heard), selecting hidden text (it is not painted, so there is nothing to select). Searching finds a message by what is inside a spoiler (the result says "[spoiler]"). Nesting such as `**||x||**` is not drawn as a spoiler (the bold wins and the bars show). **Not done:** (a button or shortcut to wrap the selected text in `||`: on the web, section 81; on the phone, not yet); hiding a picture as a spoiler.
 
 ## 80. A flaky presence test, found and fixed (PR #87)
 
@@ -1301,3 +1301,23 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** The same load that failed 2 of 8 runs: **0 failures in 16**. The full Flutter suite passes (977), `flutter analyze` clean. The tests still guard the behaviour: with the app deliberately broken (every snapshot rebuilds the directory) they fail, reading `Expected (1, 1), Actual (21, 21)` and the heartbeat time published early.
 
 **NOT checked.** A busier or slower machine than this one (the load here was eight busy processes; GitHub's runners were not tried). Other tests in the project that wait a fixed few milliseconds for something to propagate (`await Future.delayed(...)`, `pump(Duration(...))`): none has been seen to fail, and I did not hunt for them.
+
+## 81. Formatting the selected text, on the web (PR #88)
+
+**Why.** Bold, italic, strikethrough, code and spoilers are all in the message text as marks (`**`, `_`, `~~`, `` ` ``, `||`), but the box gave no help writing them: you had to type the marks by hand, on both sides, with no mistakes. Spoilers (section 78) in particular are not something people will type from memory.
+
+**No data, rules or Worker change; the phone is not done yet.** The message text is the same as before (what is written is what is stored). **Nothing needs deploying.**
+
+**What.**
+- **Ctrl/Cmd+B** makes the selected text bold and **Ctrl/Cmd+I** italic (only those two keys: they are what everyone expects and do not clash with what a browser keeps for itself; not with Alt or Shift held, nor while an input method is composing). Both are listed in the keyboard shortcuts sheet ("Writing").
+- An **"Aa" button** in the box opens a row of five buttons above it: **Bold, Italic, Strikethrough, Code, Spoiler**. A button works on the selection and **does not take the selection out of the box**, so it can be pressed again.
+- **Pressing it again takes the formatting off**, also from several formats at once: select words that are bold and italic (`**_words_**`), press Bold, and only the bold goes (`_words_`). After each press the selection is on the same words.
+- **Spaces at the ends of the selection stay outside the marks** (a spoiler cannot start or end with a space: selecting " secret " gives " ||secret|| ").
+- **Nothing selected**: the pair of marks goes in at the cursor, the cursor between them; pressed again between an empty pair, it takes the pair away (a selected empty pair too).
+- **Several lines selected**: marked line by line, since the marks cannot cross a line break.
+- Italic uses `_`, not `*`, so it can never be mistaken for half of a `**bold**`. Nothing is written by a button that the renderer would not read back as that format (a test checks each).
+- Behind it: `src/lib/formatting.js` (pure: text and selection in, text and selection out), `src/components/FormatBar.jsx`.
+
+**Checked.** 53 new Node tests (1006 pass): each format's marks (read back through the renderer's own tokenizer), the keys (and the ones that must not work), wrapping and toggling for every format, the edge cases (spaces, empty and selected-empty pairs, several lines, empty lines, a selection that ends mid-line before a line break, backwards and out-of-range selections, text that is not text, an unknown format, emoji, mentions), layered formats taken off one by one, marks on ONE side only (nothing is cut), and the box, the bar and the shortcuts sheet pinned against their source. **73 deliberate breakages, all caught.** The first run caught 64 of 77; the survivors were: tests missing for cases where a wrong answer would CUT text (marks on one side only, a selection ending mid-line), a few redundant conditions (removed), and one **real bug the layered test found: after Bold then Italic, pressing Bold again wrapped the words in more bold; it now looks outward through other formats' marks.** One mistake of mine, caught by the mutations: while removing a wrong test I deleted a whole section of tests with it; the mutations that section should have caught survived, which is how I noticed, and it is restored. The real box was driven in a browser with real key presses and a real click: Ctrl+B made the word bold and put the selection back on it, again took it off, Ctrl+I added italic, Ctrl+B took only the bold off and left the italic; the toolbar opened with its five buttons, pressing Spoiler wrapped the selected word with the selection and focus kept; sending showed the italic word and a hidden spoiler. Main script 334.54 -> 338.76 kB (gzip 105.42 -> 107.01; the box is not loaded on demand).
+
+**NOT checked.** The real app (no sign-in here): the row inside the real conversation layout and on a narrow window, Safari/Firefox (a browser may keep Ctrl/Cmd+B or +I for itself in some contexts; the box asks it not to), the shortcut on non-English keyboards (it follows the character typed, not the key's position). **Known limits:** selecting text that already contains the SAME mark in its middle (`**a** b **c**` as one selection) wraps it again instead of removing the inner marks; select the words to change. Whether the buttons should remember being open across conversations (they close with the page). **Not done:** the phone (a row above its box, the same logic ported); a shortcut for code, strikethrough and spoiler (they are on the buttons only); turning `*italic*` typed by hand into the `_` form.

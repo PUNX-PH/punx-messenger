@@ -20,7 +20,7 @@ const byId = (opts) => Object.fromEntries(items(opts).map((i) => [i.id, i]))
 test('it lists exactly the shortcuts that exist, and not one that does not', () => {
   assert.deepEqual(
     items().map((i) => i.id),
-    ['switcher', 'next-unread', 'prev-unread', 'send', 'newline', 'edit-last', 'mention-move', 'mention-pick', 'close', 'help'],
+    ['switcher', 'next-unread', 'prev-unread', 'send', 'newline', 'format-bold', 'format-italic', 'edit-last', 'mention-move', 'mention-pick', 'close', 'help'],
   )
 })
 
