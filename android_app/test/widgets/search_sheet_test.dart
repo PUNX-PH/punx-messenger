@@ -58,6 +58,19 @@ final messages = [
   msg('7', 'ben', 6, withVoice: true),
 ];
 
+String _textOf(Text t) => t.data ?? t.textSpan!.toPlainText();
+
+/// The words of a result that are marked, as the sheet draws them.
+List<String> _marked(WidgetTester tester, int index) {
+  final text = tester.widgetList<ListTile>(find.byType(ListTile)).elementAt(index).subtitle as Text;
+  final out = <String>[];
+  text.textSpan!.visitChildren((span) {
+    if (span is TextSpan && span.style?.backgroundColor != null) out.add(span.text!);
+    return true;
+  });
+  return out;
+}
+
 void main() {
   setUpAll(() {
     GoogleFonts.config.allowRuntimeFetching = false;
@@ -103,7 +116,7 @@ void main() {
 
   /// The people in the results, in the order shown.
   List<String> shown(WidgetTester tester) =>
-      tester.widgetList<ListTile>(find.byType(ListTile)).map((t) => ((t.subtitle as Text).data ?? '')).toList();
+      tester.widgetList<ListTile>(find.byType(ListTile)).map((t) => _textOf(t.subtitle as Text)).toList();
 
   bool chipOn(WidgetTester tester, String label) =>
       tester.widget<FilterChip>(find.widgetWithText(FilterChip, label)).selected;
@@ -126,6 +139,31 @@ void main() {
     expect(find.textContaining('from:name'), findsOneWidget);
     expect(find.textContaining('has:image'), findsOneWidget);
     expect(find.byType(ListTile), findsNothing);
+  });
+
+  testWidgets('the words searched for are marked in each result, whatever their capitals', (tester) async {
+    await open(tester);
+    await type(tester, 'RELEASE');
+    expect(find.text('3 matches'), findsOneWidget);
+    for (var i = 0; i < 3; i++) {
+      expect(_marked(tester, i), ['release'], reason: 'result $i');
+    }
+    // the text is whole, and read out as it was (the marking is only a background)
+    expect(shown(tester)[2], 'Can someone review the release notes before 3pm?');
+  });
+
+  testWidgets('every match in a result is marked, and only the words, not the filters', (tester) async {
+    await open(tester);
+    await type(tester, 'e from:ben');
+    expect(find.byType(ListTile), findsOneWidget);
+    expect(_marked(tester, 0), ['e', 'e', 'e']); // the, second, fixed
+  });
+
+  testWidgets('a result found only through filters, or a picture, has nothing marked', (tester) async {
+    await open(tester);
+    await type(tester, 'has:link');
+    expect(find.byType(ListTile), findsOneWidget);
+    expect(_marked(tester, 0), isEmpty);
   });
 
   testWidgets('words alone still work, newest first', (tester) async {

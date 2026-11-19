@@ -171,7 +171,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 1062**, **Node 1006** (sound, presence identity, lazy loader, iOS setup, chat identity, camera, attachments, threads, search filters, thread unread, spoilers, formatting), Worker 102, Firestore rules 216 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 1075**, **Node 1006** (sound, presence identity, lazy loader, iOS setup, chat identity, camera, attachments, threads, search filters, thread unread, spoilers, formatting), Worker 102, Firestore rules 216 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -1369,3 +1369,15 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** 21 new Flutter tests (7 screens x 3 sizes; 1062 in all pass, `flutter analyze` clean). The first run failed 5 of the 21 (the four above; the strip showed up first). 5 deliberate breakages: chip back to a `Row`, status area not capped, text field always 6 lines, search notes taken out of the list: **all caught**; the 5th (`Expanded` -> `Flexible` in the quote strip) survives and is equivalent as far as overflow goes (the text is cut either way). Two of them first **survived**: the test never typed enough lines to reach the field's cap, and nothing checked that the search notes were still there; there are assertions for both now (the field is at most 40% of the screen after 20 lines; both notes, the count and the last result are reachable). Two existing tests looked for the quote's name and text as two separate widgets (`find.text('@Ana')`); they look at the combined text now.
 
 **NOT checked.** **No phone, emulator or Mac**: a real "largest text" setting, the real keyboard (the box's share is worked out from the keyboard's height, but the tests never raise a keyboard), landscape, a tablet, and the screens that were not part of this stretch's work (the audit covers only what sections 72–83 added). Left alone: a chip that wraps is two lines tall, which is more than the 40 px press target of one line (it only gets taller).
+
+## 85. The words searched for are marked in the results, on the phone (PR #92)
+
+**Why.** The web's search marks the words you typed inside each result; the phone's sheet never did (sections 75 and 74 listed it as "not done"). On a phone, with three lines of a long message per result, finding why a message matched is the whole point.
+
+**No data, rules, Worker or web change.** Drawing only. **Nothing needs deploying.**
+
+**What.** `lib/utils/highlight.dart` (`highlightParts`, a port of `highlight()` in `SearchDropdown.jsx`) cuts a text into the stretches that match and those between; the result's text is drawn as rich text with a warning-coloured background behind each match (`Palette.warn` at 30%, the same as the web's `bg-warn/30`). It marks the **words** only (`parsed.text`), never a filter such as `from:ben`; capitals do not matter and the text keeps its own; every match is marked; the text it marks is the same one shown (so a spoiler is "[spoiler]" and nothing in it is marked, which also keeps the hidden words from being given away); a result with no words (a picture or a voice message) has nothing to mark. A search with only filters marks nothing.
+
+**Checked.** 14 new Flutter tests (1075 in all pass, `flutter analyze` clean): the cutting (order, start and end, adjacent and non-overlapping matches, capitals, no query or no text, joining gives the text back, characters that are special in patterns, emoji and accents), and in the real sheet (marked in every result whatever the capitals, several matches in one result, filters-only marks nothing, the text still reads whole). **11 deliberate breakages of 12 caught** (none by a compile error): the survivor cut a result to one line instead of three, which no test of the sheet looked at before either. One thing found by the tests: I had added a guard for letters that change length when lower-cased (true in JavaScript, with the dotted capital I). It could never run: **in Dart no character changes length** (checked over every code point, and now a test), so the guard is gone.
+
+**NOT checked.** **No phone, emulator or Mac**: how the mark looks on a real screen, in the light theme, and at large text sizes (the large-text scene passes with marks in it, but nothing was looked at). A **matched word hidden in a spoiler** finds the message but marks nothing (same as the web). **Not done:** matching without accents (`cafe` does not find `café`, as before), a person picker for `from:`, searching across channels.

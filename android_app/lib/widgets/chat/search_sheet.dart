@@ -5,6 +5,7 @@ import '../../models/user_profile.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
+import '../../utils/highlight.dart';
 import '../../utils/search_filters.dart';
 import '../../utils/spoilers.dart';
 import '../../utils/time_format.dart';
@@ -94,10 +95,7 @@ class _SearchSheetState extends State<_SearchSheet> {
           padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
           child: Align(
             alignment: Alignment.centerLeft,
-            child: Text(
-              problem,
-              style: AppTextStyles.xs(color: Palette.warn),
-            ),
+            child: Text(problem, style: AppTextStyles.xs(color: Palette.warn)),
           ),
         ),
       Padding(
@@ -193,16 +191,39 @@ class _SearchSheetState extends State<_SearchSheet> {
                         author,
                         style: AppTextStyles.sm(weight: FontWeight.w600),
                       ),
-                      subtitle: Text(
-                        m.text.isNotEmpty ? hideSpoilers(m.text) : _kindOf(m),
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.sm(
-                          color: m.text.isNotEmpty ? Palette.inkMuted : Palette.inkDim,
-                        ).copyWith(
-                          fontStyle: m.text.isNotEmpty ? null : FontStyle.italic,
-                        ),
-                      ),
+                      subtitle: m.text.isNotEmpty
+                          ? Text.rich(
+                              TextSpan(
+                                children: [
+                                  // The words searched for are marked, as on the web.
+                                  for (final part in highlightParts(
+                                    hideSpoilers(m.text),
+                                    found.parsed.text,
+                                  ))
+                                    TextSpan(
+                                      text: part.text,
+                                      style: part.match
+                                          ? TextStyle(
+                                              color: Palette.ink,
+                                              backgroundColor: Palette.warn
+                                                  .withValues(alpha: 0.3),
+                                            )
+                                          : null,
+                                    ),
+                                ],
+                              ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTextStyles.sm(color: Palette.inkMuted),
+                            )
+                          : Text(
+                              _kindOf(m),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTextStyles.sm(
+                                color: Palette.inkDim,
+                              ).copyWith(fontStyle: FontStyle.italic),
+                            ),
                       trailing: Text(
                         formatSearchResultTime(m.createdAt),
                         style: AppTextStyles.xs(color: Palette.inkDim),
