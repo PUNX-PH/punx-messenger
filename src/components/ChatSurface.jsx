@@ -25,7 +25,7 @@ import { LINK_LOOKBACK, MESSAGE_PARAM, messageIdFromSearch, messageLink, nextLin
 import ErrorBoundary from './ErrorBoundary'
 import MessageList, { PinIcon } from './MessageList'
 import Composer from './Composer'
-import { currentRoot, threadsAllowed } from '../lib/threads'
+import { currentRoot, markThreadSeen, threadsAllowed } from '../lib/threads'
 import TypingIndicator from './TypingIndicator'
 import AppsMenu from './AppsMenu'
 import { MenuButton } from './AppShell'
@@ -91,6 +91,11 @@ export default function ChatSurface({
   const [newFrom, setNewFrom] = useState(null) // { path, id }
   const newFromDecidedFor = useRef(null)
   const readAtEntry = useRef({ known: false }) // your last-read time when this conversation was opened
+  // The same moment, in milliseconds, for the replies that are new in their threads (null: unknown, so none are).
+  const [readSince, setReadSince] = useState(null) // { path, ms }
+  // How far each thread has been looked at since this conversation was opened: { messageId: ms }.
+  const [threadSeen, setThreadSeen] = useState({})
+  const markSeen = useCallback((rootId, replies) => setThreadSeen(prev => markThreadSeen(prev, rootId, replies)), [])
 
   // Container path for typing (drops the trailing /messages). Skip for private notes.
   const containerPath = path && !path.startsWith('users/')
@@ -146,6 +151,8 @@ export default function ChatSurface({
     // connection the time read later would already be "just now" and the line would be lost.
     newFromDecidedFor.current = null
     setNewFrom(null)
+    setReadSince(null)
+    setThreadSeen({})
     const meNow = usersByIdRef.current?.[profile?.uid]
     readAtEntry.current = meNow && path && !path.startsWith('users/')
       ? { known: true, at: meNow.lastRead?.[pathToReadKey(path.replace(/\/messages$/, ''))] }
@@ -170,6 +177,7 @@ export default function ChatSurface({
         newFromDecidedFor.current = path
         const lastRead = entry?.known ? entry.at : me.lastRead?.[pathToReadKey(path.replace(/\/messages$/, ''))]
         setNewFrom({ path, id: firstUnreadId(docs, lastRead, profile.uid) })
+        setReadSince({ path, ms: lastRead?.toMillis?.() ?? null })
       }
       setHasMore(meta.hasMore)
       setLoadingMore(false)
@@ -455,6 +463,8 @@ export default function ChatSurface({
         <MessageList
           messages={messages}
           newFromId={newFrom?.path === path ? newFrom.id : null}
+          newSince={readSince?.path === path ? readSince.ms : null}
+          threadSeen={threadSeen}
           loading={!loaded}
           hasMore={hasMore}
           loadingMore={loadingMore}
@@ -535,6 +545,7 @@ export default function ChatSurface({
           meUid={profile?.uid}
           readOnly={readOnly}
           onSend={threadSend}
+          onSeen={markSeen}
           onJump={(id) => { if (window.matchMedia?.('(max-width: 767px)').matches) setOpenThread(null); jumpTo(id) }}
           onClose={() => setOpenThread(null)}
         />

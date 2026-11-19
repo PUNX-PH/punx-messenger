@@ -66,3 +66,46 @@ export function currentRoot(messages, opened) {
   if (!opened) return null
   return (messages || []).find(m => m.id === opened.id) || opened
 }
+
+// ---------- what is new in a thread ----------
+//
+// A reply is NEW in its thread when someone else wrote it after the conversation was last read before
+// you opened it (the same moment the "New" line is drawn from) and after you last had that thread
+// open. Nothing is stored for this: the "last had it open" times live in the page for as long as the
+// conversation is open, and a conversation opened again starts from its own last-read time.
+
+/**
+ * How many replies to each message are new to `meUid`: Map of message id -> count (only those with any).
+ * `sinceMs` is the last-read time of the conversation when it was opened; when it is not known (never
+ * read, notes, not loaded yet) nothing is new, as with the "New" line. `seen` is { messageId: ms },
+ * how far each thread has been looked at. Your own replies, and ones still being sent, are never new.
+ */
+export function newReplyCounts(messages, meUid, sinceMs, seen = null) {
+  const counts = new Map()
+  if (!Number.isFinite(sinceMs)) return counts
+  for (const m of messages || []) {
+    const target = replyTargetOf(m)
+    const t = timeOf(m)
+    if (!target || t === null || m.author?.uid === meUid) continue
+    if (t > Math.max(sinceMs, seen?.[target] ?? 0)) counts.set(target, (counts.get(target) || 0) + 1)
+  }
+  return counts
+}
+
+/**
+ * `seen` with the thread of `rootId` marked looked at up to its newest reply in `replies`. The SAME object
+ * back when that moves nothing (a thread is never "unseen" again, and a reply still being sent has no
+ * time), so a state holding it does not change for nothing.
+ */
+export function markThreadSeen(seen, rootId, replies) {
+  let newest = null
+  for (const m of replies || []) {
+    const t = timeOf(m)
+    if (t !== null && (newest === null || t > newest)) newest = t
+  }
+  if (newest === null || newest <= (seen?.[rootId] ?? 0)) return seen
+  return { ...seen, [rootId]: newest }
+}
+
+/** The words for the new ones, beside "3 replies": "2 new". */
+export const newRepliesLabel = (n) => `${n} new`

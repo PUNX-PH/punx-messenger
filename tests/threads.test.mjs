@@ -181,7 +181,7 @@ test('the replies are their own query: every reply to this message, not a filter
 
 test('the list counts replies once, and hands the same map on while nothing changed', () => {
   const l = read('src/components/MessageList.jsx')
-  assert.ok(l.includes("import { replyCounts as countReplies, replyLabel, sameCounts } from '../lib/threads'"))
+  assert.ok(l.includes("import { newReplyCounts, newRepliesLabel, replyCounts as countReplies, replyLabel, sameCounts } from '../lib/threads'"))
   assert.ok(l.includes('const next = countReplies(messages)'))
   assert.ok(l.includes('if (sameCounts(countsRef.current, next)) return countsRef.current'))
   assert.ok(l.includes('countsRef.current = next'))

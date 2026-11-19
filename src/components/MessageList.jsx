@@ -19,7 +19,7 @@ import VoicePlayer from './VoicePlayer'
 import { isSavedNote, savedRouteOf } from '../lib/saved'
 import * as tf from '../lib/timeFormat'
 import { usePrefs } from '../lib/usePrefs'
-import { replyCounts as countReplies, replyLabel, sameCounts } from '../lib/threads'
+import { newReplyCounts, newRepliesLabel, replyCounts as countReplies, replyLabel, sameCounts } from '../lib/threads'
 
 export default function MessageList({
   messages, emptyTitle, emptyDesc,
@@ -32,6 +32,8 @@ export default function MessageList({
   onReact,
   onReply,                // (message) => void  (start replying)
   onOpenThread = null,    // (message) => void: open the thread of a message; null where threads are not offered
+  newSince = null,        // when you last read this conversation before opening it (ms): replies after it, from others, are "new" in their thread
+  threadSeen = null,      // { messageId: ms }: how far each thread has been looked at this time
   onJumpToMessage,        // (messageId) => void (for replyTo preview jump)
   onCopyLink = null,      // (message) => Promise<boolean>: copy a link to it; null where there is no link (DMs, notes)
   onForward = null,       // (message) => void: open the "forward to..." picker; null where forwarding is not offered
@@ -81,6 +83,14 @@ export default function MessageList({
     countsRef.current = next
     return next
   }, [messages])
+  // How many of those replies are new to you, kept the same way (the SAME map while nothing moved).
+  const newCountsRef = useRef(new Map())
+  const newReplies = useMemo(() => {
+    const next = newReplyCounts(messages, meUid, newSince, threadSeen)
+    if (sameCounts(newCountsRef.current, next)) return newCountsRef.current
+    newCountsRef.current = next
+    return next
+  }, [messages, meUid, newSince, threadSeen])
   const now = useTickNow()
   const presence = usePresence()
   const [prefs] = usePrefs()
@@ -291,6 +301,7 @@ export default function MessageList({
               onReply={onReply}
               onOpenThread={onOpenThread}
               replyCounts={replyCounts}
+              newReplies={newReplies}
               onJumpToMessage={onJumpToMessage}
               onCopyLink={onCopyLink}
               onForward={onForward}
@@ -365,7 +376,7 @@ function ArrowDownIcon({ className }) {
 const Group = memo(function Group({
   group, timeFormat, onZoom, canPin, onTogglePin, highlightId, seenId, seenText, usersById, presenceById, emojiByName, tickNow,
   canDeleteAny, readOnly, meUid, editingId, setEditingId, onEdit, onDelete, onReact,
-  onReply, onOpenThread, replyCounts, onJumpToMessage, onCopyLink, onForward, onSave,
+  onReply, onOpenThread, replyCounts, newReplies, onJumpToMessage, onCopyLink, onForward, onSave,
 }) {
   const currentAuthor = usersById?.[group.author?.uid]
   const name = currentAuthor?.name || group.author?.name
@@ -406,6 +417,7 @@ const Group = memo(function Group({
           onReply={onReply}
           onOpenThread={onOpenThread}
           replyCount={replyCounts?.get(m.id) || 0}
+          newReplyCount={newReplies?.get(m.id) || 0}
           onJumpToMessage={onJumpToMessage}
           onCopyLink={onCopyLink}
           onForward={onForward}
@@ -425,7 +437,7 @@ const Group = memo(function Group({
 const Row = memo(function Row({
   message, showHeader, author, firstTime, timeFormat, onZoom, canPin, onTogglePin, highlighted, seenText,
   emojiByName, isAuthor, canDeleteAny, readOnly, editing, setEditingId, onEdit, onDelete,
-  onReact, onReply, onOpenThread, replyCount, onJumpToMessage, onCopyLink, onForward, onSave, meUid, usersById,
+  onReact, onReply, onOpenThread, replyCount, newReplyCount, onJumpToMessage, onCopyLink, onForward, onSave, meUid, usersById,
 }) {
   const setEditing = (on) => setEditingId(on ? message.id : null)
   const onlyEmojis = isOnlyEmojis(message.text)
@@ -571,6 +583,11 @@ const Row = memo(function Row({
               >
                 <ThreadIcon />
                 {replyLabel(replyCount)}
+                {newReplyCount > 0 && (
+                  <span className="px-1.5 rounded-full bg-brand text-white text-[10px] leading-4 font-semibold" data-new-replies>
+                    {newRepliesLabel(newReplyCount)}
+                  </span>
+                )}
               </button>
             )}
             {reactionEntries.length > 0 && (
