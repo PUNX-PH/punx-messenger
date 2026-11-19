@@ -66,3 +66,55 @@ ChatMessage currentRoot(Iterable<ChatMessage> messages, ChatMessage opened) {
   }
   return opened;
 }
+
+// ---------- what is new in a thread ----------
+//
+// Mirrors src/lib/threads.js. A reply is NEW in its thread when someone else wrote it after the
+// conversation was last read before you opened it (the same moment the "New" line is drawn from) and
+// after you last had that thread open. Nothing is stored for this: the "last had it open" times live
+// in the open screen, and a conversation opened again starts from its own last-read time.
+
+/// How many replies to each message are new to [meUid]: message id -> count (only those with any).
+/// [sinceMs] is the last-read time of the conversation when it was opened; when it is not known
+/// (never read, notes, not loaded yet) nothing is new, as with the "New" line. [seen] is
+/// `{messageId: ms}`, how far each thread has been looked at. Your own replies, and ones still being
+/// sent (no time yet), are never new.
+Map<String, int> newReplyCounts(
+  Iterable<ChatMessage> messages,
+  String? meUid,
+  int? sinceMs, [
+  Map<String, int> seen = const {},
+]) {
+  final counts = <String, int>{};
+  if (sinceMs == null) return counts;
+  for (final m in messages) {
+    final target = replyTargetOf(m);
+    final t = m.createdAt?.millisecondsSinceEpoch;
+    if (target == null || t == null || m.author.uid == meUid) continue;
+    final seenAt = seen[target] ?? 0;
+    if (t > (sinceMs > seenAt ? sinceMs : seenAt)) {
+      counts[target] = (counts[target] ?? 0) + 1;
+    }
+  }
+  return counts;
+}
+
+/// [seen] with the thread of [rootId] marked looked at up to its newest reply in [replies]. The SAME
+/// map back when that moves nothing (a thread is never "unseen" again, and a reply still being sent
+/// has no time), so a state holding it does not change for nothing.
+Map<String, int> markThreadSeen(
+  Map<String, int> seen,
+  String rootId,
+  Iterable<ChatMessage> replies,
+) {
+  int? newest;
+  for (final m in replies) {
+    final t = m.createdAt?.millisecondsSinceEpoch;
+    if (t != null && (newest == null || t > newest)) newest = t;
+  }
+  if (newest == null || newest <= (seen[rootId] ?? 0)) return seen;
+  return {...seen, rootId: newest};
+}
+
+/// The words for the new ones, beside "3 replies": "2 new".
+String newRepliesLabel(int n) => '$n new';

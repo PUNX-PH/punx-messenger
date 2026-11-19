@@ -27,6 +27,7 @@ class ThreadScreen extends ConsumerStatefulWidget {
     required this.path,
     required this.opened,
     this.onShowInChat,
+    this.onSeen,
   });
 
   /// The conversation's messages path (`dms/<id>/messages`, `groups/<g>/channels/<c>/messages`).
@@ -39,6 +40,10 @@ class ThreadScreen extends ConsumerStatefulWidget {
   /// Takes the reader to a message in the conversation, which this screen closes first.
   final ValueChanged<String>? onShowInChat;
 
+  /// Told which replies are on screen, as they change, so the conversation can stop counting them as
+  /// new (see markThreadSeen). Called after the frame, never while building.
+  final void Function(String rootId, List<ChatMessage> replies)? onSeen;
+
   @override
   ConsumerState<ThreadScreen> createState() => _ThreadScreenState();
 }
@@ -47,10 +52,29 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
   final _scroll = ScrollController();
   int _seenReplies = 0;
 
+  /// The newest reply time last reported through onSeen: only a newer one is worth telling (a reply
+  /// going away cannot make a thread unseen).
+  int? _reportedMs;
+
   @override
   void dispose() {
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// Looking at the thread is what makes its replies not new any more: what is on screen, as it
+  /// changes. Told after the frame, because the conversation rebuilds when it hears this.
+  void _reportSeen(String rootId, List<ChatMessage> replies) {
+    int? newest;
+    for (final m in replies) {
+      final t = m.createdAt?.millisecondsSinceEpoch;
+      if (t != null && (newest == null || t > newest)) newest = t;
+    }
+    if (newest == null || (_reportedMs != null && newest <= _reportedMs!)) return;
+    _reportedMs = newest;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onSeen?.call(rootId, replies);
+    });
   }
 
   /// New replies come in at the bottom, and the screen follows them.
@@ -88,6 +112,7 @@ class _ThreadScreenState extends ConsumerState<ThreadScreen> {
     final loaded = repliesAsync.hasValue;
     final replies = threadReplies(repliesAsync.valueOrNull ?? const [], root.id);
     _followTo(replies.length);
+    _reportSeen(root.id, replies);
 
     final usersById = ref.watch(usersByIdProvider);
     final emojiByName = ref.watch(emojiByNameProvider);

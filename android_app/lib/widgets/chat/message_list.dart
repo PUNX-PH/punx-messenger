@@ -51,6 +51,8 @@ class MessageListView extends StatefulWidget {
     this.onSave,
     this.onForward,
     this.onOpenThread,
+    this.newSince,
+    this.threadSeen = const {},
   });
 
   final List<ChatMessage> messages;
@@ -97,6 +99,12 @@ class MessageListView extends StatefulWidget {
   /// Opens the thread of a message (its replies, gathered); null where threads are not offered.
   /// Also what the "N replies" under a message does when pressed.
   final ValueChanged<ChatMessage>? onOpenThread;
+
+  /// When the conversation was last read before it was opened (ms), and how far each thread has
+  /// been looked at since: replies after both, from someone else, are "new" in their thread (see
+  /// newReplyCounts). A null [newSince] means it is not known, so none are.
+  final int? newSince;
+  final Map<String, int> threadSeen;
   final void Function(ChatMessage message, String key)? onReact;
   final ValueChanged<String>? onJumpToMessage;
 
@@ -145,6 +153,32 @@ class _MessageListViewState extends State<MessageListView> {
       _counts = replyCounts(messages);
     }
     return _counts;
+  }
+
+  /// How many of those replies are new to you, worked out again only when what it depends on changed.
+  List<ChatMessage>? _newCountedFor;
+  int? _newCountedSince;
+  Map<String, int>? _newCountedSeen;
+  String? _newCountedMe;
+  Map<String, int> _newCounts = const {};
+
+  Map<String, int> _newReplyCountsFor() {
+    if (!identical(_newCountedFor, widget.messages) ||
+        _newCountedSince != widget.newSince ||
+        !identical(_newCountedSeen, widget.threadSeen) ||
+        _newCountedMe != widget.meUid) {
+      _newCountedFor = widget.messages;
+      _newCountedSince = widget.newSince;
+      _newCountedSeen = widget.threadSeen;
+      _newCountedMe = widget.meUid;
+      _newCounts = newReplyCounts(
+        widget.messages,
+        widget.meUid,
+        widget.newSince,
+        widget.threadSeen,
+      );
+    }
+    return _newCounts;
   }
 
   @override
@@ -457,6 +491,9 @@ class _MessageListViewState extends State<MessageListView> {
     final counts = widget.onOpenThread == null
         ? const <String, int>{}
         : _replyCountsFor(widget.messages);
+    final newCounts = widget.onOpenThread == null
+        ? const <String, int>{}
+        : _newReplyCountsFor();
     _itemCount = items.length;
     final newLineAt = items.indexWhere((i) => i is _NewItem);
     _newLineIndex = newLineAt < 0 ? null : newLineAt;
@@ -504,6 +541,7 @@ class _MessageListViewState extends State<MessageListView> {
               onForward: widget.onForward,
               replyCount: counts[entry.message.id] ?? 0,
               onOpenThread: widget.onOpenThread,
+              newReplyCount: newCounts[entry.message.id] ?? 0,
             ),
           );
         },
