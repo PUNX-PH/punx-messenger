@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -119,6 +120,7 @@ void main() {
       bool withReply = false,
       bool withDelete = false,
       bool quote = true,
+      int newReplies = 0,
       String meUid = 'me',
     }) async {
       phone(tester);
@@ -141,6 +143,7 @@ void main() {
                 onDelete: withDelete ? (_) {} : null,
                 onEdit: withDelete ? (_, _) {} : null,
                 showReplyQuote: quote,
+                newReplyCount: newReplies,
               ),
             ),
           ),
@@ -176,6 +179,40 @@ void main() {
       await pumpRow(tester, quote: false);
       expect(find.text('hello there', findRichText: true), findsOneWidget);
       expect(find.text('@Ana'), findsNothing);
+    });
+
+    testWidgets('says how many of its replies are new, in a pill beside the count', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await pumpRow(tester, replyCount: 3, newReplies: 2);
+      expect(find.text('3 replies'), findsOneWidget);
+      expect(find.text('2 new'), findsOneWidget);
+      expect(find.bySemanticsLabel('3 replies, 2 new, open the thread'), findsOneWidget);
+      final node = tester.getSemantics(find.bySemanticsLabel('3 replies, 2 new, open the thread'));
+      expect(node.getSemanticsData().flagsCollection.isButton, isTrue, reason: 'offered as a button of its own');
+      expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+      semantics.dispose();
+    });
+
+    testWidgets('with none new there is no pill, and the label is as before', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await pumpRow(tester, replyCount: 3);
+      expect(find.textContaining('new'), findsNothing);
+      expect(find.bySemanticsLabel('3 replies, open the thread'), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('the pill belongs to the count: without replies or without a way to open them there is none', (tester) async {
+      await pumpRow(tester, replyCount: 0, newReplies: 2);
+      expect(find.textContaining('new'), findsNothing);
+      await pumpRow(tester, replyCount: 3, newReplies: 2, withThread: false);
+      expect(find.textContaining('new'), findsNothing);
+    });
+
+    testWidgets('pressing the pill opens the thread, like the rest of the count', (tester) async {
+      final opened = await pumpRow(tester, replyCount: 3, newReplies: 1);
+      await tester.tap(find.text('1 new'));
+      await tester.pumpAndSettle();
+      expect(opened.map((m) => m.id), ['m1']);
     });
 
     testWidgets('one reply is "1 reply"', (tester) async {
@@ -424,6 +461,7 @@ void main() {
     late _FakeRepo repo;
     late ProviderContainer container;
     var opened = <String>[];
+    var seenCalls = <({String root, List<String> replies})>[];
 
     Future<void> pump(
       WidgetTester tester, {
@@ -439,6 +477,7 @@ void main() {
       addTearDown(replies.close);
       repo = _FakeRepo();
       opened = [];
+      seenCalls = [];
       final r = root ?? _msg('a', ms: 1000, text: 'the question', uid: 'ana');
       await tester.pumpWidget(
         ProviderScope(
@@ -464,6 +503,7 @@ void main() {
                           path: _path,
                           opened: r,
                           onShowInChat: withShow ? opened.add : null,
+                          onSeen: (id, replies) => seenCalls.add((root: id, replies: replies.map((m) => m.id).toList())),
                         ),
                       ),
                     ),
@@ -633,6 +673,47 @@ void main() {
       expect(find.text('Start a thread'), findsNothing, reason: 'a thread is flat');
     });
 
+    testWidgets('it tells the conversation which replies it is showing, once they are in', (tester) async {
+      await pump(tester);
+      expect(seenCalls, isEmpty, reason: 'nothing to show yet');
+      replies.add([_msg('r2', to: 'a', ms: 3000), _msg('r1', to: 'a', ms: 2000)]);
+      await tester.pumpAndSettle();
+      expect(seenCalls, hasLength(1));
+      expect(seenCalls.single.root, 'a');
+      expect(seenCalls.single.replies.toSet(), {'r1', 'r2'});
+    });
+
+    testWidgets('and again when another reply arrives, but not when nothing changed', (tester) async {
+      await pump(tester, first: [_msg('r1', to: 'a', ms: 2000)]);
+      expect(seenCalls, hasLength(1));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(seenCalls, hasLength(1), reason: 'a rebuild is not a change');
+      replies.add([_msg('r1', to: 'a', ms: 2000), _msg('r2', to: 'a', ms: 3000)]);
+      await tester.pumpAndSettle();
+      expect(seenCalls, hasLength(2));
+      expect(seenCalls.last.replies.toSet(), {'r1', 'r2'});
+    });
+
+    testWidgets('a reply going away does not tell it again', (tester) async {
+      await pump(tester, first: [_msg('r1', to: 'a', ms: 2000), _msg('r2', to: 'a', ms: 3000)]);
+      expect(seenCalls, hasLength(1));
+      replies.add([_msg('r1', to: 'a', ms: 2000)]);
+      await tester.pumpAndSettle();
+      expect(seenCalls, hasLength(1), reason: 'a thread is never unseen again');
+    });
+
+    testWidgets('replies not sent yet (no time) are not reported on their own', (tester) async {
+      await pump(tester, first: [_msg('r1', to: 'a')]);
+      expect(seenCalls, isEmpty);
+    });
+
+    testWidgets('only after the frame: telling the conversation mid-build would rebuild it mid-build', (tester) async {
+      await pump(tester, first: [_msg('r1', to: 'a', ms: 2000)]);
+      expect(tester.takeException(), isNull);
+      expect(seenCalls, hasLength(1));
+    });
+
     testWidgets('the replies do not repeat the quote of the message above them', (tester) async {
       await pump(tester, first: [_msg('r1', to: 'a', ms: 2000, text: 'first'), _msg('r2', to: 'a', ms: 3000, text: 'second')]);
       expect(find.text('first', findRichText: true), findsOneWidget);
@@ -677,8 +758,152 @@ void main() {
     });
   });
 
+  group('the list, with what is new in a thread', () {
+    // The question (a) is at 10:00; Ben (cy) answered at 10:05, Ana at 10:40, and I (me) at 10:50.
+    int at(int h, int m) => DateTime(2026, 11, 19, h, m).millisecondsSinceEpoch;
+    final messages = [
+      _msg('a', ms: at(10, 0), text: 'the question', uid: 'ana'),
+      _msg('r1', to: 'a', ms: at(10, 5), text: 'first answer', uid: 'cy'),
+      _msg('r2', to: 'a', ms: at(10, 40), text: 'second answer', uid: 'ana'),
+      _msg('r3', to: 'a', ms: at(10, 50), text: 'my answer', uid: 'me'),
+      _msg('b', ms: at(10, 1), text: 'another question', uid: 'ana'),
+      _msg('r4', to: 'b', ms: at(10, 52), text: 'answer to b', uid: 'cy'),
+    ];
+
+    Future<void> pumpNew(
+      WidgetTester tester, {
+      List<ChatMessage>? list,
+      int? since,
+      Map<String, int> seen = const {},
+      bool threads = true,
+    }) async {
+      phone(tester);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [statusOfProvider.overrideWith((ref, uid) => 'online')],
+          child: MaterialApp(
+            home: Scaffold(
+              body: MessageListView(
+                messages: list ?? messages,
+                meUid: 'me',
+                usersById: const {},
+                emojiByName: const {},
+                canDeleteAny: false,
+                emptyTitle: 'Nothing here',
+                emptyDesc: 'Say something',
+                onOpenThread: threads ? (_) {} : null,
+                newSince: since,
+                threadSeen: seen,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Finder rowOf(String text) =>
+        find.ancestor(of: find.text(text, findRichText: true), matching: find.byType(MessageRow));
+
+    testWidgets('each message shows how many replies are new for IT: only from others, only after you last read', (tester) async {
+      await pumpNew(tester, since: at(10, 20));
+      // a: r2 (Ana, 10:40) is new; r1 was before; r3 is mine. b: r4 (cy, 10:52) is new.
+      expect(find.descendant(of: rowOf('the question'), matching: find.text('1 new')), findsOneWidget);
+      expect(find.descendant(of: rowOf('another question'), matching: find.text('1 new')), findsOneWidget);
+      expect(find.text('3 replies'), findsOneWidget, reason: 'a has three replies, new or not');
+    });
+
+    testWidgets('an earlier last-read time makes more of them new', (tester) async {
+      await pumpNew(tester, since: at(10, 0));
+      expect(find.descendant(of: rowOf('the question'), matching: find.text('2 new')), findsOneWidget, reason: 'r1 and r2; not mine');
+    });
+
+    testWidgets('a thread that has been looked at shows nothing new, up to what was seen', (tester) async {
+      await pumpNew(tester, since: at(10, 0), seen: {'a': at(10, 5)});
+      expect(find.descendant(of: rowOf('the question'), matching: find.text('1 new')), findsOneWidget, reason: 'r2 only');
+      await pumpNew(tester, since: at(10, 0), seen: {'a': at(10, 40), 'b': at(10, 52)});
+      expect(find.textContaining('new'), findsNothing);
+    });
+
+    testWidgets('without a last-read time, nothing is new', (tester) async {
+      await pumpNew(tester);
+      expect(find.text('3 replies'), findsOneWidget, reason: 'the replies are still counted');
+      expect(find.textContaining(' new'), findsNothing);
+    });
+
+    testWidgets('without a way to open threads there is no count and no pill', (tester) async {
+      await pumpNew(tester, since: at(10, 0), threads: false);
+      expect(find.textContaining('repl'), findsNothing);
+      expect(find.textContaining(' new'), findsNothing);
+    });
+
+    testWidgets('it follows a thread being looked at, and a reply arriving', (tester) async {
+      await pumpNew(tester, since: at(10, 0));
+      expect(find.text('2 new'), findsOneWidget);
+      await pumpNew(tester, since: at(10, 0), seen: {'a': at(10, 40), 'b': at(10, 52)});
+      expect(find.textContaining(' new'), findsNothing);
+      final later = [...messages, _msg('r5', to: 'a', ms: at(11, 0), text: 'late answer', uid: 'cy')];
+      await pumpNew(tester, list: later, since: at(10, 0), seen: {'a': at(10, 40), 'b': at(10, 52)});
+      expect(find.text('1 new'), findsOneWidget, reason: 'the late answer is new again');
+      expect(find.text('4 replies'), findsOneWidget);
+    });
+
+    testWidgets('it follows the last-read time changing', (tester) async {
+      await pumpNew(tester, since: at(10, 0));
+      expect(find.text('2 new'), findsOneWidget);
+      await pumpNew(tester, since: at(10, 59));
+      expect(find.textContaining(' new'), findsNothing);
+    });
+  });
+
   group('wiring (the chat screen and Firestore cannot run in a widget test)', () {
     String read(String f) => File(f).readAsStringSync().replaceAll('\r\n', '\n');
+
+    test('the chat takes the last-read time when it decides the "New" line, and starts clean when it is opened again', () {
+      final s = read('lib/widgets/chat/chat_surface.dart');
+      expect(
+        s.contains(
+          '        final lastRead = _readAtEntry.known\n'
+          '            ? _readAtEntry.at\n'
+          '            : me!.lastRead[pathToReadKey(containerPath)];\n'
+          '        _newFromId = firstUnreadId(messages, lastRead, meUid);\n'
+          '        _readSinceMs = lastRead?.millisecondsSinceEpoch;\n',
+        ),
+        isTrue,
+        reason: 'the same moment as the "New" line',
+      );
+      expect(s.contains('    _newFromId = null;\n    _readSinceMs = null;\n    _threadSeen = const {};\n'), isTrue);
+      expect(s.contains('                  newFromId: _newFromId,\n                  newSince: _readSinceMs,\n                  threadSeen: _threadSeen,\n'), isTrue);
+    });
+
+    test('a thread seen moves the map only when something moved, and only while the chat is there', () {
+      final s = read('lib/widgets/chat/chat_surface.dart');
+      expect(
+        s.contains(
+          '  void _markSeen(String rootId, List<ChatMessage> replies) {\n'
+          '    if (!mounted) return;\n'
+          '    final next = markThreadSeen(_threadSeen, rootId, replies);\n'
+          '    if (identical(next, _threadSeen)) return;\n'
+          '    setState(() => _threadSeen = next);\n'
+          '  }',
+        ),
+        isTrue,
+      );
+      expect(s.contains('          onShowInChat: _jumpTo,\n          onSeen: _markSeen,\n'), isTrue);
+    });
+
+    test('the list works out what is new once per change of what it depends on', () {
+      final s = read('lib/widgets/chat/message_list.dart');
+      expect(s.contains('    if (!identical(_newCountedFor, widget.messages) ||\n        _newCountedSince != widget.newSince ||\n        !identical(_newCountedSeen, widget.threadSeen) ||\n        _newCountedMe != widget.meUid) {'), isTrue);
+      expect(s.contains('    final newCounts = widget.onOpenThread == null\n        ? const <String, int>{}\n        : _newReplyCountsFor();'), isTrue);
+      expect(s.contains('              newReplyCount: newCounts[entry.message.id] ?? 0,\n'), isTrue);
+    });
+
+    test('the thread screen tells the conversation after the frame, and once per change', () {
+      final s = read('lib/widgets/chat/thread_screen.dart');
+      expect(s.contains('    if (newest == null || (_reportedMs != null && newest <= _reportedMs!)) return;\n    _reportedMs = newest;\n    WidgetsBinding.instance.addPostFrameCallback((_) {\n      if (mounted) widget.onSeen?.call(rootId, replies);\n    });'), isTrue);
+      expect(s.contains('    _followTo(replies.length);\n    _reportSeen(root.id, replies);\n'), isTrue);
+    });
 
     test('the replies are their own query: equality on the quote\'s message id, no ordering, capped', () {
       final s = read('lib/services/messages_repository.dart');
@@ -743,6 +968,7 @@ void main() {
           '          path: widget.path,\n'
           '          opened: root,\n'
           '          onShowInChat: _jumpTo,\n'
+          '          onSeen: _markSeen,\n'
           '        ),',
         ),
         isTrue,

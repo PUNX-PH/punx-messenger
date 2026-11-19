@@ -6,9 +6,9 @@ import 'package:punx_messenger/models/reply_snapshot.dart';
 import 'package:punx_messenger/utils/threads.dart';
 
 /// A message `id` replying to `to` (null: not a reply), sent at `ms` (null: still being sent).
-ChatMessage msg(String id, String? to, int? ms) => ChatMessage(
+ChatMessage msg(String id, String? to, int? ms, {String uid = 'u'}) => ChatMessage(
   id: id,
-  author: const MessageAuthor(uid: 'u', name: 'U'),
+  author: MessageAuthor(uid: uid, name: 'U'),
   text: 'text $id',
   replyTo: to == null
       ? null
@@ -159,6 +159,118 @@ void main() {
       expect(currentRoot([msg('b', null, 2), edited], opened).text, 'edited');
       expect(identical(currentRoot([msg('b', null, 2)], opened), opened), isTrue, reason: 'scrolled out of the loaded part');
       expect(identical(currentRoot(const [], opened), opened), isTrue);
+    });
+  });
+
+  group('what is new in a thread', () {
+    Map<String, int> counts(List<ChatMessage> l, int? since, {String? me = 'me', Map<String, int> seen = const {}}) =>
+        newReplyCounts(l, me, since, seen);
+
+    test('a reply from someone else, after the conversation was last read, is new for its message', () {
+      expect(counts([msg('a', null, 50), msg('r', 'a', 200)], 100), {'a': 1});
+    });
+
+    test('counted per message, only those with any', () {
+      final list = [msg('a', null, 10), msg('b', null, 20), msg('r1', 'a', 200), msg('r2', 'a', 210), msg('r3', 'b', 220), msg('old', 'b', 50)];
+      expect(counts(list, 100), {'a': 2, 'b': 1});
+    });
+
+    test('a reply sent before the conversation was last read is not new, and neither is one at that very moment', () {
+      expect(counts([msg('r', 'a', 99)], 100), isEmpty);
+      expect(counts([msg('r', 'a', 100)], 100), isEmpty, reason: 'strictly after');
+      expect(counts([msg('r', 'a', 101)], 100), {'a': 1});
+    });
+
+    test('your own replies are never new to you, and someone else\'s are', () {
+      expect(counts([msg('mine', 'a', 200, uid: 'me'), msg('theirs', 'a', 210, uid: 'ana')], 100), {'a': 1});
+    });
+
+    test('a reply with no author is someone else\'s', () {
+      expect(counts([msg('r', 'a', 200, uid: '')], 100), {'a': 1});
+    });
+
+    test('a reply still being sent (no time yet) is not counted', () {
+      expect(counts([msg('r', 'a', null)], 100), isEmpty);
+    });
+
+    test('a message that is not a reply, or a reply to itself, is not counted', () {
+      expect(counts([msg('plain', null, 200), msg('self', 'self', 200)], 100), isEmpty);
+    });
+
+    test('when the last-read time is not known, nothing is new', () {
+      expect(counts([msg('r', 'a', 200)], null), isEmpty);
+    });
+
+    test('a last-read time of 0 is a real time: everything after it is new', () {
+      expect(counts([msg('r', 'a', 5)], 0), {'a': 1});
+    });
+
+    test('what has been looked at is not new again: per thread, up to the newest reply seen', () {
+      final list = [msg('r1', 'a', 200), msg('r2', 'a', 300), msg('r3', 'b', 250)];
+      expect(counts(list, 100, seen: {'a': 200}), {'a': 1, 'b': 1}, reason: 'a: only the one after 200');
+      expect(counts(list, 100, seen: {'a': 300}), {'b': 1});
+      expect(counts(list, 100, seen: {'a': 300, 'b': 250}), isEmpty);
+    });
+
+    test('the later of the two times stands', () {
+      expect(counts([msg('r', 'a', 150)], 200, seen: {'a': 100}), isEmpty, reason: 'a thread seen before the conversation was read');
+      expect(counts([msg('r', 'a', 150)], 100, seen: {'a': 200}), isEmpty, reason: 'a thread seen after');
+    });
+
+    test('a thread looked at hides nothing in another', () {
+      expect(counts([msg('r', 'b', 200)], 100, seen: {'a': 999}), {'b': 1});
+    });
+
+    test('no messages is nothing new, and the list given is left alone', () {
+      expect(counts(const [], 100), isEmpty);
+      final list = [msg('r', 'a', 200)];
+      counts(list, 100);
+      expect(list, hasLength(1));
+    });
+
+    test('with nobody known to be you, a reply by anyone with an id is someone else\'s', () {
+      expect(counts([msg('r', 'a', 200, uid: 'someone')], 100, me: null), {'a': 1});
+    });
+
+    test('looking at a thread marks it seen up to its newest reply', () {
+      expect(markThreadSeen({}, 'a', [msg('r1', 'a', 200), msg('r2', 'a', 300), msg('r0', 'a', 100)]), {'a': 300});
+    });
+
+    test('it never goes back: older replies, or none, change nothing and give the SAME map', () {
+      final seen = {'a': 300};
+      expect(identical(markThreadSeen(seen, 'a', [msg('r', 'a', 200)]), seen), isTrue);
+      expect(identical(markThreadSeen(seen, 'a', [msg('r', 'a', 300)]), seen), isTrue, reason: 'the same time');
+      expect(identical(markThreadSeen(seen, 'a', const []), seen), isTrue);
+    });
+
+    test('a reply still being sent has no time, so it moves nothing', () {
+      final seen = {'a': 300};
+      expect(identical(markThreadSeen(seen, 'a', [msg('r', 'a', null)]), seen), isTrue);
+      expect(markThreadSeen({}, 'a', [msg('r', 'a', null), msg('s', 'a', 50)]), {'a': 50});
+      expect(markThreadSeen({}, 'a', [msg('r', 'a', null)]), isEmpty, reason: 'nothing seen: nothing recorded');
+    });
+
+    test('a newer reply moves it forward, other threads are left, and the old map is not changed', () {
+      final seen = {'a': 300, 'b': 40};
+      final next = markThreadSeen(seen, 'a', [msg('r', 'a', 400)]);
+      expect(next, {'a': 400, 'b': 40});
+      expect(seen, {'a': 300, 'b': 40});
+      expect(identical(next, seen), isFalse);
+    });
+
+    test('a thread that has been looked at has nothing new, and a later reply is new again', () {
+      final replies = [msg('r1', 'a', 200), msg('r2', 'a', 300)];
+      var seen = markThreadSeen({}, 'a', replies);
+      expect(counts(replies, 100, seen: seen), isEmpty);
+      final later = [...replies, msg('r3', 'a', 400)];
+      expect(counts(later, 100, seen: seen), {'a': 1});
+      seen = markThreadSeen(seen, 'a', later);
+      expect(counts(later, 100, seen: seen), isEmpty);
+    });
+
+    test('the words', () {
+      expect(newRepliesLabel(1), '1 new');
+      expect(newRepliesLabel(12), '12 new');
     });
   });
 

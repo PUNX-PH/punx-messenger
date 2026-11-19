@@ -50,6 +50,7 @@ class MessageRow extends ConsumerWidget {
     this.onSave,
     this.onForward,
     this.replyCount = 0,
+    this.newReplyCount = 0,
     this.onOpenThread,
     this.showReplyQuote = true,
   });
@@ -82,6 +83,9 @@ class MessageRow extends ConsumerWidget {
   /// How many replies this message has, and how to open them as a thread (see utils/threads.dart);
   /// null where threads are not offered (My Notes), and then there is no "N replies" either.
   final int replyCount;
+
+  /// How many of those replies are new to you (see newReplyCounts): a small pill beside the count.
+  final int newReplyCount;
   final ValueChanged<ChatMessage>? onOpenThread;
 
   /// The "↵ @Ana ..." line a reply carries. A thread turns it off for its replies: every one of them
@@ -232,6 +236,7 @@ class MessageRow extends ConsumerWidget {
                   if (replyCount > 0 && onOpenThread != null)
                     _ThreadChip(
                       count: replyCount,
+                      newCount: newReplyCount,
                       onTap: () => onOpenThread!(message),
                     ),
                   if (seenText.isNotEmpty)
@@ -469,18 +474,30 @@ class MessageRow extends ConsumerWidget {
   }
 }
 
-/// "3 replies" under a message that has some: opens its thread.
+/// "3 replies" under a message that has some, with "2 new" beside it when some are new to you:
+/// opens its thread.
 class _ThreadChip extends StatelessWidget {
-  const _ThreadChip({required this.count, required this.onTap});
+  const _ThreadChip({
+    required this.count,
+    required this.newCount,
+    required this.onTap,
+  });
   final int count;
+  final int newCount;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final label = replyLabel(count);
+    // Its own node (container) that carries the tap: without that it merged into the message's
+    // node, and a screen reader did not offer it as a button of its own.
     return Semantics(
+      container: true,
       button: true,
-      label: '$label, open the thread',
+      onTap: onTap,
+      label: newCount > 0
+          ? '$label, ${newRepliesLabel(newCount)}, open the thread'
+          : '$label, open the thread',
       child: ExcludeSemantics(
         child: InkWell(
           onTap: onTap,
@@ -499,6 +516,23 @@ class _ThreadChip extends StatelessWidget {
                     weight: FontWeight.w600,
                   ),
                 ),
+                if (newCount > 0) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: Palette.brand,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      newRepliesLabel(newCount),
+                      style: AppTextStyles.xs(
+                        color: Colors.white,
+                        weight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

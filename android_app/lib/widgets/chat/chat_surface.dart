@@ -79,6 +79,13 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> with WidgetsBindingOb
   String? _newFromId;
   bool _newDecided = false;
 
+  /// The same moment, in milliseconds, for the replies that are new in their threads (null: not
+  /// known, so none are). Decided together with [_newFromId].
+  int? _readSinceMs;
+
+  /// How far each thread has been looked at since this conversation was opened: message id -> ms.
+  Map<String, int> _threadSeen = const {};
+
   /// Your last-read time for this conversation, taken when it was opened, not
   /// when the messages arrive: the chat is marked read 400 ms after opening
   /// whether or not its messages have loaded, so a time read later could already
@@ -119,6 +126,8 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> with WidgetsBindingOb
   void _captureOpening() {
     _newDecided = false;
     _newFromId = null;
+    _readSinceMs = null;
+    _threadSeen = const {};
     final uid = ref.read(authStateProvider).valueOrNull?.uid;
     final me = uid == null ? null : ref.read(usersByIdProvider)[uid];
     if (me == null || widget.path.startsWith('users/')) {
@@ -165,6 +174,15 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> with WidgetsBindingOb
     });
   }
 
+  /// Looking at a thread is what makes its replies not new any more. The same map back means
+  /// nothing moved, so nothing is rebuilt.
+  void _markSeen(String rootId, List<ChatMessage> replies) {
+    if (!mounted) return;
+    final next = markThreadSeen(_threadSeen, rootId, replies);
+    if (identical(next, _threadSeen)) return;
+    setState(() => _threadSeen = next);
+  }
+
   /// A message's thread, on a screen of its own. "Show in chat" there comes back to this
   /// conversation and scrolls to the message.
   void _openThread(ChatMessage root) {
@@ -174,6 +192,7 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> with WidgetsBindingOb
           path: widget.path,
           opened: root,
           onShowInChat: _jumpTo,
+          onSeen: _markSeen,
         ),
       ),
     );
@@ -205,13 +224,11 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> with WidgetsBindingOb
       final me = meUid == null ? null : usersById[meUid];
       if (_readAtEntry.known || me != null) {
         _newDecided = true;
-        _newFromId = firstUnreadId(
-          messages,
-          _readAtEntry.known
-              ? _readAtEntry.at
-              : me!.lastRead[pathToReadKey(containerPath)],
-          meUid,
-        );
+        final lastRead = _readAtEntry.known
+            ? _readAtEntry.at
+            : me!.lastRead[pathToReadKey(containerPath)];
+        _newFromId = firstUnreadId(messages, lastRead, meUid);
+        _readSinceMs = lastRead?.millisecondsSinceEpoch;
       }
     }
     // The LABEL, not the name list: see typingLabelProvider on why watching
@@ -357,6 +374,8 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> with WidgetsBindingOb
                   emptyDesc: widget.emptyDesc,
                   scrollToId: _jumpToId,
                   newFromId: _newFromId,
+                  newSince: _readSinceMs,
+                  threadSeen: _threadSeen,
                   seenId: seen?.id,
                   seenText: seenText,
                   onReply: controller.setReplyingTo,
