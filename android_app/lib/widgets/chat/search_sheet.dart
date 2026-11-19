@@ -5,25 +5,30 @@ import '../../models/user_profile.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
-import '../../utils/constants.dart';
+import '../../utils/search_filters.dart';
 import '../../utils/time_format.dart';
 
-/// Client-side substring search over the already-loaded message list (capped
-/// at [AppTiming.messageLoadLimit] by the base query) — port of
-/// components/SearchDropdown.jsx. This is NOT a server-side/full-text
-/// search; it only matches the `text` field, case-insensitively.
+/// Client-side search over the already-loaded message list — port of
+/// components/SearchDropdown.jsx. This is NOT a server-side/full-text search: it looks at the
+/// messages the chat has loaded, for words and for filters (from:, has:image, before:..., see
+/// utils/search_filters.dart), which can be typed or pressed.
 void showSearchSheet(
   BuildContext context, {
   required List<ChatMessage> messages,
   required Map<String, UserProfile> usersById,
   required ValueChanged<String> onJump,
+  String? meUid,
 }) {
   showModalBottomSheet(
     context: context,
     backgroundColor: Palette.bgRaised,
     isScrollControlled: true,
-    builder: (context) =>
-        _SearchSheet(messages: messages, usersById: usersById, onJump: onJump),
+    builder: (context) => _SearchSheet(
+      messages: messages,
+      usersById: usersById,
+      meUid: meUid,
+      onJump: onJump,
+    ),
   );
 }
 
@@ -32,9 +37,13 @@ class _SearchSheet extends StatefulWidget {
     required this.messages,
     required this.usersById,
     required this.onJump,
+    this.meUid,
   });
   final List<ChatMessage> messages;
   final Map<String, UserProfile> usersById;
+
+  /// Who is searching (for from:me and mentions:me).
+  final String? meUid;
   final ValueChanged<String> onJump;
 
   @override
@@ -51,17 +60,33 @@ class _SearchSheetState extends State<_SearchSheet> {
     super.dispose();
   }
 
+  /// A filter button: puts its filter in the box, or takes it out. The box is the one source of
+  /// truth, so the buttons and typing agree.
+  void _toggle(String token) {
+    final next = toggleToken(_controller.text, token);
+    _controller.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: next.length),
+    );
+    setState(() => _query = next);
+  }
+
+  /// What stands in for words in a result that has none (a picture or a voice message on its own).
+  String _kindOf(ChatMessage m) {
+    if (m.imageURL != null) return 'Picture';
+    if (m.voice != null) return 'Voice message';
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final q = _query.trim().toLowerCase();
-    final results = q.isEmpty
-        ? const <ChatMessage>[]
-        : widget.messages
-              .where((m) => m.text.toLowerCase().contains(q))
-              .toList()
-              .reversed
-              .take(AppTiming.searchResultCap)
-              .toList();
+    final found = searchMessages(
+      widget.messages,
+      _query,
+      usersById: widget.usersById,
+      meUid: widget.meUid,
+    );
+    final results = found.results;
 
     return SafeArea(
       child: DraggableScrollableSheet(
@@ -94,12 +119,46 @@ class _SearchSheetState extends State<_SearchSheet> {
                   ),
                 ),
               ),
+              // Sideways, so five buttons take one row of the sheet. (A Row, not a lazy list: there
+              // are only five, and all of them should exist, on screen or not.)
+              SizedBox(
+                height: 40,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      for (final c in searchChips)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: FilterChip(
+                            label: Text(c.label),
+                            selected: hasToken(_query, c.token),
+                            onSelected: (_) => _toggle(c.token),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              for (final problem in found.parsed.problems)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      problem,
+                      style: AppTextStyles.xs(color: Palette.warn),
+                    ),
+                  ),
+                ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    q.isEmpty
+                    !found.active
                         ? 'Type to search'
                         : '${results.length} match${results.length == 1 ? '' : 'es'}',
                     style: AppTextStyles.xs(color: Palette.inkDim),
@@ -107,6 +166,15 @@ class _SearchSheetState extends State<_SearchSheet> {
                 ),
               ),
               const SizedBox(height: 4),
+              if (!found.active)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  child: Text(
+                    'Narrow it down with from:name has:image is:pinned before:2026-11-01 after:… on:… mentions:me',
+                    textAlign: TextAlign.center,
+                    style: AppTextStyles.xs(color: Palette.inkDim),
+                  ),
+                ),
               Expanded(
                 child: ListView.builder(
                   controller: scrollController,
@@ -121,10 +189,14 @@ class _SearchSheetState extends State<_SearchSheet> {
                         style: AppTextStyles.sm(weight: FontWeight.w600),
                       ),
                       subtitle: Text(
-                        m.text,
+                        m.text.isNotEmpty ? m.text : _kindOf(m),
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.sm(color: Palette.inkMuted),
+                        style: AppTextStyles.sm(
+                          color: m.text.isNotEmpty ? Palette.inkMuted : Palette.inkDim,
+                        ).copyWith(
+                          fontStyle: m.text.isNotEmpty ? null : FontStyle.italic,
+                        ),
                       ),
                       trailing: Text(
                         formatSearchResultTime(m.createdAt),

@@ -298,6 +298,7 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> with WidgetsBindingOb
                 context,
                 messages: messages,
                 usersById: usersById,
+                meUid: meUid,
                 onJump: _jumpTo,
               ),
               _ChatMenuAction.pinned => showPinnedMessagesSheet(
