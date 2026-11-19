@@ -9,6 +9,7 @@
 // ping the people mentioned in it, or tint the row as a mention for them.
 
 import { copyableText, hasCopyableText } from './copyText.js'
+import { hideSpoilers } from './spoilers.js'
 import { cleanStatusText } from './status.js'
 import { audioOf } from './voiceMessage.js'
 
@@ -53,7 +54,7 @@ export function forwardPayload(message, usersById = {}) {
 
 /** One line of what is being forwarded, for the dialog (mentions as names, as they will be sent). */
 export function forwardPreview(message, max = 160, usersById = {}) {
-  const text = copyableText(message, usersById).replace(/\s+/g, ' ').trim()
+  const text = hideSpoilers(copyableText(message, usersById)).replace(/\s+/g, ' ').trim()
   const shown = Array.from(text).slice(0, max).join('')
   if (!shown) return audioOf(message) ? '[voice message]' : '[image]'
   return Array.from(text).length > max ? shown + '…' : shown

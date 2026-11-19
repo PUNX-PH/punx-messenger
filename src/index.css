@@ -133,3 +133,15 @@ html[data-motion="reduced"] *::after {
     background: theme('colors.line.strong');
   }
 }
+
+/* A hidden spoiler (see lib/spoilers.js): the bar is the background, and nothing inside it shows, whatever
+   it is (a mention, code and an emoji have colours and borders of their own). */
+.spoiler-hidden,
+.spoiler-hidden * {
+  color: transparent !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  text-decoration: none !important;
+}
+.spoiler-hidden { background: rgb(var(--ink-dim)) !important; }
+.spoiler-hidden img { visibility: hidden; }

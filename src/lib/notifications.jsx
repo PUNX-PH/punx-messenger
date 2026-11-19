@@ -6,6 +6,7 @@ import { useAuth } from './auth'
 import { useUsers } from './users'
 import { listenMyDmConvos } from './db'
 import { mutedChatsOf } from './muted'
+import { hideSpoilers } from './spoilers'
 import { announcePlan, dndOf } from './dnd'
 import { pathToReadKey } from './unread'
 import { play as playSfx } from './sfx'
@@ -138,7 +139,7 @@ export function NotificationDaemon() {
           key: `dm:${dm.id}`,
           stamp: String(ts),
           title: author?.name || 'New message',
-          body: dm.lastMessageText || '',
+          body: hideSpoilers(dm.lastMessageText) || '',
           icon: author?.photoURL || undefined,
           path: `/dms/${dm.lastMessageAuthorUid}`,
           sound: true,
@@ -177,7 +178,7 @@ export function NotificationDaemon() {
           key: `mention:${change.doc.id}`,
           stamp: change.doc.id,
           title: `${m.author?.name || 'Someone'} mentioned you`,
-          body: m.text || (m.imageURL ? '[image]' : ''),
+          body: hideSpoilers(m.text) || (m.imageURL ? '[image]' : ''),
           icon: m.author?.photoURL || undefined,
           path,
         })

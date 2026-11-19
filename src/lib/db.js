@@ -5,6 +5,7 @@ import {
 import { db } from './firebase'
 import { PRESETS, resizeToDataURL } from './images'
 import { extractMentionedUids } from './markdown'
+import { hideSpoilers } from './spoilers'
 import { shareMessages } from './messagesIdentity'
 import { watched } from './dataHealth'
 
@@ -237,7 +238,7 @@ export async function sendMessage(path, { text, author, imageFile = null, imageU
       messageId:  replyTo.id,
       authorUid:  replyTo.author?.uid || null,
       authorName: replyTo.author?.name || 'Unknown',
-      snippet:    (replyTo.text || (replyTo.imageURL ? '[image]' : replyTo.audioURL ? '[voice message]' : '')).slice(0, 160),
+      snippet:    (hideSpoilers(replyTo.text) || (replyTo.imageURL ? '[image]' : replyTo.audioURL ? '[voice message]' : '')).slice(0, 160),
     } : null,
     forwardedFrom: forwardedFrom ? { uid: forwardedFrom.uid ?? null, name: String(forwardedFrom.name ?? '') } : null,
     createdAt: serverTimestamp(),
@@ -254,7 +255,7 @@ export async function sendMessage(path, { text, author, imageFile = null, imageU
       const convoId = path.split('/')[1]
       await setDoc(doc(db, 'dms', convoId), {
         lastMessageAt: serverTimestamp(),
-        lastMessageText: trimmed || (audio ? '🎤 Voice message' : '📷 Image'),
+        lastMessageText: hideSpoilers(trimmed) || (audio ? '🎤 Voice message' : '📷 Image'),
         lastMessageAuthorUid: author.uid,
       }, { merge: true })
     } else if (path.startsWith('groups/') && path.includes('/channels/')) {
