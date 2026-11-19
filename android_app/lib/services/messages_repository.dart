@@ -12,6 +12,7 @@ import '../utils/constants.dart';
 import '../utils/firestore_paths.dart';
 import '../utils/saved.dart';
 import '../utils/seen.dart';
+import '../utils/spoilers.dart';
 import '../utils/threads.dart';
 import 'image_service.dart';
 
@@ -167,7 +168,7 @@ class MessagesRepository {
         await _db.collection('dms').doc(convoId).set({
           'lastMessageAt': FieldValue.serverTimestamp(),
           'lastMessageText': trimmed.isNotEmpty
-              ? trimmed
+              ? hideSpoilers(trimmed)
               : (voice != null ? '🎤 Voice message' : '📷 Image'),
           'lastMessageAuthorUid': author.id,
         }, SetOptions(merge: true));

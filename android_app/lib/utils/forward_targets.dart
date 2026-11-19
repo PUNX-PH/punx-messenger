@@ -5,6 +5,7 @@ import '../models/dm_convo.dart';
 import '../models/group.dart';
 import '../models/user_profile.dart';
 import 'firestore_paths.dart';
+import 'spoilers.dart';
 
 // Where a message can be forwarded to, and how a typed query ranks the choices. Mirrors the parts
 // of src/lib/quickSwitch.js (buildTargets, rankTargets) and src/lib/forward.js (destinationPath,
@@ -257,7 +258,7 @@ List<ForwardTarget> rankForwardTargets(
 /// One line of what is being forwarded, for the box (mentions as names, as they will be sent):
 /// the text on one line cut at [max] characters with an ellipsis, else what the message carries.
 String forwardPreviewLine(String text, {required bool hasVoice, int max = 160}) {
-  final flat = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+  final flat = hideSpoilers(text).replaceAll(RegExp(r'\s+'), ' ').trim();
   final runes = flat.runes.toList();
   final shown = String.fromCharCodes(runes.take(max));
   if (shown.isEmpty) return hasVoice ? '[voice message]' : '[image]';

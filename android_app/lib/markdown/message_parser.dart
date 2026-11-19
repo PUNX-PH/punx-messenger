@@ -9,6 +9,8 @@
 /// this stays unit-testable without a widget tree.
 library;
 
+import '../utils/spoilers.dart';
+
 sealed class MessageToken {
   const MessageToken();
 }
@@ -26,6 +28,13 @@ class TextRun extends MessageToken {
     this.strike = false,
     this.code = false,
   });
+}
+
+/// A `||spoiler||`: hidden until pressed (see utils/spoilers.dart). What is inside is parsed like any
+/// other text, so it can hold bold, emoji, mentions, code and links.
+class SpoilerToken extends MessageToken {
+  final List<MessageToken> children;
+  const SpoilerToken(this.children);
 }
 
 class UrlToken extends MessageToken {
@@ -72,6 +81,7 @@ final _inlineRe = RegExp(
     r'(https?://[^\s<>]+)', // 6 url
     r'(:[a-z0-9_]{2,32}:)', // 7 emoji
     r'(<@[A-Za-z0-9_-]{6,40}>)', // 8 mention
+    '($spoilerSource)', // 9 spoiler: last, so nothing else moves
   ].join('|'),
   caseSensitive: false,
 );
@@ -120,6 +130,7 @@ List<MessageToken> _parseInline(String text) {
     final url = m.group(6);
     final emoji = m.group(7);
     final mention = m.group(8);
+    final spoiler = m.group(9);
 
     if (code != null) {
       tokens.add(TextRun(code.substring(1, code.length - 1), code: true));
@@ -143,6 +154,8 @@ List<MessageToken> _parseInline(String text) {
       );
     } else if (mention != null) {
       tokens.add(MentionToken(mention.substring(2, mention.length - 1)));
+    } else if (spoiler != null) {
+      tokens.add(SpoilerToken(_parseInline(spoilerInner(spoiler))));
     }
 
     lastIdx = m.end;

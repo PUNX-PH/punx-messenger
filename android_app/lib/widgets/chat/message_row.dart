@@ -16,6 +16,7 @@ import '../../theme/text_styles.dart';
 import '../../utils/copy_text.dart';
 import '../../utils/forward.dart';
 import '../../utils/saved.dart';
+import '../../utils/spoilers.dart';
 import '../../utils/threads.dart';
 import '../../utils/time_format.dart';
 import '../shared/avatar.dart';
@@ -571,7 +572,7 @@ class _ReplyStrip extends StatelessWidget {
             const SizedBox(width: 6),
             Flexible(
               child: Text(
-                reply.snippet,
+                hideSpoilers(reply.snippet),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTextStyles.xs(color: Palette.inkMuted),
