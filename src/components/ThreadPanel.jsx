@@ -15,7 +15,7 @@ import * as tf from '../lib/timeFormat'
 // query (every reply to this message, not only the ones in the part of the conversation that is
 // loaded), and a reply written here goes to the conversation too, quoting this message, as any
 // reply does. Reading and replying only: editing, deleting and reacting stay in the conversation.
-export default function ThreadPanel({ path, root, usersById, meUid, onSend, onJump, onClose, readOnly = false }) {
+export default function ThreadPanel({ path, root, usersById, meUid, onSend, onJump, onClose, onSeen = null, readOnly = false }) {
   const [{ timeFormat }] = usePrefs()
   const { byName: emojiByName } = useEmojis()
   const [state, setState] = useState({ rootId: null, replies: [], error: null })
@@ -35,6 +35,9 @@ export default function ThreadPanel({ path, root, usersById, meUid, onSend, onJu
 
   const loaded = state.rootId === root.id
   const replies = useMemo(() => (loaded ? threadReplies(state.replies, root.id) : []), [loaded, state.replies, root.id])
+
+  // Looking at the thread is what makes its replies not new any more (what is on screen, as it changes).
+  useEffect(() => { if (loaded) onSeen?.(root.id, replies) }, [loaded, replies, root.id, onSeen])
 
   // New replies come in at the bottom, and the panel follows them.
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }) }, [replies.length, root.id])
