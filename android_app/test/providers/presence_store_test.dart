@@ -46,6 +46,22 @@ Map<String, Presence> stateOf(PresenceStore store) {
 
 Future<void> settle() => Future<void>.delayed(const Duration(milliseconds: 10));
 
+/// Waits until [ready] is true, instead of for a fixed time: a fixed wait is too short on a busy
+/// machine (the first load's list rebuild landed after the count was taken, and the test blamed
+/// the heartbeats for it). Fails, saying what it waited for, rather than hanging.
+Future<void> until(bool Function() ready, String what) async {
+  final end = DateTime.now().add(const Duration(seconds: 5));
+  while (!ready()) {
+    if (DateTime.now().isAfter(end)) fail('timed out waiting for $what');
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
+/// How long presence is held back before it is published, in these tests. Wide, so that checking
+/// "not published yet" is not a race against a slow machine; the checks that it IS published wait
+/// for it by looking, not by sleeping.
+const _window = Duration(milliseconds: 400);
+
 void main() {
   group('Presence', () {
     test(
@@ -198,7 +214,7 @@ void main() {
         overrides: [
           usersRepositoryProvider.overrideWithValue(repo),
           presenceStoreProvider.overrideWith(
-            (ref) => PresenceStore(const Duration(milliseconds: 70)),
+            (ref) => PresenceStore(_window),
           ),
           tickNowProvider.overrideWith((ref) => const Stream<DateTime>.empty()),
         ],
@@ -226,6 +242,10 @@ void main() {
         container.listen(activeUsersProvider, (_, _) => listRebuilds++);
 
         repo.controller.add(everyone());
+        await until(
+          () => directoryRebuilds > 0 && listRebuilds > 0,
+          'the first load to reach the directory and the list',
+        );
         await settle();
         expect(container.read(usersByIdProvider).length, 10);
         final firstLoad = (directoryRebuilds, listRebuilds);
@@ -243,6 +263,10 @@ void main() {
         );
 
         repo.controller.add(everyone(heartbeat: 900000, renameU3: 'Renamed'));
+        await until(
+          () => container.read(usersByIdProvider)['u3']!.name == 'Renamed',
+          'the rename to reach the directory',
+        );
         await settle();
         expect(container.read(usersByIdProvider)['u3']!.name, 'Renamed');
         expect(
@@ -258,7 +282,10 @@ void main() {
       () async {
         container.listen(usersByIdProvider, (_, _) {});
         repo.controller.add(everyone());
-        await settle();
+        await until(
+          () => container.read(presenceStoreProvider).containsKey('u3'),
+          'the first load to reach presence',
+        );
         expect(
           container
               .read(presenceStoreProvider)['u3']!
@@ -278,7 +305,12 @@ void main() {
           reason: 'inside the window: not yet published',
         );
 
-        await Future<void>.delayed(const Duration(milliseconds: 120));
+        await until(
+          () =>
+              container.read(presenceStoreProvider)['u3']!.lastSeen!.millisecondsSinceEpoch ==
+              1003 + 135000,
+          'the flush',
+        );
         expect(
           container
               .read(presenceStoreProvider)['u3']!
@@ -295,7 +327,10 @@ void main() {
       () async {
         container.listen(usersByIdProvider, (_, _) {});
         repo.controller.add(everyone(heartbeat: 777));
-        await settle();
+        await until(
+          () => container.read(usersByIdProvider).containsKey('u3'),
+          'the load to reach the directory',
+        );
         final u = container.read(usersByIdProvider)['u3']!;
         expect(u.lastSeen, isNull);
       },
@@ -306,12 +341,18 @@ void main() {
       () async {
         container.listen(usersByIdProvider, (_, _) {});
         repo.controller.add(everyone());
-        await settle();
+        await until(
+          () => container.read(usersByIdProvider).length == 10,
+          'the first load',
+        );
         repo.controller.add([
           ...everyone(heartbeat: 5000),
           user('newcomer', lastSeen: 42),
         ]);
-        await settle();
+        await until(
+          () => container.read(usersByIdProvider).containsKey('newcomer'),
+          'the newcomer to reach the directory',
+        );
         expect(
           container.read(usersByIdProvider).containsKey('newcomer'),
           isTrue,
