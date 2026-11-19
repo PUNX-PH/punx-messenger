@@ -14,6 +14,8 @@ import '../../services/draft_store.dart';
 import '../../services/user_error.dart';
 import '../../utils/attachments.dart';
 import '../../utils/constants.dart';
+import '../../utils/formatting.dart';
+import 'format_bar.dart';
 import 'gif_picker_sheet.dart';
 import 'mention_autocomplete_overlay.dart';
 
@@ -78,6 +80,10 @@ class Composer extends StatefulWidget {
 
 class _ComposerState extends State<Composer> {
   final _controller = TextEditingController();
+  final _focus = FocusNode();
+
+  /// The row of formatting buttons above the box (opened by the button in the box).
+  bool _formatOpen = false;
   /// The pictures waiting to be sent, in the order they were chosen.
   List<Attachment> _files = const [];
   bool _sending = false;
@@ -126,6 +132,7 @@ class _ComposerState extends State<Composer> {
     _stopTypingNow();
     _controller.removeListener(_saveDraft);
     _controller.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -215,6 +222,27 @@ class _ComposerState extends State<Composer> {
       _typingActive = false;
       widget.onTyping?.call(false);
     }
+  }
+
+  /// Bold, italic, strikethrough, code or spoiler on what is selected (see utils/formatting.dart). The
+  /// selection afterwards is on the same words, so pressing it again takes the formatting off. A box
+  /// that has never had a selection formats at its end.
+  void _format(String name) {
+    if (_sending) return;
+    final text = _controller.text;
+    final sel = _controller.selection;
+    final r = applyFormat(
+      text,
+      sel.isValid ? sel.start : text.length,
+      sel.isValid ? sel.end : text.length,
+      name,
+    );
+    _controller.value = TextEditingValue(
+      text: r.text,
+      selection: TextSelection(baseOffset: r.start, extentOffset: r.end),
+    );
+    _focus.requestFocus();
+    _onTextChanged(r.text);
   }
 
   Future<void> _pickImages() async {
@@ -342,6 +370,7 @@ class _ComposerState extends State<Composer> {
                   busy: _sending,
                   onRemove: _removeImage,
                 ),
+              if (_formatOpen) FormatBar(onFormat: _format, enabled: !_sending),
               if (_progress != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 6),
@@ -382,12 +411,23 @@ class _ComposerState extends State<Composer> {
                   Expanded(
                     child: TextField(
                       controller: _controller,
+                      focusNode: _focus,
                       minLines: 1,
                       maxLines: 6,
                       onChanged: _onTextChanged,
                       style: AppTextStyles.base(),
                       decoration: InputDecoration(
                         hintText: widget.placeholder,
+                        suffixIcon: IconButton(
+                          tooltip: 'Formatting',
+                          visualDensity: VisualDensity.compact,
+                          icon: Icon(
+                            Icons.text_format,
+                            color: _formatOpen ? Palette.brand : Palette.inkMuted,
+                          ),
+                          onPressed: () =>
+                              setState(() => _formatOpen = !_formatOpen),
+                        ),
                         fillColor: Palette.bgDeepest,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(AppRadii.md),
