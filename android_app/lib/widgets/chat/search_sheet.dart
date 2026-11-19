@@ -6,6 +6,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
 import '../../utils/search_filters.dart';
+import '../../utils/spoilers.dart';
 import '../../utils/time_format.dart';
 
 /// Client-side search over the already-loaded message list — port of
@@ -189,7 +190,7 @@ class _SearchSheetState extends State<_SearchSheet> {
                         style: AppTextStyles.sm(weight: FontWeight.w600),
                       ),
                       subtitle: Text(
-                        m.text.isNotEmpty ? m.text : _kindOf(m),
+                        m.text.isNotEmpty ? hideSpoilers(m.text) : _kindOf(m),
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                         style: AppTextStyles.sm(

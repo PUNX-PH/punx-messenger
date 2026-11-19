@@ -10,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../providers/auth_providers.dart';
 import '../utils/dnd.dart';
 import '../utils/firestore_paths.dart';
+import '../utils/spoilers.dart';
 import '../utils/muted.dart';
 import '../providers/users_providers.dart';
 import '../providers/sfx_providers.dart';
@@ -126,7 +127,7 @@ class NotificationListenerService {
     // time) — matches notifications.jsx's `byId[dm.lastMessageAuthorUid]`.
     final authorName =
         _ref.read(usersByIdProvider)[authorUid]?.name ?? 'New message';
-    final body = (data['lastMessageText'] as String?) ?? '';
+    final body = hideSpoilers((data['lastMessageText'] as String?) ?? '');
     _fire(
       key: 'dm:${doc.id}',
       title: authorName,

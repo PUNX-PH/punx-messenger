@@ -4,6 +4,7 @@ import 'forwarded_from.dart';
 import 'image_meta.dart';
 import 'message_author.dart';
 import 'reply_snapshot.dart';
+import '../utils/spoilers.dart';
 import 'voice_clip.dart';
 
 /// Mirrors the shared message document shape used under
@@ -110,7 +111,7 @@ class ChatMessage {
   /// What stands for this message where there is room for words only (a reply's
   /// quote, the pinned list): its text, else what it carries.
   String get previewText => text.isNotEmpty
-      ? text
+      ? hideSpoilers(text)
       : (imageURL != null
             ? '[image]'
             : (voice != null ? '[voice message]' : ''));

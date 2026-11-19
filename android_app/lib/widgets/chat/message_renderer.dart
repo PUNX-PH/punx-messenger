@@ -163,6 +163,18 @@ class _ParagraphViewState extends State<_ParagraphView> {
           ),
         );
 
+      case SpoilerToken():
+        return WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: _SpoilerView(
+            tokens: token.children,
+            emojiByName: widget.emojiByName,
+            usersById: widget.usersById,
+            emojiSize: widget.emojiSize,
+            baseStyle: widget.baseStyle,
+          ),
+        );
+
       case MentionToken():
         final user = widget.usersById[token.uid];
         return WidgetSpan(
@@ -190,6 +202,73 @@ class _ParagraphViewState extends State<_ParagraphView> {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
     await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+}
+
+/// Hidden text: a bar until it is pressed, then the text for good (as on Discord). What is inside is
+/// drawn like any other text, then hidden: invisible, not read out by a screen reader, and not
+/// pressable (a link inside would otherwise open before the text was shown).
+class _SpoilerView extends StatefulWidget {
+  const _SpoilerView({
+    required this.tokens,
+    required this.emojiByName,
+    required this.usersById,
+    required this.emojiSize,
+    required this.baseStyle,
+  });
+
+  final List<MessageToken> tokens;
+  final Map<String, CustomEmoji> emojiByName;
+  final Map<String, UserProfile> usersById;
+  final double emojiSize;
+  final TextStyle baseStyle;
+
+  @override
+  State<_SpoilerView> createState() => _SpoilerViewState();
+}
+
+class _SpoilerViewState extends State<_SpoilerView> {
+  bool _shown = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final inside = _ParagraphView(
+      tokens: widget.tokens,
+      emojiByName: widget.emojiByName,
+      usersById: widget.usersById,
+      emojiSize: widget.emojiSize,
+      baseStyle: widget.baseStyle,
+    );
+    if (_shown) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        decoration: BoxDecoration(
+          color: Palette.bgHover,
+          borderRadius: BorderRadius.circular(AppRadii.xs),
+        ),
+        child: inside,
+      );
+    }
+    return Semantics(
+      container: true,
+      button: true,
+      label: 'Spoiler, press to show',
+      // (The press itself, for a screen reader too, comes from the GestureDetector below.)
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() => _shown = true),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          decoration: BoxDecoration(
+            color: Palette.inkDim,
+            borderRadius: BorderRadius.circular(AppRadii.xs),
+          ),
+          // Laid out (so the bar is as wide as the text) but not painted, not touched, and (being
+          // fully transparent) left out of what a screen reader reads.
+          child: IgnorePointer(child: Opacity(opacity: 0, child: inside)),
+        ),
+      ),
+    );
   }
 }
 
