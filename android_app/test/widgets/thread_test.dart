@@ -601,6 +601,10 @@ void main() {
       await controller.send(text: 'hi');
       expect(repo.sent.single.replyTo?.id, 'z');
       expect(container.read(chatControllerProvider(_path)).replyingTo, isNull);
+      // Several pictures go as several messages: only the first quotes.
+      await controller.send(text: 'and another');
+      expect(repo.sent, hasLength(2));
+      expect(repo.sent.last.replyTo, isNull, reason: 'the quote went with the first message only');
     });
 
     testWidgets('"Show in chat" is under each reply, not the message, and takes you back there', (tester) async {

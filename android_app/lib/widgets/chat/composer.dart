@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../markdown/mention_resolver.dart';
 import '../../models/message.dart';
@@ -10,8 +9,10 @@ import '../../models/user_profile.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
+import '../../services/attachment_picker.dart';
 import '../../services/draft_store.dart';
 import '../../services/user_error.dart';
+import '../../utils/attachments.dart';
 import '../../utils/constants.dart';
 import 'gif_picker_sheet.dart';
 import 'mention_autocomplete_overlay.dart';
@@ -26,8 +27,6 @@ typedef ComposerSend =
       Map<String, dynamic>? remoteImageMeta,
     });
 
-const _maxImageBytes = 10 * 1024 * 1024;
-
 final _mentionQueryRe = RegExp(r'(?:^|\s)@([\w-]{0,30})$');
 
 class _MentionQuery {
@@ -36,7 +35,8 @@ class _MentionQuery {
   const _MentionQuery(this.atIndex, this.query);
 }
 
-/// Message input — port of components/Composer.jsx: image attach, reply
+/// Message input — port of components/Composer.jsx: pictures (several at once, each its own
+/// message: see utils/attachments.dart), reply
 /// preview, the typing-ping throttle, and @mention autocomplete (candidates
 /// picked here are recorded in a chunk->uid hint map applied first at send
 /// time; manually-typed "@Name" without picking from the dropdown still
@@ -53,6 +53,7 @@ class Composer extends StatefulWidget {
     this.onCancelReply,
     this.drafts,
     this.draftKey,
+    this.pickImages = pickAttachments,
   });
 
   final String placeholder;
@@ -68,16 +69,22 @@ class Composer extends StatefulWidget {
   final DraftStore? drafts;
   final String? draftKey;
 
+  /// Opens the gallery and returns what was chosen. A parameter so a test can choose without one.
+  final Future<List<Attachment>> Function() pickImages;
+
   @override
   State<Composer> createState() => _ComposerState();
 }
 
 class _ComposerState extends State<Composer> {
   final _controller = TextEditingController();
-  Uint8List? _imageBytes;
-  String? _imageName;
+  /// The pictures waiting to be sent, in the order they were chosen.
+  List<Attachment> _files = const [];
   bool _sending = false;
   String? _error;
+
+  /// While sending several: which one is going, of how many (for the box's hint).
+  ({int done, int total})? _progress;
 
   bool _typingActive = false;
   DateTime? _lastTypingPing;
@@ -210,26 +217,24 @@ class _ComposerState extends State<Composer> {
     }
   }
 
-  Future<void> _pickImage() async {
-    final file = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (file == null) return;
-    final bytes = await file.readAsBytes();
-    if (bytes.lengthInBytes > _maxImageBytes) {
-      setState(() => _error = 'Image is larger than 10 MB.');
+  Future<void> _pickImages() async {
+    final List<Attachment> picked;
+    try {
+      picked = await widget.pickImages();
+    } catch (e) {
+      if (mounted) setState(() => _error = describeError(e, action: 'open your pictures'));
       return;
     }
+    if (picked.isEmpty || !mounted) return;
+    final added = addAttachments(_files, picked);
     setState(() {
-      _imageBytes = bytes;
-      _imageName = file.name;
-      _error = null;
+      _files = added.files;
+      _error = added.problem;
     });
   }
 
-  void _removeImage() {
-    setState(() {
-      _imageBytes = null;
-      _imageName = null;
-    });
+  void _removeImage(int index) {
+    setState(() => _files = [..._files]..removeAt(index));
   }
 
   Future<void> _pickGif() async {
@@ -251,7 +256,7 @@ class _ComposerState extends State<Composer> {
 
   Future<void> _submit() async {
     final rawText = _controller.text;
-    if (rawText.trim().isEmpty && _imageBytes == null) return;
+    if (rawText.trim().isEmpty && _files.isEmpty) return;
 
     setState(() {
       _sending = true;
@@ -260,23 +265,52 @@ class _ComposerState extends State<Composer> {
     });
     _stopTypingNow();
 
+    final sentFiles = _files;
     try {
       final resolved = resolveMentions(rawText, widget.users, _mentionHints);
-      await widget.onSend(
+      final result = await sendAttachments(
         text: resolved,
-        imageBytes: _imageBytes,
-        imageName: _imageName,
+        files: sentFiles,
+        send: ({required text, file}) => widget.onSend(
+          text: text,
+          imageBytes: file?.bytes,
+          imageName: file?.name,
+        ),
+        onProgress: (done, total) {
+          if (mounted) setState(() => _progress = (done: done, total: total));
+        },
       );
+      if (!mounted) return;
+      final failure = result.error;
+      if (failure != null) {
+        // The text went with the first message, so once anything has gone it is spent; the pictures
+        // that did not go stay, for another try. If nothing went, all of it is kept.
+        final said = describeError(failure, action: 'send that message');
+        if (result.sent > 0) {
+          _controller.clear();
+          _mentionHints.clear();
+        }
+        setState(() {
+          if (result.sent > 0) _files = remainingAfter(sentFiles, result.sent);
+          // (More than one picture, by definition: one that failed had nothing sent before it.)
+          _error = result.sent > 0
+              ? 'Sent ${result.sent} of ${sentFiles.length}. $said'
+              : said;
+        });
+        return;
+      }
       _controller.clear();
       _mentionHints.clear();
-      setState(() {
-        _imageBytes = null;
-        _imageName = null;
-      });
+      setState(() => _files = const []);
     } catch (e) {
-      setState(() => _error = describeError(e, action: 'send that message'));
+      if (mounted) setState(() => _error = describeError(e, action: 'send that message'));
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _progress = null;
+        });
+      }
     }
   }
 
@@ -284,7 +318,7 @@ class _ComposerState extends State<Composer> {
   Widget build(BuildContext context) {
     final canSend =
         !_sending &&
-        (_controller.text.trim().isNotEmpty || _imageBytes != null);
+        (_controller.text.trim().isNotEmpty || _files.isNotEmpty);
     final mentionCandidates = _mentionCandidates;
 
     return ColoredBox(
@@ -302,11 +336,19 @@ class _ComposerState extends State<Composer> {
                   replyingTo: widget.replyingTo!,
                   onCancel: widget.onCancelReply,
                 ),
-              if (_imageBytes != null)
-                _ImagePreview(
-                  bytes: _imageBytes!,
-                  name: _imageName ?? '',
+              if (_files.isNotEmpty)
+                _AttachmentTray(
+                  files: _files,
+                  busy: _sending,
                   onRemove: _removeImage,
+                ),
+              if (_progress != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    uploadingText(_progress!.done, _progress!.total),
+                    style: AppTextStyles.xs(color: Palette.inkMuted),
+                  ),
                 ),
               if (_error != null)
                 Padding(
@@ -329,7 +371,8 @@ class _ComposerState extends State<Composer> {
                       Icons.add_photo_alternate_outlined,
                       color: Palette.inkMuted,
                     ),
-                    onPressed: _sending ? null : _pickImage,
+                    tooltip: 'Add pictures',
+                    onPressed: _sending ? null : _pickImages,
                   ),
                   IconButton(
                     tooltip: 'GIF',
@@ -428,51 +471,88 @@ class _ReplyPreviewBar extends StatelessWidget {
   }
 }
 
-class _ImagePreview extends StatelessWidget {
-  const _ImagePreview({
-    required this.bytes,
-    required this.name,
+/// The pictures waiting to be sent: a thumbnail each, with a way to take one back out. Sideways, so ten
+/// of them take one row of the screen, not half of it.
+class _AttachmentTray extends StatelessWidget {
+  const _AttachmentTray({
+    required this.files,
+    required this.busy,
     required this.onRemove,
   });
-  final Uint8List bytes;
-  final String name;
-  final VoidCallback onRemove;
+  final List<Attachment> files;
+
+  /// Sending: nothing can be taken out now.
+  final bool busy;
+  final ValueChanged<int> onRemove;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: Palette.bgDeepest,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-      ),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadii.sm),
-            child: Image.memory(
-              bytes,
-              width: 44,
-              height: 44,
-              fit: BoxFit.cover,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.xs(color: Palette.inkMuted),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Remove attachment',
-            icon: Icon(Icons.close, size: 16, color: Palette.inkDim),
-            onPressed: onRemove,
-          ),
-        ],
+    final n = files.length;
+    return Semantics(
+      container: true,
+      label: '$n ${n == 1 ? 'picture' : 'pictures'} to send',
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        height: 76,
+        decoration: BoxDecoration(
+          color: Palette.bgDeepest,
+          borderRadius: BorderRadius.circular(AppRadii.md),
+        ),
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.all(6),
+          itemCount: n,
+          separatorBuilder: (_, _) => const SizedBox(width: 6),
+          itemBuilder: (context, i) {
+            final f = files[i];
+            return SizedBox(
+              key: ValueKey('attachment-${f.name}-${f.size}'),
+              width: 64,
+              height: 64,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadii.sm),
+                      child: Image.memory(
+                        f.bytes,
+                        fit: BoxFit.cover,
+                        cacheWidth: 160,
+                        gaplessPlayback: true,
+                        errorBuilder: (_, _, _) => Container(
+                          color: Palette.bgRaised,
+                          alignment: Alignment.center,
+                          child: Icon(
+                            Icons.broken_image_outlined,
+                            color: Palette.inkMuted,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: -4,
+                    right: -4,
+                    child: IconButton(
+                      tooltip: 'Remove ${f.name}',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                      style: IconButton.styleFrom(
+                        backgroundColor: Palette.bgRaised.withValues(alpha: 0.9),
+                      ),
+                      icon: Icon(Icons.close, size: 16, color: Palette.ink),
+                      onPressed: busy ? null : () => onRemove(i),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
