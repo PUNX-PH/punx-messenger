@@ -210,7 +210,7 @@ test('the conversation opens a thread beside it, only in conversations, and drop
   assert.ok(s.includes('useEffect(() => { setOpenThread(null) }, [path])'))
   assert.ok(s.includes('{openThread && threadsAllowed(path) && ('))
   assert.ok(s.includes('root={currentRoot(messages, openThread)}'))
-  assert.ok(s.includes("import { ForwardDialog, ThreadPanel } from '../lib/lazyParts'"), 'loaded on demand')
+  assert.ok(s.includes("import { ForwardDialog, SearchDropdown, ThreadPanel } from '../lib/lazyParts'"), 'loaded on demand')
   assert.ok(s.includes('<LazySlot\n        overlay\n        title="The thread couldn\'t be opened"'))
   assert.ok(s.includes('onClose={() => setOpenThread(null)}'))
   assert.ok(s.includes('readOnly={readOnly}\n          onSend={threadSend}'), 'the panel is told, and sends through its own function')

@@ -15,6 +15,7 @@
 //   DndDialog           the "do not disturb for how long" box, opened from the bottom-left panel
 //   ForwardDialog       the "forward to..." picker, opened from a message's toolbar
 //   ThreadPanel         a message and its replies, opened from a message's toolbar or its "N replies"
+//   SearchDropdown      "search this chat", with its filters, opened from the magnifier in the header
 import { lazyWithPreload, preloadWhenIdle } from './lazy'
 
 export const AdminPanel = lazyWithPreload(() => import('../views/AdminPanel'))
@@ -31,6 +32,7 @@ export const StatusEditor = lazyWithPreload(() => import('../components/StatusEd
 export const DndDialog = lazyWithPreload(() => import('../components/DndDialog'))
 export const ForwardDialog = lazyWithPreload(() => import('../components/ForwardDialog'))
 export const ThreadPanel = lazyWithPreload(() => import('../components/ThreadPanel'))
+export const SearchDropdown = lazyWithPreload(() => import('../components/SearchDropdown'))
 
 /**
  * Warms up what nearly everyone ends up using, once the app is up. The admin panel
