@@ -26,6 +26,7 @@ import ErrorBoundary from './ErrorBoundary'
 import MessageList, { PinIcon } from './MessageList'
 import Composer from './Composer'
 import { currentRoot, markThreadSeen, threadsAllowed } from '../lib/threads'
+import { hideSpoilers } from '../lib/spoilers'
 import TypingIndicator from './TypingIndicator'
 import AppsMenu from './AppsMenu'
 import { MenuButton } from './AppShell'
@@ -605,7 +606,7 @@ function PinnedDropdown({ pinned, onJump, canPin, onUnpin }) {
                 <img src={m.imageURL} alt="" className="mt-1 max-w-full max-h-24 object-contain rounded border border-line-subtle" />
               )}
               {m.text && (
-                <div className="text-sm text-ink-muted mt-1 line-clamp-3 whitespace-pre-wrap">{m.text}</div>
+                <div className="text-sm text-ink-muted mt-1 line-clamp-3 whitespace-pre-wrap">{hideSpoilers(m.text)}</div>
               )}
               {canPin && (
                 <button

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FILTER_CHIPS, hasToken, searchMessages, toggleToken } from '../lib/searchFilters'
+import { hideSpoilers } from '../lib/spoilers'
 
 /**
  * In-chat search dropdown. Searches the currently-loaded messages for words and for filters
@@ -103,7 +104,7 @@ export default function SearchDropdown({ messages, usersById, meUid, onJump, onC
                 <span className="text-[10px] text-ink-dim shrink-0">{formatTime(m.createdAt)}</span>
               </div>
               <div className="text-sm text-ink-muted mt-0.5 whitespace-pre-wrap line-clamp-3">
-                {m.text ? highlight(m.text, parsed.text) : <span className="italic text-ink-dim">{kindOf(m)}</span>}
+                {m.text ? highlight(hideSpoilers(m.text), parsed.text) : <span className="italic text-ink-dim">{kindOf(m)}</span>}
               </div>
             </button>
           ))

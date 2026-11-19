@@ -497,7 +497,7 @@ test('the search box uses the filters, knows who you are, and shows what it coul
   assert.ok(s.includes('export default function SearchDropdown({ messages, usersById, meUid, onJump, onClose })'))
   assert.ok(s.includes('() => searchMessages(messages, q, { usersById, meUid }),\n    [messages, q, usersById, meUid],'))
   assert.ok(s.includes('{parsed.problems.map(p => ('), 'a piece that could not be used is said')
-  assert.ok(s.includes('highlight(m.text, parsed.text)'), 'only the words are marked, not the filters')
+  assert.ok(s.includes('highlight(hideSpoilers(m.text), parsed.text)'), 'only the words are marked, not the filters')
   assert.ok(s.includes('{!active ? ('), 'a filter alone is a search too')
   assert.ok(s.includes("        {active && (\n          <div className=\"text-[11px] text-ink-dim mt-1\">\n            {results.length === 0 ? 'No matches' : `${results.length} match${results.length === 1 ? '' : 'es'}`}"), 'how many matched, once there is a search')
   assert.ok(!s.includes('.slice(0, 100)'), 'the old substring search is gone')
@@ -521,7 +521,7 @@ test('a picture or a voice message with no words says what it is in the results'
   const s = read('src/components/SearchDropdown.jsx')
   assert.ok(s.includes("if (m.imageURL) return 'Picture'"))
   assert.ok(s.includes("if (m.audioURL) return 'Voice message'"))
-  assert.ok(s.includes('{m.text ? highlight(m.text, parsed.text) : <span'))
+  assert.ok(s.includes('{m.text ? highlight(hideSpoilers(m.text), parsed.text) : <span'))
 })
 
 test('the chat gives the search box who you are', () => {

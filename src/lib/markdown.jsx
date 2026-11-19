@@ -8,23 +8,16 @@
 //   https://url           → <a>
 //   :emoji:               → <img> (custom emoji)
 //   <@uid>                → <span> @Name (user mention)
+//   ||spoiler||           → hidden until pressed (see spoilers.js)
+//
+// Which piece is which is decided in inlineTokens.js (so it can be tested without a screen).
 //
 // We do NOT pull in a full markdown lib — chat messages are short and we want
 // to combine with our custom emoji + mention tokens without a plugin dance.
 
-const INLINE_RE = new RegExp(
-  [
-    '(`[^`\\n]+?`)',                  // 1 inline code
-    '(\\*\\*[^*\\n]+?\\*\\*)',        // 2 bold
-    '(~~[^~\\n]+?~~)',                // 3 strike
-    '(\\*[^*\\n]+?\\*)',              // 4 italic *
-    '(_[^_\\n]+?_)',                  // 5 italic _
-    '(https?://[^\\s<>]+)',           // 6 url
-    '(:[a-z0-9_]{2,32}:)',            // 7 emoji
-    '(<@[A-Za-z0-9_-]{6,40}>)',       // 8 mention
-  ].join('|'),
-  'gi'
-)
+import { useState } from 'react'
+import { tokenizeInline } from './inlineTokens'
+import { spoilerInner } from './spoilers'
 
 const CODE_BLOCK_RE = /```([\s\S]*?)```/g
 
@@ -68,35 +61,28 @@ export function renderMessage(text, { emojiByName = {}, usersById = {}, emojiSiz
 
 function renderInline(text, { emojiByName, usersById, emojiSize, kStart = 0 }) {
   const out = []
-  let lastIdx = 0
   let i = kStart
-  INLINE_RE.lastIndex = 0
-  let m
-  while ((m = INLINE_RE.exec(text)) !== null) {
-    if (m.index > lastIdx) {
-      out.push(text.slice(lastIdx, m.index))
-    }
-    const [match, code, bold, strike, italic1, italic2, url, emoji, mention] = m
-    const key = `${kStart}-${m.index}-${i++}`
+  for (const t of tokenizeInline(text)) {
+    if (t.type === 'text') { out.push(t.raw); continue }
+    const raw = t.raw
+    const key = `${kStart}-${t.index}-${i++}`
 
-    if (code) {
-      out.push(<code key={key} className="bg-bg-deepest border border-line-subtle rounded px-1 py-0.5 text-[0.875em] font-mono">{code.slice(1, -1)}</code>)
-    } else if (bold) {
-      out.push(<strong key={key} className="font-semibold">{bold.slice(2, -2)}</strong>)
-    } else if (strike) {
-      out.push(<del key={key} className="opacity-70">{strike.slice(2, -2)}</del>)
-    } else if (italic1) {
-      out.push(<em key={key}>{italic1.slice(1, -1)}</em>)
-    } else if (italic2) {
-      out.push(<em key={key}>{italic2.slice(1, -1)}</em>)
-    } else if (url) {
+    if (t.type === 'code') {
+      out.push(<code key={key} className="bg-bg-deepest border border-line-subtle rounded px-1 py-0.5 text-[0.875em] font-mono">{raw.slice(1, -1)}</code>)
+    } else if (t.type === 'bold') {
+      out.push(<strong key={key} className="font-semibold">{raw.slice(2, -2)}</strong>)
+    } else if (t.type === 'strike') {
+      out.push(<del key={key} className="opacity-70">{raw.slice(2, -2)}</del>)
+    } else if (t.type === 'italic') {
+      out.push(<em key={key}>{raw.slice(1, -1)}</em>)
+    } else if (t.type === 'url') {
       out.push(
-        <a key={key} href={url} target="_blank" rel="noreferrer" className="text-brand-text hover:underline break-all">
-          {url}
+        <a key={key} href={raw} target="_blank" rel="noreferrer" className="text-brand-text hover:underline break-all">
+          {raw}
         </a>
       )
-    } else if (emoji) {
-      const name = emoji.slice(1, -1).toLowerCase()
+    } else if (t.type === 'emoji') {
+      const name = raw.slice(1, -1).toLowerCase()
       const e = emojiByName[name]
       out.push(
         e ? (
@@ -108,10 +94,10 @@ function renderInline(text, { emojiByName, usersById, emojiSize, kStart = 0 }) {
             className="inline-block align-text-bottom"
             style={{ width: emojiSize, height: emojiSize }}
           />
-        ) : match
+        ) : raw
       )
-    } else if (mention) {
-      const uid = mention.slice(2, -1)
+    } else if (t.type === 'mention') {
+      const uid = raw.slice(2, -1)
       const u = usersById[uid]
       out.push(
         <span
@@ -122,15 +108,38 @@ function renderInline(text, { emojiByName, usersById, emojiSize, kStart = 0 }) {
           @{u?.name || 'Unknown'}
         </span>
       )
+    } else if (t.type === 'spoiler') {
+      // What is inside is drawn like any other text (bold, emoji, mentions...), then hidden.
+      out.push(<Spoiler key={key}>{renderInline(spoilerInner(raw), { emojiByName, usersById, emojiSize, kStart: i })}</Spoiler>)
     } else {
-      out.push(match)
+      out.push(raw)
     }
-    lastIdx = m.index + match.length
-  }
-  if (lastIdx < text.length) {
-    out.push(text.slice(lastIdx))
   }
   return out
+}
+
+/**
+ * Hidden text: a bar the colour of the text, until it is pressed (or Enter / Space on it). Pressing
+ * shows it for good, as on Discord. While hidden it is not read out and cannot be clicked through
+ * (a link inside would otherwise open before the text was shown).
+ */
+function Spoiler({ children }) {
+  const [shown, setShown] = useState(false)
+  if (shown) return <span className="rounded px-0.5 bg-bg-hover" data-spoiler="shown">{children}</span>
+  const show = () => setShown(true)
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-label="Spoiler, press to show"
+      onClick={show}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); show() } }}
+      className="spoiler-hidden rounded px-0.5 bg-ink-dim select-none cursor-pointer"
+      data-spoiler="hidden"
+    >
+      <span aria-hidden="true" className="pointer-events-none">{children}</span>
+    </span>
+  )
 }
 
 /** True if the message text is only emoji tokens (and whitespace). */

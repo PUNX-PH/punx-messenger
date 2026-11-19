@@ -14,6 +14,7 @@ import { copyableText, hasCopyableText } from '../lib/copyText'
 import { copyToClipboard } from '../lib/clipboard'
 import { Link } from 'react-router-dom'
 import { canForward, forwardedFromOf } from '../lib/forward'
+import { hideSpoilers } from '../lib/spoilers'
 import { audioOf } from '../lib/voiceMessage'
 import VoicePlayer from './VoicePlayer'
 import { isSavedNote, savedRouteOf } from '../lib/saved'
@@ -521,7 +522,7 @@ const Row = memo(function Row({
             <span className="text-brand-text font-medium shrink-0">
               @{usersById?.[message.replyTo.authorUid]?.name || message.replyTo.authorName}
             </span>
-            <span className="truncate opacity-75">{message.replyTo.snippet}</span>
+            <span className="truncate opacity-75">{hideSpoilers(message.replyTo.snippet)}</span>
           </button>
         )}
 

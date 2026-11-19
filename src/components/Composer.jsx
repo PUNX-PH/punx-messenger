@@ -10,6 +10,7 @@ import { resolveMentions } from '../lib/markdown'
 import { drafts } from '../lib/drafts'
 import { usePrefs } from '../lib/usePrefs'
 import { shouldSend } from '../lib/sendKey'
+import { hideSpoilers } from '../lib/spoilers'
 import { shouldEditLast } from '../lib/editLast'
 import { useEmojis } from '../lib/emojis'
 import { MAX_VOICE_MS, formatDuration, voiceErrorText } from '../lib/voiceMessage'
@@ -389,7 +390,7 @@ export default function Composer({
           <span className="text-ink-dim">Replying to</span>
           <span className="text-brand-text font-medium">@{replyingTo.author?.name || 'someone'}</span>
           <span className="text-ink-dim truncate flex-1 min-w-0">
-            {replyingTo.text || (replyingTo.imageURL ? '[image]' : '')}
+            {hideSpoilers(replyingTo.text) || (replyingTo.imageURL ? '[image]' : '')}
           </span>
           <button
             type="button"
