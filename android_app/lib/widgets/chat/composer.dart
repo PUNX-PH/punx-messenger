@@ -349,6 +349,15 @@ class _ComposerState extends State<Composer> {
         (_controller.text.trim().isNotEmpty || _files.isNotEmpty);
     final mentionCandidates = _mentionCandidates;
 
+    // How much of the screen the box may take. With big text (or the keyboard up) it used to grow past the
+    // screen: the status lines (a reply being quoted, the pictures, an error) scroll inside a share of
+    // what is left, and the text field is only as many lines tall as fit in another share of it.
+    final media = MediaQuery.of(context);
+    final room = media.size.height - media.viewInsets.bottom;
+    final statusMax = room * 0.3;
+    final lineHeight = 22.4 * media.textScaler.scale(1);
+    final maxLines = (room * 0.25 / lineHeight).floor().clamp(2, 6);
+
     return ColoredBox(
       color: Palette.bgRaised,
       child: SafeArea(
@@ -359,6 +368,13 @@ class _ComposerState extends State<Composer> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: statusMax),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
               if (widget.replyingTo != null)
                 _ReplyPreviewBar(
                   replyingTo: widget.replyingTo!,
@@ -392,6 +408,10 @@ class _ComposerState extends State<Composer> {
                   candidates: mentionCandidates,
                   onPick: _pickMention,
                 ),
+                    ],
+                  ),
+                ),
+              ),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -413,7 +433,7 @@ class _ComposerState extends State<Composer> {
                       controller: _controller,
                       focusNode: _focus,
                       minLines: 1,
-                      maxLines: 6,
+                      maxLines: maxLines,
                       onChanged: _onTextChanged,
                       style: AppTextStyles.base(),
                       decoration: InputDecoration(

@@ -88,6 +88,40 @@ class _SearchSheetState extends State<_SearchSheet> {
       meUid: widget.meUid,
     );
     final results = found.results;
+    final head = <Widget>[
+      for (final problem in found.parsed.problems)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              problem,
+              style: AppTextStyles.xs(color: Palette.warn),
+            ),
+          ),
+        ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            !found.active
+                ? 'Type to search'
+                : '${results.length} match${results.length == 1 ? '' : 'es'}',
+            style: AppTextStyles.xs(color: Palette.inkDim),
+          ),
+        ),
+      ),
+      if (!found.active)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          child: Text(
+            'Narrow it down with from:name has:image is:pinned before:2026-11-01 after:… on:… mentions:me',
+            textAlign: TextAlign.center,
+            style: AppTextStyles.xs(color: Palette.inkDim),
+          ),
+        ),
+    ];
 
     return SafeArea(
       child: DraggableScrollableSheet(
@@ -143,45 +177,15 @@ class _SearchSheetState extends State<_SearchSheet> {
                   ),
                 ),
               ),
-              for (final problem in found.parsed.problems)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      problem,
-                      style: AppTextStyles.xs(color: Palette.warn),
-                    ),
-                  ),
-                ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    !found.active
-                        ? 'Type to search'
-                        : '${results.length} match${results.length == 1 ? '' : 'es'}',
-                    style: AppTextStyles.xs(color: Palette.inkDim),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 4),
-              if (!found.active)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  child: Text(
-                    'Narrow it down with from:name has:image is:pinned before:2026-11-01 after:… on:… mentions:me',
-                    textAlign: TextAlign.center,
-                    style: AppTextStyles.xs(color: Palette.inkDim),
-                  ),
-                ),
+              // The notes about a piece that could not be used, the count and the hint are the first things
+              // IN the list, not above it: with large text they are taller than the sheet, and they must scroll.
               Expanded(
                 child: ListView.builder(
                   controller: scrollController,
-                  itemCount: results.length,
+                  itemCount: head.length + results.length,
                   itemBuilder: (context, index) {
-                    final m = results[index];
+                    if (index < head.length) return head[index];
+                    final m = results[index - head.length];
                     final author =
                         widget.usersById[m.author.uid]?.name ?? m.author.name;
                     return ListTile(

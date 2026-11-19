@@ -167,18 +167,18 @@ void main() {
 
     testWidgets('a reply shows what it quotes, unless told not to', (tester) async {
       await pumpRow(tester, message: _msg('r', to: 'a', text: 'hello there'));
-      expect(find.text('@Ana'), findsOneWidget);
-      expect(find.text('quoted'), findsOneWidget);
+      expect(find.textContaining('@Ana', findRichText: true), findsOneWidget);
+      expect(find.textContaining('quoted', findRichText: true), findsOneWidget);
       await pumpRow(tester, message: _msg('r', to: 'a', text: 'hello there'), quote: false);
-      expect(find.text('@Ana'), findsNothing);
-      expect(find.text('quoted'), findsNothing);
+      expect(find.textContaining('@Ana', findRichText: true), findsNothing);
+      expect(find.textContaining('quoted', findRichText: true), findsNothing);
       expect(find.text('hello there', findRichText: true), findsOneWidget, reason: 'the reply itself is still there');
     });
 
     testWidgets('turning the quote off changes nothing for a message that is not a reply', (tester) async {
       await pumpRow(tester, quote: false);
       expect(find.text('hello there', findRichText: true), findsOneWidget);
-      expect(find.text('@Ana'), findsNothing);
+      expect(find.textContaining('@Ana', findRichText: true), findsNothing);
     });
 
     testWidgets('says how many of its replies are new, in a pill beside the count', (tester) async {
@@ -411,7 +411,7 @@ void main() {
 
     testWidgets('in the conversation a reply still shows its quote', (tester) async {
       await pumpList(tester);
-      expect(find.text('@Ana'), findsNWidgets(3), reason: 'r1, r2 and r3 each quote their message');
+      expect(find.textContaining('@Ana', findRichText: true), findsNWidgets(3), reason: 'r1, r2 and r3 each quote their message');
     });
 
     testWidgets('without a way to open threads there is no count', (tester) async {
@@ -718,8 +718,8 @@ void main() {
       await pump(tester, first: [_msg('r1', to: 'a', ms: 2000, text: 'first'), _msg('r2', to: 'a', ms: 3000, text: 'second')]);
       expect(find.text('first', findRichText: true), findsOneWidget);
       expect(find.text('second', findRichText: true), findsOneWidget);
-      expect(find.text('@Ana'), findsNothing);
-      expect(find.text('quoted'), findsNothing);
+      expect(find.textContaining('@Ana', findRichText: true), findsNothing);
+      expect(find.textContaining('quoted', findRichText: true), findsNothing);
     });
 
     testWidgets('the message at the top keeps its own quote when it is itself a reply', (tester) async {
@@ -728,7 +728,7 @@ void main() {
         root: _msg('a', to: 'z', ms: 1000, text: 'the question'),
         first: [_msg('r1', to: 'a', ms: 2000, text: 'first')],
       );
-      expect(find.text('@Ana'), findsOneWidget, reason: 'one quote, the top message\'s, not the reply\'s');
+      expect(find.textContaining('@Ana', findRichText: true), findsOneWidget, reason: 'one quote, the top message\'s, not the reply\'s');
     });
 
     testWidgets('a new reply scrolls the screen to the end', (tester) async {

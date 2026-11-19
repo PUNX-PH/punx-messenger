@@ -189,8 +189,8 @@ void main() {
           ),
         ),
       );
-      expect(find.text('the end: [spoiler] ok'), findsOneWidget);
-      expect(find.textContaining('dies'), findsNothing);
+      expect(find.textContaining('the end: [spoiler] ok', findRichText: true), findsOneWidget);
+      expect(find.textContaining('dies', findRichText: true), findsNothing);
     });
 
     test('a message\'s preview (the reply quote when written, the "replying to" bar)', () {
@@ -227,7 +227,7 @@ void main() {
       await tester.tap(find.text('pinned'));
       await tester.pumpAndSettle();
       expect(find.text('the end: [spoiler]'), findsOneWidget);
-      expect(find.textContaining('dies'), findsNothing);
+      expect(find.textContaining('dies', findRichText: true), findsNothing);
     });
 
     testWidgets('search results (found by what is in it, shown as [spoiler])', (tester) async {
@@ -254,7 +254,7 @@ void main() {
       await tester.enterText(find.byType(TextField), 'end');
       await tester.pumpAndSettle();
       expect(find.text('the end: [spoiler]'), findsOneWidget);
-      expect(find.textContaining('dies'), findsNothing);
+      expect(find.textContaining('dies', findRichText: true), findsNothing);
     });
   });
 

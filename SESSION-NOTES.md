@@ -171,7 +171,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 1041**, **Node 1006** (sound, presence identity, lazy loader, iOS setup, chat identity, camera, attachments, threads, search filters, thread unread, spoilers, formatting), Worker 102, Firestore rules 216 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 1062**, **Node 1006** (sound, presence identity, lazy loader, iOS setup, chat identity, camera, attachments, threads, search filters, thread unread, spoilers, formatting), Worker 102, Firestore rules 216 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -1351,3 +1351,21 @@ For channels the right-click menu is now open to every member on a text channel 
 **Measured, not changed.** The × on a picture waiting to be sent has a touch box of **40 x 40** (its picture is 24): a little under the 48 that is recommended. A bigger target would sit over the corner of the picture and make the button look wrong, so it is left; it should be tried on a real phone.
 
 **NOT checked.** **No phone, emulator or Mac**: a long press on a real thumb (the tests press at positions), pressing on the empty space of a row that is part of a long run by the same person (the same code), a very long message that wraps (the whole row is the target, as before for the text). A long press on a link inside a message (the link's own handling, unchanged).
+
+## 84. Large text on a small phone: four screens that overflowed (PR #91)
+
+**Why.** Everything added in sections 72–83 had been looked at at a normal size only. Android's "largest text" setting (2x) on a 320-wide phone is real, and a Flutter overflow is a yellow-and-black stripe or a button pushed off the screen. So this one is an audit: the new screens were drawn at **320x568 with text 2.0x**, **360x640 with 1.3x** and **320x568 with 1.0x**, and anything that overflowed or threw was a failure.
+
+**No data, rules, Worker or web change.** Layout only. **Nothing needs deploying.**
+
+**Found and fixed (4).**
+- **The quote above a reply** (`_ReplyStrip`): the author's name was a `Text` that could not shrink, so a long name pushed the row off the screen (this one was older than the threads work). Name and quote are now one line of rich text, cut with an ellipsis at the end.
+- **The "N replies" chip with its "new" pill**: a `Row`, wider than the screen at 2x with a count of 128 and 99 new. It is a `Wrap` now: the pill goes on to the next line.
+- **The message box**: with a reply bar, ten pictures, an error and the format row all open, it grew **356 px past** the bottom of a small screen. The status lines (reply bar, pictures, progress, error) now **scroll inside 30% of the screen that is left** (keyboard excluded), and the text field is as many lines tall as fit in 25% of it (2 to 6, was always up to 6).
+- **The search sheet**: the notes about a bad filter piece, the "N matches" line and the hint were above the list and, at 2x, taller than the sheet (**126 px** over). They are now the first items **in** the list, so they scroll with the results.
+
+**Not a problem (looked at, clean):** the thread screen, the formatting row, spoilers/code/mentions in a message, and the message list with threads.
+
+**Checked.** 21 new Flutter tests (7 screens x 3 sizes; 1062 in all pass, `flutter analyze` clean). The first run failed 5 of the 21 (the four above; the strip showed up first). 5 deliberate breakages: chip back to a `Row`, status area not capped, text field always 6 lines, search notes taken out of the list: **all caught**; the 5th (`Expanded` -> `Flexible` in the quote strip) survives and is equivalent as far as overflow goes (the text is cut either way). Two of them first **survived**: the test never typed enough lines to reach the field's cap, and nothing checked that the search notes were still there; there are assertions for both now (the field is at most 40% of the screen after 20 lines; both notes, the count and the last result are reachable). Two existing tests looked for the quote's name and text as two separate widgets (`find.text('@Ana')`); they look at the combined text now.
+
+**NOT checked.** **No phone, emulator or Mac**: a real "largest text" setting, the real keyboard (the box's share is worked out from the keyboard's height, but the tests never raise a keyboard), landscape, a tablet, and the screens that were not part of this stretch's work (the audit covers only what sections 72–83 added). Left alone: a chip that wraps is two lines tall, which is more than the 40 px press target of one line (it only gets taller).
