@@ -18,11 +18,13 @@ import '../../utils/constants.dart';
 import '../../utils/firestore_paths.dart';
 import '../../utils/new_line.dart';
 import '../../utils/seen.dart';
+import '../../utils/threads.dart';
 import 'composer.dart';
 import 'forward_sheet.dart';
 import 'message_list.dart';
 import 'pinned_messages_sheet.dart';
 import 'search_sheet.dart';
+import 'thread_screen.dart';
 import 'typing_indicator.dart';
 
 /// Generic chat surface shared by DM, channel, and notes screens — port of
@@ -161,6 +163,20 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> with WidgetsBindingOb
     WidgetsBinding.instance.addPostFrameCallback((_) {
       setState(() => _jumpToId = id);
     });
+  }
+
+  /// A message's thread, on a screen of its own. "Show in chat" there comes back to this
+  /// conversation and scrolls to the message.
+  void _openThread(ChatMessage root) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ThreadScreen(
+          path: widget.path,
+          opened: root,
+          onShowInChat: _jumpTo,
+        ),
+      ),
+    );
   }
 
   @override
@@ -348,6 +364,8 @@ class _ChatSurfaceState extends ConsumerState<ChatSurface> with WidgetsBindingOb
                   onTogglePin: (m) => controller.togglePin(m),
                   onReact: (m, key) => controller.react(m, key),
                   onJumpToMessage: _jumpTo,
+                  // Not offered in My Notes: nobody there to reply to.
+                  onOpenThread: threadsAllowed(widget.path) ? _openThread : null,
                   // Keeping a message is not offered inside My Notes, where it already is.
                   onSave: widget.path.startsWith('users/')
                       ? null

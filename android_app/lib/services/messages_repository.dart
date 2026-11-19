@@ -12,6 +12,7 @@ import '../utils/constants.dart';
 import '../utils/firestore_paths.dart';
 import '../utils/saved.dart';
 import '../utils/seen.dart';
+import '../utils/threads.dart';
 import 'image_service.dart';
 
 /// 1:1 port of the message-level functions in src/lib/db.js. `path` is a
@@ -57,6 +58,22 @@ class MessagesRepository {
           // one fetch that returns nothing new.
           return MessagePage(docs, hasMore: snap.docs.length >= limit);
         });
+  }
+
+  /// Every reply to one message (a thread), live. The same query as the web's listenReplies
+  /// (src/lib/db.js): equality on the quote's message id, with no ordering (that would need an index
+  /// that does not exist), capped at [limit]. The caller sorts (see threadReplies).
+  Stream<List<ChatMessage>> listenReplies(
+    String path,
+    String rootId, {
+    int limit = threadReplyLimit,
+  }) {
+    return _db
+        .collection(path)
+        .where('replyTo.messageId', isEqualTo: rootId)
+        .limit(limit)
+        .snapshots()
+        .map((snap) => snap.docs.map(ChatMessage.fromDoc).toList());
   }
 
   /// Sends a message at the given collection path. `imageBytes`/`imageName`

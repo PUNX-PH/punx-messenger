@@ -16,6 +16,7 @@ import '../../theme/text_styles.dart';
 import '../../utils/copy_text.dart';
 import '../../utils/forward.dart';
 import '../../utils/saved.dart';
+import '../../utils/threads.dart';
 import '../../utils/time_format.dart';
 import '../shared/avatar.dart';
 import 'emoji_picker_sheet.dart';
@@ -48,6 +49,9 @@ class MessageRow extends ConsumerWidget {
     this.onJumpToMessage,
     this.onSave,
     this.onForward,
+    this.replyCount = 0,
+    this.onOpenThread,
+    this.showReplyQuote = true,
   });
 
   final ChatMessage message;
@@ -74,6 +78,15 @@ class MessageRow extends ConsumerWidget {
 
   /// Opens the Forward box for this message; null where forwarding is not offered.
   final ValueChanged<ChatMessage>? onForward;
+
+  /// How many replies this message has, and how to open them as a thread (see utils/threads.dart);
+  /// null where threads are not offered (My Notes), and then there is no "N replies" either.
+  final int replyCount;
+  final ValueChanged<ChatMessage>? onOpenThread;
+
+  /// The "↵ @Ana ..." line a reply carries. A thread turns it off for its replies: every one of them
+  /// quotes the message at the top of the screen, so the line says nothing there.
+  final bool showReplyQuote;
 
   bool get _isAuthor => meUid != null && message.author.uid == meUid;
   bool get _mentionsMe => mentionsUid(message.text, meUid);
@@ -183,7 +196,7 @@ class MessageRow extends ConsumerWidget {
                       name: message.forwardedFrom!.name,
                       saved: message.isSavedNote,
                     ),
-                  if (message.replyTo != null)
+                  if (message.replyTo != null && showReplyQuote)
                     _ReplyStrip(
                       reply: message.replyTo!,
                       onTap: onJumpToMessage,
@@ -215,6 +228,11 @@ class MessageRow extends ConsumerWidget {
                           onReact!(message, token);
                         }
                       },
+                    ),
+                  if (replyCount > 0 && onOpenThread != null)
+                    _ThreadChip(
+                      count: replyCount,
+                      onTap: () => onOpenThread!(message),
                     ),
                   if (seenText.isNotEmpty)
                     Align(
@@ -271,8 +289,28 @@ class MessageRow extends ConsumerWidget {
   }
 
   void _showActions(BuildContext context) {
-    final canEdit = _isAuthor && message.text.isNotEmpty;
-    final canDelete = _isAuthor || canDeleteAny;
+    // Only what can be done: a row given no handler for something does not offer it, and a row with
+    // nothing to offer (a thread's reply, an image with no text) opens no empty sheet. (Editing needs
+    // text, and text can be copied, so canCopy already stands for canEdit in the check below.)
+    final canReply = onReply != null;
+    final canReact = onReact != null;
+    final canCopy = hasCopyableText(message);
+    final canShare = onForward != null && canForward(message);
+    final canKeep = onSave != null && canForward(message);
+    final canTogglePin = canPin && onTogglePin != null;
+    final canThread = onOpenThread != null;
+    final canEdit = _isAuthor && message.text.isNotEmpty && onEdit != null;
+    final canDelete = (_isAuthor || canDeleteAny) && onDelete != null;
+    if (!(canReply ||
+        canReact ||
+        canCopy ||
+        canShare ||
+        canKeep ||
+        canTogglePin ||
+        canThread ||
+        canDelete)) {
+      return;
+    }
     final messenger = ScaffoldMessenger.maybeOf(context);
 
     showModalBottomSheet(
@@ -283,15 +321,25 @@ class MessageRow extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(
-                leading: Icon(Icons.reply, color: Palette.ink),
-                title: const Text('Reply'),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  onReply?.call(message);
-                },
-              ),
-              if (onReact != null)
+              if (canReply)
+                ListTile(
+                  leading: Icon(Icons.reply, color: Palette.ink),
+                  title: const Text('Reply'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onReply!(message);
+                  },
+                ),
+              if (canThread)
+                ListTile(
+                  leading: Icon(Icons.forum_outlined, color: Palette.ink),
+                  title: Text(replyCount > 0 ? 'Open thread' : 'Start a thread'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onOpenThread!(message);
+                  },
+                ),
+              if (canReact)
                 ListTile(
                   leading: Icon(
                     Icons.add_reaction_outlined,
@@ -306,7 +354,7 @@ class MessageRow extends ConsumerWidget {
                     }
                   },
                 ),
-              if (hasCopyableText(message))
+              if (canCopy)
                 ListTile(
                   leading: Icon(Icons.copy_outlined, color: Palette.ink),
                   title: const Text('Copy text'),
@@ -315,7 +363,7 @@ class MessageRow extends ConsumerWidget {
                     _copy(messenger);
                   },
                 ),
-              if (onForward != null && canForward(message))
+              if (canShare)
                 ListTile(
                   leading: Icon(Icons.forward, color: Palette.ink),
                   title: const Text('Forward'),
@@ -324,7 +372,7 @@ class MessageRow extends ConsumerWidget {
                     onForward!(message);
                   },
                 ),
-              if (onSave != null && canForward(message))
+              if (canKeep)
                 ListTile(
                   leading: Icon(Icons.bookmark_border, color: Palette.ink),
                   title: const Text('Save to My Notes'),
@@ -333,13 +381,13 @@ class MessageRow extends ConsumerWidget {
                     _save(messenger);
                   },
                 ),
-              if (canPin)
+              if (canTogglePin)
                 ListTile(
                   leading: Icon(Icons.push_pin_outlined, color: Palette.ink),
                   title: Text(message.pinned ? 'Unpin' : 'Pin'),
                   onTap: () {
                     Navigator.of(context).pop();
-                    onTogglePin?.call(message);
+                    onTogglePin!(message);
                   },
                 ),
               if (canEdit)
@@ -361,7 +409,7 @@ class MessageRow extends ConsumerWidget {
                   onTap: () async {
                     Navigator.of(context).pop();
                     final confirmed = await _confirmDelete(context);
-                    if (confirmed == true) onDelete?.call(message);
+                    if (confirmed == true) onDelete!(message);
                   },
                 ),
             ],
@@ -418,6 +466,45 @@ class MessageRow extends ConsumerWidget {
     if (result != null && result.trim().isNotEmpty) {
       onEdit?.call(message, result);
     }
+  }
+}
+
+/// "3 replies" under a message that has some: opens its thread.
+class _ThreadChip extends StatelessWidget {
+  const _ThreadChip({required this.count, required this.onTap});
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = replyLabel(count);
+    return Semantics(
+      button: true,
+      label: '$label, open the thread',
+      child: ExcludeSemantics(
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 40),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.forum_outlined, size: 14, color: Palette.brandText),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: AppTextStyles.xs(
+                    color: Palette.brandText,
+                    weight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
