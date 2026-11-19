@@ -508,8 +508,10 @@ class _ThreadChip extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadii.sm),
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 40),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+            // A Wrap, not a Row: with a big count, a "new" pill and large text it is wider than the
+            // screen, and the pill goes on to the next line instead of off the edge.
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Icon(Icons.forum_outlined, size: 14, color: Palette.brandText),
                 const SizedBox(width: 6),
@@ -565,20 +567,28 @@ class _ReplyStrip extends StatelessWidget {
               color: Palette.inkDim,
             ),
             const SizedBox(width: 4),
-            Text(
-              '@${reply.authorName}',
-              style: AppTextStyles.xs(
-                color: Palette.brandText,
-                weight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                hideSpoilers(reply.snippet),
+            // One line, the name first and the quote after it, cut with an ellipsis at the end of whichever
+            // runs out of room. (The name used to be a Text of its own that could not shrink, so a long
+            // name pushed the row off the screen.)
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '@${reply.authorName}',
+                      style: AppTextStyles.xs(
+                        color: Palette.brandText,
+                        weight: FontWeight.w600,
+                      ),
+                    ),
+                    TextSpan(
+                      text: '  ${hideSpoilers(reply.snippet)}',
+                      style: AppTextStyles.xs(color: Palette.inkMuted),
+                    ),
+                  ],
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.xs(color: Palette.inkMuted),
               ),
             ),
           ],
