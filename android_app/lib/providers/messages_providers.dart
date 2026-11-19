@@ -37,6 +37,16 @@ final messagesProvider = StreamProvider.family<MessagePage, String>((
   return ref.watch(messagesRepositoryProvider).listenMessages(path, limit: limit);
 });
 
+/// Every reply to one message, live: the collection path and the message's id. This is a thread's
+/// replies, read with their own query so it is not limited to the part of the conversation that is
+/// loaded.
+final repliesProvider =
+    StreamProvider.family<List<ChatMessage>, ({String path, String rootId})>(
+      (ref, key) => ref
+          .watch(messagesRepositoryProvider)
+          .listenReplies(key.path, key.rootId),
+    );
+
 /// Live container doc (channel or DM convo) — used for the `typing` map.
 final containerProvider = StreamProvider.family<Map<String, dynamic>?, String>((
   ref,
@@ -130,12 +140,16 @@ class ChatController extends StateNotifier<ChatUiState> {
 
   /// `text` must already have mentions resolved to `<@uid>` tokens (the
   /// composer does this before calling send).
+  ///
+  /// [replyTo] quotes that message (a reply written in its thread); without it the message quotes
+  /// the one being replied to in the conversation, if any, and that is then cleared.
   Future<void> send({
     required String text,
     Uint8List? imageBytes,
     String? imageName,
     String? remoteImageUrl,
     Map<String, dynamic>? remoteImageMeta,
+    ChatMessage? replyTo,
   }) async {
     final me = _ref.read(profileProvider).valueOrNull;
     if (me == null) return;
@@ -147,9 +161,9 @@ class ChatController extends StateNotifier<ChatUiState> {
       imageName: imageName,
       remoteImageUrl: remoteImageUrl,
       remoteImageMeta: remoteImageMeta,
-      replyTo: state.replyingTo,
+      replyTo: replyTo ?? state.replyingTo,
     );
-    setReplyingTo(null);
+    if (replyTo == null) setReplyingTo(null);
     setTyping(false);
   }
 

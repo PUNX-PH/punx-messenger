@@ -8,6 +8,7 @@ import '../../theme/text_styles.dart';
 import '../../utils/constants.dart';
 import '../../utils/new_line.dart';
 import '../../utils/saved.dart';
+import '../../utils/threads.dart';
 import '../../utils/time_format.dart';
 import 'message_row.dart';
 
@@ -49,6 +50,7 @@ class MessageListView extends StatefulWidget {
     this.onJumpToMessage,
     this.onSave,
     this.onForward,
+    this.onOpenThread,
   });
 
   final List<ChatMessage> messages;
@@ -91,6 +93,10 @@ class MessageListView extends StatefulWidget {
 
   /// Opens the Forward box for a message; null where forwarding is not offered.
   final ValueChanged<ChatMessage>? onForward;
+
+  /// Opens the thread of a message (its replies, gathered); null where threads are not offered.
+  /// Also what the "N replies" under a message does when pressed.
+  final ValueChanged<ChatMessage>? onOpenThread;
   final void Function(ChatMessage message, String key)? onReact;
   final ValueChanged<String>? onJumpToMessage;
 
@@ -127,6 +133,19 @@ class _MessageListViewState extends State<MessageListView> {
   int _unseen = 0;
   String? _newestId;
   int? _newestMs;
+
+  /// How many replies each message has, worked out once per list of messages rather than once per
+  /// build (a build also happens for a scroll-state flip, and the list can be long).
+  List<ChatMessage>? _countedFor;
+  Map<String, int> _counts = const {};
+
+  Map<String, int> _replyCountsFor(List<ChatMessage> messages) {
+    if (!identical(_countedFor, messages)) {
+      _countedFor = messages;
+      _counts = replyCounts(messages);
+    }
+    return _counts;
+  }
 
   @override
   void initState() {
@@ -435,6 +454,9 @@ class _MessageListViewState extends State<MessageListView> {
     }
 
     final items = _flatten(widget.messages, widget.newFromId);
+    final counts = widget.onOpenThread == null
+        ? const <String, int>{}
+        : _replyCountsFor(widget.messages);
     _itemCount = items.length;
     final newLineAt = items.indexWhere((i) => i is _NewItem);
     _newLineIndex = newLineAt < 0 ? null : newLineAt;
@@ -480,6 +502,8 @@ class _MessageListViewState extends State<MessageListView> {
               onJumpToMessage: widget.onJumpToMessage,
               onSave: widget.onSave,
               onForward: widget.onForward,
+              replyCount: counts[entry.message.id] ?? 0,
+              onOpenThread: widget.onOpenThread,
             ),
           );
         },
