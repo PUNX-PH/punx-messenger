@@ -1381,3 +1381,11 @@ For channels the right-click menu is now open to every member on a text channel 
 **Checked.** 13 new Flutter tests (1075 in all pass, `flutter analyze` clean): the cutting (order, start and end, adjacent and non-overlapping matches, capitals, no query or no text, joining gives the text back, characters that are special in patterns, emoji and accents), and in the real sheet (marked in every result whatever the capitals, several matches in one result, filters-only marks nothing, the text still reads whole). **11 deliberate breakages of 12 caught** (none by a compile error): the survivor cut a result to one line instead of three, which no test of the sheet looked at before either. One thing found by the tests: I had added a guard for letters that change length when lower-cased (true in JavaScript, with the dotted capital I). It could never run: **in Dart no character changes length** (checked over every code point, and now a test), so the guard is gone.
 
 **NOT checked.** **No phone, emulator or Mac**: how the mark looks on a real screen, in the light theme, and at large text sizes (the large-text scene passes with marks in it, but nothing was looked at). A **matched word hidden in a spoiler** finds the message but marks nothing (same as the web). **Not done:** matching without accents (`cafe` does not find `café`, as before), a person picker for `from:`, searching across channels.
+
+## 86. Version 1.3.0 (build 7) for the next Play upload (PR #93)
+
+**What.** `android_app/pubspec.yaml`: `1.2.0+6` -> **`1.3.0+7`** (version name 1.3.0, version code 7; the same number is the iOS build number). It carries everything of sections 72–85 on the phone: threads, several pictures, search filters and marks, "N new" in threads, spoilers, formatting, the row-press fix and the large-text fixes.
+
+**No data, rules, Worker or web change. Nothing needs deploying.** The web and Workers are already live.
+
+**NOT done / NOT checked.** **No build was made**: the release keystore (`key.properties`) lives on the other PC, and a release build without it fails on purpose, so the signed AAB has to be built there (`flutter build appbundle --release`, see `docs/RELEASE.md`). Whether Play already has a build 7 (if it does, raise it again). Nothing was run on a phone.
