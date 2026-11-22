@@ -143,6 +143,29 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Scrolls the sheet's list, from the top, until [target] is on screen; fails if it never is. (By the
+  /// scroll position and not by dragging: a drag on a bottom sheet can close the sheet instead.)
+  Future<void> reveal(WidgetTester tester, Finder target) async {
+    final position = tester
+        .state<ScrollableState>(
+          find.descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          ),
+        )
+        .position;
+    for (var at = 0.0; ; at += 40) {
+      position.jumpTo(
+        at < position.maxScrollExtent ? at : position.maxScrollExtent,
+      );
+      await tester.pump();
+      if (target.evaluate().isNotEmpty) return;
+      if (at >= position.maxScrollExtent) {
+        fail('${target.describeMatch(Plurality.zero)} cannot be reached by scrolling the list');
+      }
+    }
+  }
+
   /// Everything that went wrong while drawing: overflows and anything thrown.
   List<String> problems(WidgetTester tester) {
     final out = <String>[];
@@ -415,24 +438,10 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('is not a day'), findsOneWidget);
-      await tester.scrollUntilVisible(
-        find.text('4 matches'),
-        50,
-        scrollable: find.descendant(
-          of: find.byType(ListView),
-          matching: find.byType(Scrollable),
-        ),
-      );
+      await reveal(tester, find.text('4 matches'));
       expect(find.text('4 matches'), findsOneWidget);
       // ...and every result is still reachable below them.
-      await tester.scrollUntilVisible(
-        find.textContaining('the very last one'),
-        50,
-        scrollable: find.descendant(
-          of: find.byType(ListView),
-          matching: find.byType(Scrollable),
-        ),
-      );
+      await reveal(tester, find.textContaining('the very last one'));
       expect(find.textContaining('the very last one'), findsOneWidget);
     },
   );
