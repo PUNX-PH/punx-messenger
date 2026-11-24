@@ -7,12 +7,16 @@
 // Letters that do not take apart into a plain letter and a mark, and what they are written as without.
 const SPECIAL = { 'ß': 'ss', 'æ': 'ae', 'œ': 'oe', 'ø': 'o', 'đ': 'd', 'ł': 'l', 'ı': 'i', 'ς': 'σ' }
 const MARK = /\p{M}/gu
+const HANGUL = /^[\uac00-\ud7a3]$/
 const ASCII = /^[\x00-\x7f]*$/
 
 // One character, folded. Always one character at a time, so that the result does not depend on the
 // letters around it (JavaScript's own toLowerCase writes a Greek capital sigma differently at the end of a
 // word) and so a place in the folded text can be turned back into a place in the real one.
 function foldChar(ch) {
+  // A Korean syllable is not taken apart into its letters (Unicode would): nothing is gained by it for
+  // searching, and it would be 11,172 more entries for the phone's table.
+  if (HANGUL.test(ch)) return ch
   const plain = ch.toLowerCase().normalize('NFD').replace(MARK, '')
   let out = ''
   for (const c of plain) out += SPECIAL[c] ?? c

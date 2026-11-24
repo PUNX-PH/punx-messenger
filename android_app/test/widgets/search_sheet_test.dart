@@ -81,7 +81,7 @@ void main() {
   final jumped = <String>[];
   setUp(jumped.clear);
 
-  Future<void> open(WidgetTester tester, {String? meUid = 'me'}) async {
+  Future<void> open(WidgetTester tester, {String? meUid = 'me', List<ChatMessage>? list}) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -93,7 +93,7 @@ void main() {
               child: ElevatedButton(
                 onPressed: () => showSearchSheet(
                   context,
-                  messages: messages,
+                  messages: list ?? messages,
                   usersById: users,
                   meUid: meUid,
                   onJump: jumped.add,
@@ -150,6 +150,21 @@ void main() {
     }
     // the text is whole, and read out as it was (the marking is only a background)
     expect(shown(tester)[2], 'Can someone review the release notes before 3pm?');
+  });
+
+  testWidgets('accents and capitals do not matter, in what is found and in what is marked', (tester) async {
+    await open(tester, list: [
+      msg('a1', 'ana', 2, text: 'Un Café con leche'),
+      msg('a2', 'ben', 3, text: 'otro CAFÉ, otro cafe'),
+      msg('a3', 'me', 4, text: 'nothing here'),
+    ]);
+    await type(tester, 'cafe');
+    expect(find.text('2 matches'), findsOneWidget);
+    expect(_marked(tester, 0), ['CAFÉ', 'cafe']);
+    expect(_marked(tester, 1), ['Café']);
+    await type(tester, 'CAFÉ from:ANA');
+    expect(find.text('1 match'), findsOneWidget);
+    expect(_marked(tester, 0), ['Café']);
   });
 
   testWidgets('every match in a result is marked, and only the words, not the filters', (tester) async {

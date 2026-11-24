@@ -1,6 +1,7 @@
 import '../models/message.dart';
 import '../models/user_profile.dart';
 import 'constants.dart';
+import 'fold.dart';
 
 // Search with filters. Mirrors src/lib/searchFilters.js: words and `operator:value` pieces can be
 // mixed in one box.
@@ -182,13 +183,14 @@ bool messageMatches(
   Map<String, UserProfile> usersById = const {},
   String? meUid,
 }) {
-  if (p.text.isNotEmpty && !m.text.toLowerCase().contains(p.text.toLowerCase())) {
+  // Capitals and accents never matter: "cafe" finds "Café", from:jose finds José.
+  if (p.text.isNotEmpty && !foldText(m.text).contains(foldText(p.text))) {
     return false;
   }
 
   if (p.from.isNotEmpty) {
-    final name = _authorName(m, usersById).toLowerCase();
-    if (!p.from.any((v) => v == 'me' ? _isMe(meUid, m.author.uid) : name.contains(v))) {
+    final name = foldText(_authorName(m, usersById));
+    if (!p.from.any((v) => v == 'me' ? _isMe(meUid, m.author.uid) : name.contains(foldText(v)))) {
       return false;
     }
   }
@@ -196,7 +198,7 @@ bool messageMatches(
     bool hit(String v) => v == 'me'
         ? meUid != null && meUid.isNotEmpty && m.mentionedUids.contains(meUid)
         : m.mentionedUids.any(
-            (uid) => (usersById[uid]?.name ?? '').toLowerCase().contains(v),
+            (uid) => foldText(usersById[uid]?.name).contains(foldText(v)),
           );
     if (!p.mentions.any(hit)) return false;
   }

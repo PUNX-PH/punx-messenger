@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:punx_messenger/models/message.dart';
@@ -494,6 +496,56 @@ void main() {
         expect(p.problems, isEmpty, reason: c.token);
         expect(p.hasFilters, isTrue, reason: c.token);
       }
+    });
+  });
+
+  group('accents and capitals', () {
+    test('words ignore accents and capitals, in the text, either way round', () {
+      final m = msg('a', text: 'Un Café con José, naïve Straße');
+      for (final q in ['cafe', 'CAFÉ', 'jose', 'JOSÉ', 'naive', 'strasse', 'STRAßE', 'con jose']) {
+        expect(run(m, q), isTrue, reason: q);
+      }
+      expect(run(m, 'cafes'), isFalse);
+      expect(run(msg('b', text: 'plain cafe'), 'café'), isTrue);
+    });
+
+    test('words written with a mark as a separate character still match', () {
+      final mark = String.fromCharCode(0x301);
+      expect(run(msg('a', text: 'cafe$mark'), 'cafe'), isTrue);
+      expect(run(msg('a', text: 'cafe'), 'cafe$mark'), isTrue);
+    });
+
+    test('from: ignores accents and capitals in the name', () {
+      final m = msg('a', uid: 'j', name: 'José Núñez');
+      expect(run(m, 'from:jose', usersById: const {}), isTrue);
+      expect(run(m, 'from:NUNEZ', usersById: const {}), isTrue);
+      expect(run(m, 'from:josé', usersById: const {}), isTrue);
+      expect(run(m, 'from:"jose nunez"', usersById: const {}), isTrue);
+      expect(run(m, 'from:ana', usersById: const {}), isFalse);
+      final named = msg('b', uid: 'x', name: 'x');
+      expect(run(named, 'from:jose', usersById: {'x': user('x', 'José')}), isTrue);
+    });
+
+    test('mentions: ignores accents and capitals in the name', () {
+      final m = msg('a', mentions: ['j']);
+      final who = {'j': user('j', 'José Núñez')};
+      expect(run(m, 'mentions:jose', usersById: who), isTrue);
+      expect(run(m, 'mentions:NÚÑEZ', usersById: who), isTrue);
+      expect(run(m, 'mentions:ana', usersById: who), isFalse);
+    });
+
+    test('a mention of someone who is gone does not throw', () {
+      expect(run(msg('a', mentions: ['gone']), 'mentions:x', usersById: const {}), isFalse);
+    });
+
+    test('the search is made with the folding (pinned against the source)', () {
+      final s = File('lib/utils/search_filters.dart').readAsStringSync().replaceAll('\r\n', '\n');
+      expect(s.contains("import 'fold.dart';"), isTrue);
+      expect(s.contains('!foldText(m.text).contains(foldText(p.text))'), isTrue);
+      expect(s.contains('final name = foldText(_authorName(m, usersById));'), isTrue);
+      expect(s.contains('name.contains(foldText(v))'), isTrue);
+      expect(s.contains('foldText(usersById[uid]?.name).contains(foldText(v))'), isTrue);
+      expect(s.contains('.toLowerCase().contains('), isFalse);
     });
   });
 }
