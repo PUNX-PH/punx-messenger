@@ -171,7 +171,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 1075**, **Node 1006** (sound, presence identity, lazy loader, iOS setup, chat identity, camera, attachments, threads, search filters, thread unread, spoilers, formatting), Worker 102, Firestore rules 216 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 1075**, **Node 1037** (sound, presence identity, lazy loader, iOS setup, chat identity, camera, attachments, threads, search filters, thread unread, spoilers, formatting, accent folding), Worker 102, Firestore rules 216 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -1389,3 +1389,17 @@ For channels the right-click menu is now open to every member on a text channel 
 **No data, rules, Worker or web change. Nothing needs deploying.** The web and Workers are already live.
 
 **NOT done / NOT checked.** **No build was made**: the release keystore (`key.properties`) lives on the other PC, and a release build without it fails on purpose, so the signed AAB has to be built there (`flutter build appbundle --release`, see `docs/RELEASE.md`). Whether Play already has a build 7 (if it does, raise it again). Nothing was run on a phone.
+
+## 87. Search ignores accents, on the web (PR #95)
+
+**Why.** Search lowered capitals and nothing else, so `cafe` did not find `Café`, `jose` did not find `José` and `from:nunez` did not find `Núñez`. In a team with Spanish, Filipino and French names, people type the plain letters. (Sections 74, 75 and 85 listed it as "not done".)
+
+**No data, rules, Worker or phone change** (the phone is the next PR). Matching and drawing only. **Nothing needs deploying beyond the web, which deploys on merge.**
+
+**What.** `src/lib/fold.js`: `fold()` takes capitals and accents off a text. It is done one character at a time, so the result never depends on the letters around it and a place in the folded text can be turned back into a place in the real one. A letter and its mark (as `é`, or as `e` + a separate mark: pasted text from a Mac often has the second form) fold the same; a few letters that are not a letter and a mark are written the plain way (`ß` as `ss`, `æ` as `ae`, `œ` as `oe`, `ø`, `đ`, `ł`, `ı`; the Greek final sigma as sigma); other alphabets are only made lower case. A text with nothing but ASCII takes a shortcut (**measured: 9 ms against 195 ms for 100,000 messages**, same result).
+- `src/lib/searchFilters.js` matches the **words**, the name in **`from:`** and the names in **`mentions:`** through `fold()`, on both sides.
+- `src/lib/highlight.js` (`highlightParts`, now used by `SearchDropdown.jsx`) marks what matched in the result: a mark follows the text's own letters, a letter that folded into two (`ß`) is marked whole, a mark written after a letter is part of the match, and a query that is only a mark folds to nothing and marks nothing.
+
+**Checked.** 31 new Node tests (1037 in all pass, build passes): folding (capitals, accents, the special letters, a mark as two characters, a mark alone, other alphabets, the sigma, empty/null, an emoji counts as one character, the places it reports), highlighting (order, ends, adjacent and non-overlapping, capitals, accents both ways, places after accents and emoji, `ß`, no query/no text, joining gives the text back, characters that mean something in a pattern), and matching (words, `from:`, `mentions:`, a missing name, the source pinned). **26 deliberate breakages: 25 caught, the 26th is the ASCII shortcut removed, which gives the same results by design** (it is only speed; measured above). Found by a test: a letter followed by its mark as a separate character was cut before the mark. Found by a comparison over 400,000 random texts: skipping a start that lies inside a letter must try the very next letter (not a whole query further); there is a test on a case where they differ.
+
+**NOT checked.** The real app (no sign-in here): the box with real names, the marks on a real result. Safari/Firefox (`\p{M}` and `normalize` are standard in all current browsers). **Not folded:** letters that look alike but are different (`ø` is written `o`, but `þ`, `ð` and `ŋ` are left alone), the Cyrillic `й`/`ё` (the mark goes: `й` is found by `и`, which is how some people type it), Japanese kana (voicing marks go: `が` is found by `か`); this is a choice of simple folding, not a language-aware search. **Not done:** (the phone is next); a person picker for `from:`; searching across channels.

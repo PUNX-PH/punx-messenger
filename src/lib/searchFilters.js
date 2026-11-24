@@ -13,6 +13,7 @@
 // Whatever is left over is the words to look for. Days are in the reader's own time zone.
 //
 // Only the messages that are loaded are searched (the same as before), newest first.
+import { fold } from './fold.js'
 
 export const SEARCH_LIMIT = 100
 
@@ -99,17 +100,18 @@ const authorName = (m, usersById) => String(usersById?.[m.author?.uid]?.name || 
 /** Does this message pass every filter in `p` (a parseSearch result)? `ctx`: { usersById, meUid }. */
 export function matches(m, p, ctx = {}) {
   const { usersById, meUid } = ctx
-  if (p.text && !String(m.text || '').toLowerCase().includes(p.text.toLowerCase())) return false
+  // Capitals and accents never matter: "cafe" finds "Café", from:jose finds José.
+  if (p.text && !fold(m.text).includes(fold(p.text))) return false
 
   if (p.from.length) {
-    const name = authorName(m, usersById).toLowerCase()
-    if (!p.from.some(v => (v === 'me' ? !!meUid && m.author?.uid === meUid : name.includes(v)))) return false
+    const name = fold(authorName(m, usersById))
+    if (!p.from.some(v => (v === 'me' ? !!meUid && m.author?.uid === meUid : name.includes(fold(v))))) return false
   }
   if (p.mentions.length) {
     const uids = Array.isArray(m.mentionedUids) ? m.mentionedUids : []
     const hit = (v) => v === 'me'
       ? !!meUid && uids.includes(meUid)
-      : uids.some(uid => String(usersById?.[uid]?.name || '').toLowerCase().includes(v))
+      : uids.some(uid => fold(usersById?.[uid]?.name).includes(fold(v)))
     if (!p.mentions.some(hit)) return false
   }
   for (const h of p.has) {
