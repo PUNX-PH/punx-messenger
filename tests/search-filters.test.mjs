@@ -538,3 +538,52 @@ test('the search box is loaded when it is first opened, not with the app, and a 
   assert.ok(l.includes("export const SearchDropdown = lazyWithPreload(() => import('../components/SearchDropdown'))"))
   assert.ok(l.includes('//   SearchDropdown      '), 'listed with the others, with the reason')
 })
+
+// ---------- accents and capitals ----------
+
+test('words ignore accents and capitals, in the text, either way round', () => {
+  const m = msg('a', { text: 'Un Café con José, naïve Straße' })
+  for (const q of ['cafe', 'CAFÉ', 'jose', 'JOSÉ', 'naive', 'strasse', 'STRAßE', 'con jose']) assert.equal(run(m, q), true, q)
+  assert.equal(run(m, 'cafes'), false)
+  assert.equal(run(msg('b', { text: 'plain cafe' }), 'café'), true)
+})
+
+test('words written with a mark as a separate character still match', () => {
+  assert.equal(run(msg('a', { text: 'caf' + 'e\u0301' }), 'cafe'), true)
+  assert.equal(run(msg('a', { text: 'cafe' }), 'caf' + 'e\u0301'), true)
+})
+
+test('from: ignores accents and capitals in the name', () => {
+  const m = msg('a', { author: { uid: 'j', name: 'José Núñez' } })
+  assert.equal(run(m, 'from:jose'), true)
+  assert.equal(run(m, 'from:NUNEZ'), true)
+  assert.equal(run(m, 'from:josé'), true)
+  assert.equal(run(m, 'from:"jose nunez"'), true)
+  assert.equal(run(m, 'from:ana'), false)
+  const named = msg('b', { author: { uid: 'x', name: 'x' } })
+  assert.equal(matches(named, parseSearch('from:jose'), { usersById: { x: { name: 'José' } } }), true)
+})
+
+test('mentions: ignores accents and capitals in the name', () => {
+  const m = msg('a', { mentionedUids: ['j'] })
+  const c = { usersById: { j: { name: 'José Núñez' } }, meUid: 'me' }
+  assert.equal(matches(m, parseSearch('mentions:jose'), c), true)
+  assert.equal(matches(m, parseSearch('mentions:NÚÑEZ'), c), true)
+  assert.equal(matches(m, parseSearch('mentions:ana'), c), false)
+})
+
+test('a name or text that is missing does not throw', () => {
+  assert.equal(run(msg('a', { text: undefined }), 'x'), false)
+  assert.equal(matches(msg('a', { author: undefined }), parseSearch('from:x'), {}), false)
+  assert.equal(matches(msg('a', { mentionedUids: ['gone'] }), parseSearch('mentions:x'), { usersById: {} }), false)
+})
+
+test('the search is made with the folding (pinned against the source)', () => {
+  const s = read('src/lib/searchFilters.js')
+  assert.ok(s.includes("import { fold } from './fold.js'"))
+  assert.ok(s.includes('if (p.text && !fold(m.text).includes(fold(p.text))) return false'))
+  assert.ok(s.includes('const name = fold(authorName(m, usersById))'))
+  assert.ok(s.includes('name.includes(fold(v))'))
+  assert.ok(s.includes('uids.some(uid => fold(usersById?.[uid]?.name).includes(fold(v)))'))
+  assert.ok(!s.includes('.toLowerCase().includes'))
+})

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FILTER_CHIPS, hasToken, searchMessages, toggleToken } from '../lib/searchFilters'
 import { hideSpoilers } from '../lib/spoilers'
+import { highlightParts } from '../lib/highlight'
 
 /**
  * In-chat search dropdown. Searches the currently-loaded messages for words and for filters
@@ -114,25 +115,13 @@ export default function SearchDropdown({ messages, usersById, meUid, onJump, onC
   )
 }
 
+// The words searched for are marked (capitals and accents do not matter; see lib/highlight.js).
 function highlight(text, q) {
-  if (!q || !text) return text
-  const out = []
-  const tl = text.toLowerCase()
-  const ql = q.toLowerCase()
-  let i = 0
-  let k = 0
-  while (i < text.length) {
-    const idx = tl.indexOf(ql, i)
-    if (idx < 0) { out.push(text.slice(i)); break }
-    if (idx > i) out.push(text.slice(i, idx))
-    out.push(
-      <mark key={k++} className="bg-warn/30 text-ink rounded-sm px-0.5">
-        {text.slice(idx, idx + q.length)}
-      </mark>
-    )
-    i = idx + q.length
-  }
-  return out
+  return highlightParts(text, q).map((part, k) => (
+    part.match
+      ? <mark key={k} className="bg-warn/30 text-ink rounded-sm px-0.5">{part.text}</mark>
+      : part.text
+  ))
 }
 
 // What stands in for words in a result that has none (a picture or a voice message on its own).
