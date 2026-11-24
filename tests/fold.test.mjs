@@ -46,6 +46,12 @@ test('other alphabets keep their letters, and are only made lower case', () => {
   assert.equal(fold('👍 ok'), '👍 ok')
 })
 
+test('Korean syllables stay as they are (and are found by themselves)', () => {
+  assert.equal(fold('한국어'), '한국어')
+  assert.equal(fold('가').length, 1)
+  assert.deepEqual(foldIndexed('한국'), { text: '한국', starts: [0, 1], ends: [1, 2] })
+})
+
 test('the same word is the same folded however the capital sigma sits (no word-end rule)', () => {
   assert.equal(fold('ΟΔΟΣ'), fold('οδοσ'))
   assert.equal(fold('οδος'), fold('οδοσ')) // final sigma = sigma
