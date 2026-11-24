@@ -194,26 +194,24 @@ class _SearchSheetState extends State<_SearchSheet> {
                   ),
                 ),
               // Sideways, so five buttons take one row of the sheet. (A Row, not a lazy list: there
-              // are only five, and all of them should exist, on screen or not.)
-              SizedBox(
-                height: 40,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
-                    children: [
-                      for (final c in searchChips)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: FilterChip(
-                            label: Text(c.label),
-                            selected: hasToken(_query, c.token),
-                            onSelected: (_) => _toggle(c.token),
-                            visualDensity: VisualDensity.compact,
-                          ),
+              // are only five, and all of them should exist, on screen or not.) No fixed height: it was 40,
+              // which cut the buttons off, with no error, once the text was bigger than about 1.3x.
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    for (final c in searchChips)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: FilterChip(
+                          label: Text(c.label),
+                          selected: hasToken(_query, c.token),
+                          onSelected: (_) => _toggle(c.token),
+                          visualDensity: VisualDensity.compact,
                         ),
-                    ],
-                  ),
+                      ),
+                  ],
                 ),
               ),
               // The notes about a piece that could not be used, the count and the hint are the first things

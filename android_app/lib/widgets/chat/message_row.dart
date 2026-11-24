@@ -156,31 +156,47 @@ class MessageRow extends ConsumerWidget {
                   if (showHeader)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 2),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
+                      // A Wrap, not a Row: with the largest text the time and the pin leave a long name no
+                      // room at all (it was squeezed to a letter wide, one letter per line, and the row
+                      // overflowed). Now the name takes the width it needs, and the time and the pin go
+                      // on to the next line when they do not fit beside it.
+                      child: Wrap(
+                        spacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.end,
                         children: [
-                          Flexible(
-                            child: Text(
-                              authorName,
-                              style: AppTextStyles.sm(weight: FontWeight.w600),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
                           Text(
-                            // Time only: the day is on the divider above.
-                            formatClock(
-                              message.createdAt,
-                              use24h: MediaQuery.alwaysUse24HourFormatOf(
-                                context,
-                              ),
-                            ),
-                            style: AppTextStyles.xs(color: Palette.inkDim),
+                            authorName,
+                            style: AppTextStyles.sm(weight: FontWeight.w600),
                           ),
-                          if (message.pinned) ...[
-                            const SizedBox(width: 8),
-                            Icon(Icons.push_pin, size: 12, color: Palette.warn),
-                          ],
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.baseline,
+                            textBaseline: TextBaseline.alphabetic,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  // Time only: the day is on the divider above.
+                                  formatClock(
+                                    message.createdAt,
+                                    use24h: MediaQuery.alwaysUse24HourFormatOf(
+                                      context,
+                                    ),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTextStyles.xs(color: Palette.inkDim),
+                                ),
+                              ),
+                              if (message.pinned) ...[
+                                const SizedBox(width: 8),
+                                Icon(
+                                  Icons.push_pin,
+                                  size: 12,
+                                  color: Palette.warn,
+                                ),
+                              ],
+                            ],
+                          ),
                         ],
                       ),
                     )
