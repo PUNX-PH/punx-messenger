@@ -111,6 +111,9 @@ const screens = <Screen>[
   (w: 320, h: 568, scale: 1.0),
 ];
 
+// The largest accessibility text of iOS (the screens above are Android's "largest text" and below).
+const iosLargest = <Screen>[(w: 360, h: 640, scale: 3.0)];
+
 void main() {
   setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
 
@@ -181,9 +184,10 @@ void main() {
 
   void scene(
     String name,
-    Future<void> Function(WidgetTester tester, Screen s) body,
-  ) {
-    for (final s in screens) {
+    Future<void> Function(WidgetTester tester, Screen s) body, {
+    List<Screen> extra = const [],
+  }) {
+    for (final s in [...screens, ...extra]) {
       testWidgets('$name at ${s.w.toInt()}x${s.h.toInt()}, text ${s.scale}x', (
         tester,
       ) async {
@@ -445,6 +449,46 @@ void main() {
       expect(find.textContaining('the very last one'), findsOneWidget);
     },
   );
+
+  scene('the search sheet offering people with long names, a "Me" and the filter buttons', (tester, s) async {
+    await show(
+      tester,
+      s,
+      Builder(
+        builder: (context) => Scaffold(
+          body: ElevatedButton(
+            onPressed: () => showSearchSheet(
+              context,
+              messages: [
+                for (var i = 0; i < 4; i++) msg('p$i', uid: 'u$i', name: 'Alexandria Montgomery-Featherstonehaugh the ${i + 1}th', minute: i),
+              ],
+              usersById: const {},
+              meUid: 'me',
+              onJump: (_) {},
+            ),
+            child: const Text('search'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('search'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'from:');
+    await tester.pumpAndSettle();
+    expect(find.byType(ActionChip), findsWidgets);
+    // the row has no fixed height (a fixed one cuts the chips off at a big text size, without any error)
+    final chip = find.byType(ActionChip).first;
+    final row = find.ancestor(of: chip, matching: find.byType(SingleChildScrollView)).first;
+    expect(
+      find.ancestor(of: chip, matching: find.byWidgetPredicate((w) => w is SizedBox && w.height != null)),
+      findsNothing,
+    );
+    expect(tester.getSize(row).height, greaterThanOrEqualTo(tester.getSize(chip).height));
+    // pressing a chip fills the box and the offer goes
+    await tester.tap(find.byType(ActionChip).first);
+    await tester.pumpAndSettle();
+    expect(find.byType(ActionChip), findsNothing);
+  }, extra: iosLargest);
 
   scene('a spoiler, a long one, code and a mention in one message', (
     tester,

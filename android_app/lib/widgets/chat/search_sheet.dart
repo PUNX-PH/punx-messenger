@@ -7,6 +7,7 @@ import '../../theme/palette.dart';
 import '../../theme/text_styles.dart';
 import '../../utils/highlight.dart';
 import '../../utils/search_filters.dart';
+import '../../utils/search_people.dart';
 import '../../utils/spoilers.dart';
 import '../../utils/time_format.dart';
 
@@ -73,6 +74,17 @@ class _SearchSheetState extends State<_SearchSheet> {
     setState(() => _query = next);
   }
 
+  /// A person from the list: writes the piece being typed (`from:"Ana Reyes" `), in the box, which is the one
+  /// source of truth.
+  void _pick(PersonPiece piece, String value) {
+    final next = pickPerson(_controller.text, piece, value);
+    _controller.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: next.length),
+    );
+    setState(() => _query = next);
+  }
+
   /// What stands in for words in a result that has none (a picture or a voice message on its own).
   String _kindOf(ChatMessage m) {
     if (m.imageURL != null) return 'Picture';
@@ -89,6 +101,15 @@ class _SearchSheetState extends State<_SearchSheet> {
       meUid: widget.meUid,
     );
     final results = found.results;
+    // While the box ends in "from:" or "mentions:" and a part of a name, the people of this chat are offered.
+    final piece = openPersonPiece(_query);
+    final people = piece == null
+        ? const <PersonChoice>[]
+        : suggestPeople(
+            piece,
+            chatPeople(widget.messages, widget.usersById, piece.op),
+            meUid: widget.meUid,
+          );
     final head = <Widget>[
       for (final problem in found.parsed.problems)
         Padding(
@@ -152,6 +173,26 @@ class _SearchSheetState extends State<_SearchSheet> {
                   ),
                 ),
               ),
+              if (piece != null && people.isNotEmpty)
+                // Sideways too, so six names take one row. No fixed height: the row is as tall as its chips,
+                // whatever the text size (a fixed one would cut them off, silently, on a big text size).
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      for (final p in people)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: ActionChip(
+                            label: Text(p.hint == null ? p.label : '${p.label} (${p.hint})'),
+                            onPressed: () => _pick(piece, p.value),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               // Sideways, so five buttons take one row of the sheet. (A Row, not a lazy list: there
               // are only five, and all of them should exist, on screen or not.)
               SizedBox(

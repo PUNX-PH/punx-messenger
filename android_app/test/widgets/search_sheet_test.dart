@@ -58,6 +58,11 @@ final messages = [
   msg('7', 'ben', 6, withVoice: true),
 ];
 
+/// The people offered under the box, in order.
+List<String> _people(WidgetTester tester) => [
+  for (final c in tester.widgetList<ActionChip>(find.byType(ActionChip))) (c.label as Text).data ?? '',
+];
+
 String _textOf(Text t) => t.data ?? t.textSpan!.toPlainText();
 
 /// The words of a result that are marked, as the sheet draws them.
@@ -128,6 +133,14 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Presses a person under the box (the row scrolls sideways, so it is brought into view first).
+  Future<void> choose(WidgetTester tester, String label) async {
+    await tester.ensureVisible(find.widgetWithText(ActionChip, label));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ActionChip, label));
+    await tester.pumpAndSettle();
+  }
+
   String boxText(WidgetTester tester) => tester.widget<TextField>(find.byType(TextField)).controller!.text;
 
   testWidgets('opens with the buttons, what to type, and nothing searched yet', (tester) async {
@@ -165,6 +178,52 @@ void main() {
     await type(tester, 'CAFÉ from:ANA');
     expect(find.text('1 match'), findsOneWidget);
     expect(_marked(tester, 0), ['Café']);
+  });
+
+  testWidgets('from: offers the people who wrote, the last to write first, and pressing one writes the piece', (tester) async {
+    await open(tester);
+    expect(_people(tester), isEmpty, reason: 'nothing offered for a plain box');
+    await type(tester, 'release from:');
+    expect(_people(tester), ['Me (you)', 'Ben Cruz', 'Ana Reyes']);
+    await choose(tester, 'Ana Reyes');
+    await tester.pumpAndSettle();
+    expect(boxText(tester), 'release from:"Ana Reyes" ');
+    expect(_people(tester), isEmpty, reason: 'a finished piece offers no more');
+    expect(find.text('1 match'), findsOneWidget);
+    expect(shown(tester), ['Can someone review the release notes before 3pm?']);
+  });
+
+  testWidgets('what is typed narrows the people, accents and capitals aside, and Me writes from:me', (tester) async {
+    await open(tester);
+    await type(tester, 'from:BEN');
+    expect(_people(tester), ['Ben Cruz']);
+    await type(tester, 'from:');
+    await choose(tester, 'Me (you)');
+    await tester.pumpAndSettle();
+    expect(boxText(tester), 'from:me ');
+    expect(find.text('2 matches'), findsOneWidget);
+    await type(tester, 'from:zzz');
+    expect(_people(tester), isEmpty);
+  });
+
+  testWidgets('mentions: offers the people mentioned, and the box is not offered for has: or is:', (tester) async {
+    await open(tester);
+    await type(tester, 'mentions:');
+    expect(_people(tester), ['Me (you)', 'Ana Reyes']);
+    await choose(tester, 'Ana Reyes');
+    await tester.pumpAndSettle();
+    expect(boxText(tester), 'mentions:"Ana Reyes" ');
+    expect(find.text('1 match'), findsOneWidget);
+    await type(tester, 'has:');
+    expect(_people(tester), isEmpty);
+    await type(tester, 'is:');
+    expect(_people(tester), isEmpty);
+  });
+
+  testWidgets('without knowing who you are there is no "Me"', (tester) async {
+    await open(tester, meUid: null);
+    await type(tester, 'from:');
+    expect(_people(tester), ['Ben Cruz', 'Rey', 'Ana Reyes']);
   });
 
   testWidgets('every match in a result is marked, and only the words, not the filters', (tester) async {
