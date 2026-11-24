@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { FILTER_CHIPS, hasToken, searchMessages, toggleToken } from '../lib/searchFilters'
 import { hideSpoilers } from '../lib/spoilers'
 import { highlightParts } from '../lib/highlight'
+import { chatPeople, moveHighlight, openPersonPiece, pickPerson, suggestPeople } from '../lib/searchPeople'
 
 /**
  * In-chat search dropdown. Searches the currently-loaded messages for words and for filters
@@ -15,6 +16,7 @@ import { highlightParts } from '../lib/highlight'
  */
 export default function SearchDropdown({ messages, usersById, meUid, onJump, onClose }) {
   const [q, setQ] = useState('')
+  const [hi, setHi] = useState(0) // which person is highlighted, while the people are offered
   const ref = useRef(null)
   const inputRef = useRef(null)
 
@@ -36,6 +38,24 @@ export default function SearchDropdown({ messages, usersById, meUid, onJump, onC
     [messages, q, usersById, meUid],
   )
 
+  // While the box ends in "from:" or "mentions:" and a part of a name, the people of this chat are offered.
+  const piece = useMemo(() => openPersonPiece(q), [q])
+  const people = useMemo(
+    () => (piece ? suggestPeople(piece, chatPeople(messages, usersById, piece.op), { meUid }) : []),
+    [piece, messages, usersById, meUid],
+  )
+  const choose = (value) => {
+    setQ(pickPerson(q, piece, value))
+    setHi(0)
+    inputRef.current?.focus()
+  }
+  const at = Math.min(hi, people.length - 1) // (the list can have got shorter since the highlight was set)
+  const onInputKey = (e) => {
+    if (!people.length) return
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setHi(moveHighlight(at, e.key, people.length)) }
+    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); choose(people[at].value) }
+  }
+
   return (
     <div
       ref={ref}
@@ -46,10 +66,34 @@ export default function SearchDropdown({ messages, usersById, meUid, onJump, onC
           ref={inputRef}
           autoFocus
           value={q}
-          onChange={e => setQ(e.target.value)}
+          onChange={e => { setQ(e.target.value); setHi(0) }}
+          onKeyDown={onInputKey}
+          role="combobox"
+          aria-expanded={people.length > 0}
+          aria-controls="search-people"
+          aria-autocomplete="list"
           placeholder="Search this chat"
           className="w-full h-8 bg-bg-raised border border-line-subtle rounded-md px-2 text-sm outline-none focus:border-brand"
         />
+        {people.length > 0 && (
+          <ul id="search-people" role="listbox" aria-label={piece.op === 'from' ? 'People who wrote here' : 'People mentioned here'} className="mt-2 border border-line-subtle rounded-md overflow-hidden bg-bg-raised">
+            {people.map((p, i) => (
+              <li key={p.value} role="option" aria-selected={i === at}>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => choose(p.value)}
+                  onMouseEnter={() => setHi(i)}
+                  className={['w-full text-left px-2 h-7 text-sm flex items-baseline justify-between gap-2', i === at ? 'bg-bg-hover text-ink' : 'text-ink-muted'].join(' ')}
+                >
+                  <span className="truncate">{p.label}</span>
+                  {p.hint && <span className="text-[10px] text-ink-dim shrink-0">{p.hint}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="flex flex-wrap gap-1.5 mt-2" role="group" aria-label="Only messages with">
           {FILTER_CHIPS.map(c => {
             const on = hasToken(q, c.token)
