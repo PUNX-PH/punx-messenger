@@ -109,13 +109,18 @@ const screens = <Screen>[
   (w: 320, h: 568, scale: 2.0), // a small phone, "largest text"
   (w: 360, h: 640, scale: 1.3),
   (w: 320, h: 568, scale: 1.0),
+  (w: 360, h: 640, scale: 3.0), // the largest accessibility text of iOS (Android's stops at 2x)
+  (w: 320, h: 568, scale: 3.0), // ...and on the smallest phone
 ];
-
-// The largest accessibility text of iOS (the screens above are Android's "largest text" and below).
-const iosLargest = <Screen>[(w: 360, h: 640, scale: 3.0)];
 
 void main() {
   setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
+
+  // Every scene below runs on every screen of the list. The largest text of iOS (3x) must stay on it:
+  // it found two layouts that the 2x of Android did not.
+  test('the screens include the largest accessibility text of iOS', () {
+    expect(screens.any((s) => s.scale >= 3.0), isTrue);
+  });
 
   Future<void> show(
     WidgetTester tester,
@@ -184,10 +189,9 @@ void main() {
 
   void scene(
     String name,
-    Future<void> Function(WidgetTester tester, Screen s) body, {
-    List<Screen> extra = const [],
-  }) {
-    for (final s in [...screens, ...extra]) {
+    Future<void> Function(WidgetTester tester, Screen s) body,
+  ) {
+    for (final s in screens) {
       testWidgets('$name at ${s.w.toInt()}x${s.h.toInt()}, text ${s.scale}x', (
         tester,
       ) async {
@@ -229,6 +233,13 @@ void main() {
             ),
           ),
         ),
+      );
+      // The name keeps a usable width: with the time and the pin beside it, at the largest text it was left
+      // a letter wide (one letter per line, the row two and a half thousand pixels tall) and nothing but
+      // the overflow of the row showed it.
+      expect(
+        tester.getSize(find.text(_longName)).width,
+        greaterThan(100),
       );
     },
   );
@@ -436,11 +447,35 @@ void main() {
         'match has:nope before:2026-13-45',
       );
       await tester.pumpAndSettle();
-      // The notes and the count are still there (they sit in the list now, so they can scroll).
+      // The filter buttons are drawn whole: no fixed-height box around them (it was 40, which cut them off
+      // with no error at a big text size), and the label of each lies inside its button.
+      final chips = find.byType(FilterChip);
+      expect(chips, findsWidgets);
+      expect(
+        find.ancestor(
+          of: chips.first,
+          matching: find.byWidgetPredicate((w) => w is SizedBox && w.height != null),
+        ),
+        findsNothing,
+      );
+      for (var i = 0; i < chips.evaluate().length; i++) {
+        final chip = tester.getRect(chips.at(i));
+        final label = tester.getRect(find.descendant(of: chips.at(i), matching: find.byType(Text)));
+        expect(
+          label.top >= chip.top && label.bottom <= chip.bottom,
+          isTrue,
+          reason: 'the label of filter button $i ($label) is cut by its button ($chip)',
+        );
+      }
+      // The notes and the count are still there (they sit in the list now, so they can scroll). The list is
+      // lazy and a note can be taller than the list at the largest text, so each is scrolled to, not
+      // assumed to be built.
+      await reveal(tester, find.textContaining('is not something to look for'));
       expect(
         find.textContaining('is not something to look for'),
         findsOneWidget,
       );
+      await reveal(tester, find.textContaining('is not a day'));
       expect(find.textContaining('is not a day'), findsOneWidget);
       await reveal(tester, find.text('4 matches'));
       expect(find.text('4 matches'), findsOneWidget);
@@ -488,7 +523,7 @@ void main() {
     await tester.tap(find.byType(ActionChip).first);
     await tester.pumpAndSettle();
     expect(find.byType(ActionChip), findsNothing);
-  }, extra: iosLargest);
+  });
 
   scene('a spoiler, a long one, code and a mention in one message', (
     tester,
