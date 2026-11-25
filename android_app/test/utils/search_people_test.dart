@@ -429,4 +429,26 @@ void main() {
       },
     );
   });
+
+  group('found by review', () {
+    PersonPiece typed(String s) => (op: 'from', partial: s, start: 0);
+
+    test('two people with one name are one choice (the piece names a name), the nearer-in-time one kept', () {
+      final ppl = [(uid: 'u1', name: 'Ana Reyes'), (uid: 'u2', name: 'Ana Reyes'), (uid: 'u3', name: 'Ana Cruz')];
+      final r = suggestPeople(typed('ana'), ppl);
+      expect(labels(r), ['Ana Reyes', 'Ana Cruz']);
+      expect({for (final p in r) p.value}.length, r.length, reason: 'values are unique');
+    });
+
+    test('names that differ only by a quote are one choice, since the quote is left out of what is written', () {
+      final ppl = [(uid: 'u1', name: 'Dan Cole'), (uid: 'u2', name: 'Dan "Cole"')];
+      expect([for (final p in suggestPeople(typed('dan'), ppl)) p.value], ['Dan Cole']);
+    });
+
+    test('a person called "Me" is not a second "Me" next to the one that means you', () {
+      final ppl = [(uid: 'x', name: 'Me'), (uid: 'y', name: 'Mel Gibbs')];
+      final r = suggestPeople(typed('me'), ppl, meUid: 'me');
+      expect([for (final p in r) p.value], ['me', 'Mel Gibbs']);
+    });
+  });
 }

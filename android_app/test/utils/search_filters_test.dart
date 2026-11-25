@@ -541,11 +541,56 @@ void main() {
     test('the search is made with the folding (pinned against the source)', () {
       final s = File('lib/utils/search_filters.dart').readAsStringSync().replaceAll('\r\n', '\n');
       expect(s.contains("import 'fold.dart';"), isTrue);
-      expect(s.contains('!foldText(m.text).contains(foldText(p.text))'), isTrue);
-      expect(s.contains('final name = foldText(_authorName(m, usersById));'), isTrue);
-      expect(s.contains('name.contains(foldText(v))'), isTrue);
-      expect(s.contains('foldText(usersById[uid]?.name).contains(foldText(v))'), isTrue);
+      expect(s.contains('!foldText(hideSpoilers(m.text)).contains(foldText(p.text))'), isTrue);
+      expect(s.contains('final name = _foldName(_authorName(m, usersById));'), isTrue);
+      expect(s.contains('name.contains(_foldName(v))'), isTrue);
+      expect(s.contains('_foldName(usersById[uid]?.name).contains(_foldName(v))'), isTrue);
       expect(s.contains('.toLowerCase().contains('), isFalse);
+    });
+  });
+
+  group('found by review: marks alone, spoilers, quotes in names', () {
+    final mark = String.fromCharCode(0x301); // an accent on its own
+
+    test('a query that is only an accent is nothing to look for (folded it is empty, and empty is in every text)', () {
+      expect(parseSearch(mark).text, '');
+      expect(parseSearch('  $mark  ').text, '');
+      expect(parseSearch('from:$mark').from, isEmpty);
+      expect(parseSearch('mentions:"$mark"').mentions, isEmpty);
+      final ms = [msg('a'), msg('b')];
+      expect(searchMessages(ms, mark, usersById: users).active, isFalse);
+      expect(searchMessages(ms, mark, usersById: users).results, isEmpty);
+      expect(searchMessages(ms, 'from:$mark', usersById: users).active, isFalse);
+      // with other words the accent is still part of them
+      expect(parseSearch('cafe $mark').text, 'cafe $mark');
+    });
+
+    test('search finds only what can be read: the words a spoiler hides are not found, "[spoiler]" is', () {
+      final m1 = msg('a', text: 'the ||secret|| code');
+      expect(run(m1, 'secret'), isFalse, reason: 'a hidden word is not found');
+      expect(run(m1, 'code'), isTrue);
+      expect(run(m1, 'the'), isTrue);
+      expect(run(m1, 'spoiler'), isTrue, reason: 'what is shown is "[spoiler]"');
+      expect(run(m1, 'the [spoiler] code'), isTrue);
+      expect(run(msg('b', text: 'no bars here, secret'), 'secret'), isTrue, reason: 'the same word in the open is found');
+      expect(run(msg('c', text: '||two|| and ||words||'), 'words'), isFalse);
+      // a filter that looks at the whole message is unchanged
+      expect(run(msg('d', text: '||https://x.test/a||'), 'has:link'), isTrue);
+    });
+
+    test('a name with a double quote is found by the piece the picker writes (the quote is left out of it)', () {
+      final quoted = msg('q', uid: 'q', name: 'Ana "Boss" Reyes', mentions: ['q']);
+      final who = {'q': user('q', 'Ana "Boss" Reyes')};
+      expect(run(quoted, 'from:"Ana Boss Reyes"', usersById: who), isTrue);
+      expect(run(quoted, 'mentions:"Ana Boss Reyes"', usersById: who), isTrue);
+      expect(run(quoted, 'from:boss', usersById: who), isTrue);
+      expect(run(quoted, 'from:ben', usersById: who), isFalse);
+      expect(run(msg('n', uid: 'n', name: 'Plain Name'), 'from:"Ana Boss"', usersById: who), isFalse);
+    });
+
+    test('a piece of only quotes names nobody (it would have named everyone)', () {
+      expect(parseSearch('from:""').from, isEmpty);
+      expect(run(msg('a'), 'from:""'), isTrue, reason: 'no filter at all, as before');
     });
   });
 }

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:punx_messenger/utils/highlight.dart';
 
@@ -186,6 +187,30 @@ void main() {
       ]) {
         expect(joined(t, q), t, reason: '$t / $q');
       }
+    });
+  });
+
+  group('a long text', () {
+    test('every match of a very long text is marked, and the parts join back (the marks after a letter are looked at in place)', () {
+      final acute = String.fromCharCode(0x301);
+      final text = '${'e$acute' * 30000} end ${'👍e$acute' * 1000}';
+      final parts = highlightParts(text, 'e');
+      expect(parts.map((p) => p.text).join(), text);
+      final marked = parts.where((p) => p.match).toList();
+      expect(marked.length, 30000 + 1 + 1000, reason: 'every pair, the "e" of "end", every pair after an emoji');
+      expect(marked.first.text, 'e$acute');
+      expect(marked.last.text, 'e$acute');
+    });
+
+    test('the marks are not found by copying the rest of the text once per match (pinned against the source)', () {
+      final s = File('lib/utils/highlight.dart').readAsStringSync().replaceAll('\r\n', '\n');
+      expect(s.contains('text.substring(end)'), isFalse);
+      expect(s.contains('final r = _runeAt(text, end);'), isTrue);
+    });
+
+    test('a pair of surrogates after a match is one character, and is not a mark', () {
+      expect(marked('e👍e', 'e'), ['e', 'e']);
+      expect(joined('e👍e', 'e'), 'e👍e');
     });
   });
 }

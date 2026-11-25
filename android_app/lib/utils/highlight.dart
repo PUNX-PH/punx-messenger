@@ -1,5 +1,15 @@
 import 'fold.dart';
 
+// The code point that begins at [i] (a pair of surrogates is one).
+int _runeAt(String s, int i) {
+  final c = s.codeUnitAt(i);
+  if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
+    final d = s.codeUnitAt(i + 1);
+    if (d >= 0xdc00 && d <= 0xdfff) return 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00);
+  }
+  return c;
+}
+
 /// One stretch of a text: either as it is, or a match of what was searched for.
 typedef HighlightPart = ({String text, bool match});
 
@@ -24,7 +34,9 @@ List<HighlightPart> highlightParts(String text, String query) {
     final start = f.starts[at];
     var end = f.ends[at + q.length - 1];
     // The marks written after the last letter belong to it (they folded to nothing, so are not in `ends`).
-    for (final r in text.substring(end).runes) {
+    // (Looked at in place: copying the rest of the text once per match was quadratic on a long text.)
+    while (end < text.length) {
+      final r = _runeAt(text, end);
       if (!isFoldMark(r)) break;
       end += r > 0xffff ? 2 : 1;
     }

@@ -171,7 +171,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 1155**, **Node 1078** (sound, presence identity, lazy loader, iOS setup, chat identity, camera, attachments, threads, search filters, thread unread, spoilers, formatting, accent folding, people picker), Worker 102, Firestore rules 216 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 1165**, **Node 1078** (sound, presence identity, lazy loader, iOS setup, chat identity, camera, attachments, threads, search filters, thread unread, spoilers, formatting, accent folding, people picker), Worker 102, Firestore rules 216 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -1490,3 +1490,24 @@ For channels the right-click menu is now open to every member on a text channel 
 **Not fixed, on purpose.** `toggleToken` joins the box's words with single spaces, so pressing a filter button turns `from:"Ana  Reyes"` (two spaces) into one space (a name with a double space; cosmetic). Devanagari vowel signs fold away with the accents (`कि`, `कु`, `के` are all `क`: simple folding is not language-aware). A word that matched deep in a long result can be hidden by the three-line clamp. The filter is matched per keystroke over all loaded messages (a search of 20,000 non-ASCII messages with no hits was measured at about 165 ms by the reviewer; a chat loads far fewer).
 
 **NOT checked.** An IME (read, not run), a screen reader reading the highlighted person, the real app (no sign-in here).
+
+## 93. Phone search: the web's fixes, and long texts no longer slow the marks (PR #101)
+
+**Why.** Section 92 fixed five bugs in the web's search found by an independent read. A second independent reader went through the phone's Dart code the same way: it compared `foldText`, `foldIndexed` and `isFoldMark` with the web's for **every code point (0 to 0x10FFFF, 0 differences)**, ran 40,000 random texts through `highlightParts` (the parts were identical to the web's and always joined back), compared the person-piece regular expression with JavaScript's for every character in ten positions (0 differences), and found **no bug of its own**. It confirmed that the phone had the same four logic bugs as the web and one cost of its own.
+
+**No data, rules, Worker or web change. Nothing needs deploying.**
+
+**Fixed (all as on the web, section 92).**
+- A query that is only an accent is no filter (words, `from:`, `mentions:`).
+- **Search matches what is shown**: the words a spoiler hides are not found, and `[spoiler]` is. **This reverses what sections 79 and 80 recorded as a known limit.**
+- A name with a double quote is found by the piece the picker writes (names are compared without double quotes, both sides).
+- Two people with one name (or a person called "Me" next to "Me") are one choice in the picker.
+- **`highlightParts` copied the rest of the text once per match** to look for marks after the match, which is quadratic: **a text of 100,000 characters with 100,000 matches took about a second** (the reviewer measured it). The marks are now looked at in place. At message sizes it did not matter; the fix is for a very long pasted text.
+
+**Measured by the reviewer (nothing to fix).** Folding 5,000 messages of 120 characters for a search: about **2 ms** (ASCII), **9 ms** (half non-ASCII), **11 ms** (all non-ASCII, with emoji), under one frame per keystroke on the Dart VM; the phone's own build may differ by a small factor and was not timed on a phone. The result rows are built lazily, so marking only runs for rows on screen.
+
+**Checked.** 10 new Flutter tests (1165 in all pass, `flutter analyze` clean): the same cases as the web for each fix, a 62,000-character text marked completely and joining back, a pair of surrogates after a match read as one character, and source pins. The spoiler test of the search sheet now says the words are not found. **14 deliberate breakages: 13 caught**; the 14th (the last value accepted as a low surrogate) is equivalent, since no code point it affects is a mark.
+
+**Not fixed, on purpose** (as section 92): a double space inside quotes collapsed by a filter button; Devanagari vowel signs folding with accents; whether tapping a chip drops the keyboard on a real phone (needs a device).
+
+**NOT checked.** **No phone, emulator or Mac**: the speed on a phone (above), pressing a chip with the keyboard up.
