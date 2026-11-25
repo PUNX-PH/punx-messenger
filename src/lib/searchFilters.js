@@ -14,6 +14,7 @@
 //
 // Only the messages that are loaded are searched (the same as before), newest first.
 import { fold } from './fold.js'
+import { hideSpoilers } from './spoilers.js'
 
 export const SEARCH_LIMIT = 100
 
@@ -64,12 +65,15 @@ export function parseSearch(query) {
     return ''
   })
   out.text = rest.replace(/\s+/g, ' ').trim()
+  // Only marks (an accent on its own) is nothing to look for; folded it would be "", which is in every text.
+  if (fold(out.text) === '') out.text = ''
   return out
 }
 
 function apply(out, key, value) {
   const v = value.toLowerCase()
   if (key === 'from' || key === 'mentions') {
+    if (foldName(v) === '') return // only marks (or quotes): it would name everyone
     if (!out[key].includes(v)) out[key].push(v)
   } else if (key === 'has') {
     if (!HAS_VALUES.includes(v)) out.problems.push(`"has:${value}" is not something to look for (try ${HAS_VALUES.join(', ')}).`)
@@ -89,6 +93,10 @@ export const hasFilters = (p) => !!(p.from.length || p.mentions.length || p.has.
 
 const LINK = /https?:\/\/\S+/i
 
+// A name for comparing: no capitals, no accents, and no double quotes (a quote cannot be written inside the
+// quotes of from:"...", so the picker leaves it out of a name, and it must not matter when matching).
+const foldName = (s) => fold(s).replace(/"/g, '')
+
 const timeOf = (m) => {
   const t = m?.createdAt
   const ms = typeof t?.toMillis === 'function' ? t.toMillis() : (typeof t?.toDate === 'function' ? t.toDate().getTime() : t)
@@ -101,17 +109,18 @@ const authorName = (m, usersById) => String(usersById?.[m.author?.uid]?.name || 
 export function matches(m, p, ctx = {}) {
   const { usersById, meUid } = ctx
   // Capitals and accents never matter: "cafe" finds "Café", from:jose finds José.
-  if (p.text && !fold(m.text).includes(fold(p.text))) return false
+  // Of what is shown: a spoiler is "[spoiler]" here too, so searching cannot find the words it hides.
+  if (p.text && !fold(hideSpoilers(m.text)).includes(fold(p.text))) return false
 
   if (p.from.length) {
-    const name = fold(authorName(m, usersById))
-    if (!p.from.some(v => (v === 'me' ? !!meUid && m.author?.uid === meUid : name.includes(fold(v))))) return false
+    const name = foldName(authorName(m, usersById))
+    if (!p.from.some(v => (v === 'me' ? !!meUid && m.author?.uid === meUid : name.includes(foldName(v))))) return false
   }
   if (p.mentions.length) {
     const uids = Array.isArray(m.mentionedUids) ? m.mentionedUids : []
     const hit = (v) => v === 'me'
       ? !!meUid && uids.includes(meUid)
-      : uids.some(uid => fold(usersById?.[uid]?.name).includes(fold(v)))
+      : uids.some(uid => foldName(usersById?.[uid]?.name).includes(foldName(v)))
     if (!p.mentions.some(hit)) return false
   }
   for (const h of p.has) {

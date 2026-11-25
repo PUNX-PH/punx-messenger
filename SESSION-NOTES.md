@@ -171,7 +171,7 @@ In the user's own Terminal tab PowerShell blocks `npx`; use `npx.cmd`.
 
 **#28 — appearance and preferences** (section 24): theme, background, accent colour, text size, spacing, font, contrast, reduced motion, clock, send key, message grouping and the tab-title count, saved to the account.
 
-Test counts on `main` at the end: **Flutter 1155**, **Node 1069** (sound, presence identity, lazy loader, iOS setup, chat identity, camera, attachments, threads, search filters, thread unread, spoilers, formatting, accent folding, people picker), Worker 102, Firestore rules 216 (with the caveat in section 3).
+Test counts on `main` at the end: **Flutter 1155**, **Node 1078** (sound, presence identity, lazy loader, iOS setup, chat identity, camera, attachments, threads, search filters, thread unread, spoilers, formatting, accent folding, people picker), Worker 102, Firestore rules 216 (with the caveat in section 3).
 
 
 ## 3. Found but not fixed, and corrections
@@ -1470,3 +1470,23 @@ For channels the right-click menu is now open to every member on a text channel 
 **Reading the numbers.** Tests draw with the placeholder font (every letter a full square), wider than any real font, so these are worst cases: a real phone will need the Wrap less often. A name long enough to wrap now uses the full line and the time drops under it (before, the name wrapped beside the time); at normal text sizes a name that fits is unchanged except that name and time are aligned at their bottoms rather than their baselines (under 1 px, not looked at on a screen).
 
 **NOT checked.** **No phone, emulator or Mac**: no real iOS text size, no real font, nothing looked at on a screen (the header's 1 px alignment, how the filter buttons sit at 3x). The keyboard was never raised: at 3x the sheet's top (the box 96 px, the buttons 74 px, a people row of the same height when `from:` is typed) leaves the list about 290 of 480 px, and with the keyboard up it is less (the same open question as the message box in section 84). Landscape and tablets. **Looked at, not changed:** other fixed heights in `lib/widgets/chat` that hold text (the typing indicator, `SizedBox(height: 18)`) are older than sections 72–89, outside this audit.
+
+## 92. Web search: five bugs found by an independent read (PR #100)
+
+**Why.** After sections 87 to 90 an independent reviewer (a fresh agent with no knowledge of my reasoning) read the web search code and tried to break it: 200,000 random texts through `highlightParts` (emoji, lone surrogates, combining marks, `ß`, Greek, Hangul, Devanagari) found **nothing** wrong in `fold.js` or `highlight.js`, but it confirmed five bugs elsewhere. All are fixed here.
+
+**No data, rules, Worker or phone change** (the phone gets the same fixes in the next PR). The web deploys on merge.
+
+**Fixed.**
+- **A query that is only an accent matched every message.** It folded to `""`, which is in every text. Words, `from:` and `mentions:` made only of marks (or only of quotes) are now no filter at all (`parseSearch`), and a search with nothing else is not "active".
+- **Search found the words a spoiler hides.** Matching ran on the raw text while the result shows `[spoiler]`, so a hidden word could be found by searching for it, and nothing was marked. **This reverses what sections 80 and 81 recorded as a known limit** ("searching finds a message by what is inside a spoiler"): matching now runs on what is shown (`hideSpoilers`), the same string that is marked. `has:link` still looks at the whole message.
+- **A name with a double quote found nothing when picked.** The picker leaves the quote out of what it writes (it cannot be written inside `from:"..."`), but the filter still compared against the name with its quote. Names are now compared without double quotes, on both sides (`foldName`).
+- **Two people with one name were offered twice**, with the same React key. They are one choice now (the piece names a name, not a person), and so is a person called "Me" next to the "Me" that means you.
+- **Enter during an IME composition picked a person** instead of finishing the composition (Japanese, Chinese, Korean input). It is ignored while composing.
+- Also from the review: **Tab no longer picks** (it was a keyboard trap: nobody could Tab on to the filter buttons while a piece was open; Enter picks), and the box now **announces the highlighted person** (`aria-activedescendant`, ids on the options, `aria-controls` only while there is a list).
+
+**Checked.** 9 new tests and 2 pins updated (1078 in all pass, build passes). **17 deliberate breakages, all caught** (none by a syntax error).
+
+**Not fixed, on purpose.** `toggleToken` joins the box's words with single spaces, so pressing a filter button turns `from:"Ana  Reyes"` (two spaces) into one space (a name with a double space; cosmetic). Devanagari vowel signs fold away with the accents (`कि`, `कु`, `के` are all `क`: simple folding is not language-aware). A word that matched deep in a long result can be hidden by the three-line clamp. The filter is matched per keystroke over all loaded messages (a search of 20,000 non-ASCII messages with no hits was measured at about 165 ms by the reviewer; a chat loads far fewer).
+
+**NOT checked.** An IME (read, not run), a screen reader reading the highlighted person, the real app (no sign-in here).
