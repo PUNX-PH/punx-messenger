@@ -50,11 +50,16 @@ export function suggestPeople(piece, people, { meUid, limit = 6 } = {}) {
   if (meUid && 'me'.startsWith(q)) out.push({ value: 'me', label: 'Me', hint: 'you' })
   const starts = []
   const inside = []
+  const taken = new Set(out.map(o => o.value.toLowerCase()))
   for (const p of people || []) {
     if (p.uid === meUid) continue // that is "me"
     const name = fold(p.name)
     if (!name.includes(q)) continue
     const item = { value: p.name.replace(/"/g, ''), label: p.name }
+    // Two people with one name are one choice (the piece names a name, not a person), and so is a person
+    // called "Me" next to the "Me" that means you.
+    if (taken.has(item.value.toLowerCase())) continue
+    taken.add(item.value.toLowerCase())
     ;(name.startsWith(q) || name.split(/\s+/).some(w => w.startsWith(q)) ? starts : inside).push(item)
   }
   return [...out, ...starts, ...inside].slice(0, limit)

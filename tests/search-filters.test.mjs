@@ -581,9 +581,53 @@ test('a name or text that is missing does not throw', () => {
 test('the search is made with the folding (pinned against the source)', () => {
   const s = read('src/lib/searchFilters.js')
   assert.ok(s.includes("import { fold } from './fold.js'"))
-  assert.ok(s.includes('if (p.text && !fold(m.text).includes(fold(p.text))) return false'))
-  assert.ok(s.includes('const name = fold(authorName(m, usersById))'))
-  assert.ok(s.includes('name.includes(fold(v))'))
-  assert.ok(s.includes('uids.some(uid => fold(usersById?.[uid]?.name).includes(fold(v)))'))
+  assert.ok(s.includes('if (p.text && !fold(hideSpoilers(m.text)).includes(fold(p.text))) return false'))
+  assert.ok(s.includes('const name = foldName(authorName(m, usersById))'))
+  assert.ok(s.includes('name.includes(foldName(v))'))
+  assert.ok(s.includes('uids.some(uid => foldName(usersById?.[uid]?.name).includes(foldName(v)))'))
   assert.ok(!s.includes('.toLowerCase().includes'))
+})
+
+// ---------- found by review: marks alone, spoilers, quotes in names ----------
+
+const MARK = String.fromCharCode(0x301) // an accent on its own
+
+test('a query that is only an accent is nothing to look for (folded it is empty, and empty is in every text)', () => {
+  assert.equal(parseSearch(MARK).text, '')
+  assert.equal(parseSearch('  ' + MARK + '  ').text, '')
+  assert.deepEqual(parseSearch('from:' + MARK).from, [])
+  assert.deepEqual(parseSearch('mentions:"' + MARK + '"').mentions, [])
+  assert.equal(searchMessages([msg('a'), msg('b')], MARK, ctx).active, false)
+  assert.deepEqual(ids(searchMessages([msg('a'), msg('b')], MARK, ctx).results), [])
+  assert.equal(searchMessages([msg('a'), msg('b')], 'from:' + MARK, ctx).active, false)
+  // with other words the accent is still part of them
+  assert.equal(parseSearch('cafe ' + MARK).text, 'cafe ' + MARK)
+})
+
+test('search finds only what can be read: the words a spoiler hides are not found, "[spoiler]" is', () => {
+  const m1 = msg('a', { text: 'the ||secret|| code' })
+  assert.equal(run(m1, 'secret'), false, 'a hidden word is not found')
+  assert.equal(run(m1, 'code'), true)
+  assert.equal(run(m1, 'the'), true)
+  assert.equal(run(m1, 'spoiler'), true, 'what is shown is "[spoiler]"')
+  assert.equal(run(m1, 'the [spoiler] code'), true)
+  assert.equal(run(msg('b', { text: 'no bars here, secret' }), 'secret'), true, 'the same word in the open is found')
+  assert.equal(run(msg('c', { text: '||two|| and ||words||' }), 'words'), false)
+  // a filter that looks at the whole message is unchanged
+  assert.equal(run(msg('d', { text: '||https://x.test/a||' }), 'has:link'), true)
+})
+
+test('a name with a double quote is found by the piece the picker writes (the quote is left out of it)', () => {
+  const quoted = msg('q', { author: { uid: 'q', name: 'Ana "Boss" Reyes' }, mentionedUids: ['q'] })
+  const c = { usersById: { q: { name: 'Ana "Boss" Reyes' } }, meUid: 'me' }
+  assert.equal(matches(quoted, parseSearch('from:"Ana Boss Reyes"'), c), true)
+  assert.equal(matches(quoted, parseSearch('mentions:"Ana Boss Reyes"'), c), true)
+  assert.equal(matches(quoted, parseSearch('from:boss'), c), true)
+  assert.equal(matches(quoted, parseSearch('from:ben'), c), false)
+  assert.equal(matches(msg('n', { author: { uid: 'n', name: 'Plain Name' } }), parseSearch('from:"Ana Boss"'), c), false)
+})
+
+test('a piece of only quotes or marks names nobody (it would have named everyone)', () => {
+  assert.deepEqual(parseSearch('from:""').from, [])
+  assert.equal(run(msg('a'), 'from:""'), true, 'no filter at all, as before')
 })

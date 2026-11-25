@@ -52,8 +52,9 @@ export default function SearchDropdown({ messages, usersById, meUid, onJump, onC
   const at = Math.min(hi, people.length - 1) // (the list can have got shorter since the highlight was set)
   const onInputKey = (e) => {
     if (!people.length) return
+    if (e.nativeEvent?.isComposing || e.keyCode === 229) return // an IME is still composing: Enter belongs to it
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setHi(moveHighlight(at, e.key, people.length)) }
-    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); choose(people[at].value) }
+    else if (e.key === 'Enter') { e.preventDefault(); choose(people[at].value) } // (not Tab: that must still move on)
   }
 
   return (
@@ -70,7 +71,8 @@ export default function SearchDropdown({ messages, usersById, meUid, onJump, onC
           onKeyDown={onInputKey}
           role="combobox"
           aria-expanded={people.length > 0}
-          aria-controls="search-people"
+          aria-controls={people.length > 0 ? 'search-people' : undefined}
+          aria-activedescendant={people.length > 0 ? `search-person-${at}` : undefined}
           aria-autocomplete="list"
           placeholder="Search this chat"
           className="w-full h-8 bg-bg-raised border border-line-subtle rounded-md px-2 text-sm outline-none focus:border-brand"
@@ -78,7 +80,7 @@ export default function SearchDropdown({ messages, usersById, meUid, onJump, onC
         {people.length > 0 && (
           <ul id="search-people" role="listbox" aria-label={piece.op === 'from' ? 'People who wrote here' : 'People mentioned here'} className="mt-2 border border-line-subtle rounded-md overflow-hidden bg-bg-raised">
             {people.map((p, i) => (
-              <li key={p.value} role="option" aria-selected={i === at}>
+              <li key={p.value} id={`search-person-${i}`} role="option" aria-selected={i === at}>
                 <button
                   type="button"
                   tabIndex={-1}
