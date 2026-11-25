@@ -215,7 +215,6 @@ test('the box offers them while typing, and keys work (pinned against the source
   assert.ok(s.includes('setHi(moveHighlight(at, e.key, people.length))'))
   assert.ok(s.includes('const at = Math.min(hi, people.length - 1)'))
   assert.ok(s.includes('onChange={e => { setQ(e.target.value); setHi(0) }}'), 'typing starts from the first again')
-  assert.ok(s.includes("e.key === 'Enter' || e.key === 'Tab'"))
   assert.ok(s.includes('onKeyDown={onInputKey}'))
   assert.ok(s.includes('role="listbox"'))
   assert.ok(s.includes('role="combobox"'))
@@ -224,4 +223,40 @@ test('the box offers them while typing, and keys work (pinned against the source
   assert.ok(s.includes('choose(people[at].value)'), 'Enter picks the highlighted one')
   // pressing a name must not take the focus away from the box
   assert.ok(s.includes('onMouseDown={e => e.preventDefault()}'))
+})
+
+// ---------- found by review ----------
+
+test('two people with one name are one choice (the piece names a name), the nearer-in-time one kept', () => {
+  const ppl = [{ uid: 'u1', name: 'Ana Reyes' }, { uid: 'u2', name: 'Ana Reyes' }, { uid: 'u3', name: 'Ana Cruz' }]
+  const r = suggestPeople({ partial: 'ana' }, ppl, {})
+  assert.deepEqual(names(r), ['Ana Reyes', 'Ana Cruz'])
+  assert.equal(new Set(r.map(p => p.value)).size, r.length, 'values (the React keys) are unique')
+})
+
+test('names that differ only by a quote are one choice, since the quote is left out of what is written', () => {
+  const ppl = [{ uid: 'u1', name: 'Dan Cole' }, { uid: 'u2', name: 'Dan "Cole"' }]
+  assert.deepEqual(suggestPeople({ partial: 'dan' }, ppl, {}).map(p => p.value), ['Dan Cole'])
+})
+
+test('a person called "Me" is not a second "Me" next to the one that means you', () => {
+  const ppl = [{ uid: 'x', name: 'Me' }, { uid: 'y', name: 'Mel Gibbs' }]
+  const r = suggestPeople({ partial: 'me' }, ppl, { meUid: 'me' })
+  assert.deepEqual(r.map(p => p.value), ['me', 'Mel Gibbs'])
+})
+
+test('Enter picks, Tab does not (it must still move on), and an IME that is composing keeps its Enter (pinned against the source)', () => {
+  const s = read('src/components/SearchDropdown.jsx')
+  assert.ok(s.includes("else if (e.key === 'Enter') { e.preventDefault(); choose(people[at].value) }"))
+  assert.ok(!s.includes("e.key === 'Tab'") || s.includes("(not Tab: that must still move on)"))
+  assert.ok(!/e\.key === 'Tab'\s*\)/.test(s), 'no branch on Tab')
+  assert.ok(s.includes('if (e.nativeEvent?.isComposing || e.keyCode === 229) return'))
+  assert.ok(s.indexOf('isComposing') < s.indexOf("e.key === 'ArrowDown'"), 'the IME check comes before any key is handled')
+})
+
+test('the highlighted person is announced: ids on the options, aria-activedescendant on the box, controls only while there is a list', () => {
+  const s = read('src/components/SearchDropdown.jsx')
+  assert.ok(s.includes("aria-activedescendant={people.length > 0 ? `search-person-${at}` : undefined}"))
+  assert.ok(s.includes("aria-controls={people.length > 0 ? 'search-people' : undefined}"))
+  assert.ok(s.includes('id={`search-person-${i}`}'))
 })
