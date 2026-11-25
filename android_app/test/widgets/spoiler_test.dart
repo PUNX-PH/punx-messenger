@@ -230,7 +230,7 @@ void main() {
       expect(find.textContaining('dies', findRichText: true), findsNothing);
     });
 
-    testWidgets('search results (found by what is in it, shown as [spoiler])', (tester) async {
+    testWidgets('search results (shown as [spoiler], and not found by what is in it)', (tester) async {
       phone(tester);
       await tester.pumpWidget(
         MaterialApp(
@@ -255,6 +255,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('the end: [spoiler]'), findsOneWidget);
       expect(find.textContaining('dies', findRichText: true), findsNothing);
+      // what the spoiler hides cannot be found by searching for it
+      await tester.enterText(find.byType(TextField), 'dies');
+      await tester.pumpAndSettle();
+      expect(find.text('0 matches'), findsOneWidget);
+      expect(find.textContaining('end', findRichText: true), findsNothing);
     });
   });
 

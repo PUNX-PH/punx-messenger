@@ -80,11 +80,15 @@ List<PersonChoice> suggestPeople(
   }
   final starts = <PersonChoice>[];
   final inside = <PersonChoice>[];
+  final taken = {for (final o in out) o.value.toLowerCase()};
   for (final p in people) {
     if (p.uid == meUid) continue; // that is "me"
     final name = foldText(p.name);
     if (!name.contains(q)) continue;
     final item = (value: p.name.replaceAll('"', ''), label: p.name, hint: null);
+    // Two people with one name are one choice (the piece names a name, not a person), and so is a person
+    // called "Me" next to the "Me" that means you.
+    if (!taken.add(item.value.toLowerCase())) continue;
     final atStart =
         name.startsWith(q) || name.split(_spaces).any((w) => w.startsWith(q));
     (atStart ? starts : inside).add(item);

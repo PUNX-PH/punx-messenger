@@ -2,6 +2,7 @@ import '../models/message.dart';
 import '../models/user_profile.dart';
 import 'constants.dart';
 import 'fold.dart';
+import 'spoilers.dart';
 
 // Search with filters. Mirrors src/lib/searchFilters.js: words and `operator:value` pieces can be
 // mixed in one box.
@@ -112,6 +113,8 @@ SearchQuery parseSearch(String? query) {
 
   void apply(String key, String value) {
     final v = value.toLowerCase();
+    // Only marks (or quotes): it would name everyone, since "" is in every name.
+    if ((key == 'from' || key == 'mentions') && _foldName(v).isEmpty) return;
     switch (key) {
       case 'from':
         add(from, v);
@@ -154,8 +157,12 @@ SearchQuery parseSearch(String? query) {
     return '';
   });
 
+  var text = rest.replaceAll(RegExp(r'\s+'), ' ').trim();
+  // Only marks (an accent on its own) is nothing to look for: folded it is "", which is in every text.
+  if (foldText(text).isEmpty) text = '';
+
   return SearchQuery(
-    text: rest.replaceAll(RegExp(r'\s+'), ' ').trim(),
+    text: text,
     from: from,
     mentions: mentions,
     has: has,
@@ -174,6 +181,10 @@ String _authorName(ChatMessage m, Map<String, UserProfile> usersById) {
   return live.isNotEmpty ? live : m.author.name;
 }
 
+// A name for comparing: no capitals, no accents, and no double quotes (a quote cannot be written inside the
+// quotes of from:"...", so the picker leaves it out of a name, and it must not matter when matching).
+String _foldName(String? s) => foldText(s).replaceAll('"', '');
+
 bool _isMe(String? meUid, String uid) => meUid != null && meUid.isNotEmpty && uid == meUid;
 
 /// Does this message pass every filter in [p]? [usersById] and [meUid] say who people are.
@@ -183,14 +194,15 @@ bool messageMatches(
   Map<String, UserProfile> usersById = const {},
   String? meUid,
 }) {
-  // Capitals and accents never matter: "cafe" finds "Café", from:jose finds José.
-  if (p.text.isNotEmpty && !foldText(m.text).contains(foldText(p.text))) {
+  // Capitals and accents never matter: "cafe" finds "Café", from:jose finds José. Of what is shown: a
+  // spoiler is "[spoiler]" here too, so searching cannot find the words it hides.
+  if (p.text.isNotEmpty && !foldText(hideSpoilers(m.text)).contains(foldText(p.text))) {
     return false;
   }
 
   if (p.from.isNotEmpty) {
-    final name = foldText(_authorName(m, usersById));
-    if (!p.from.any((v) => v == 'me' ? _isMe(meUid, m.author.uid) : name.contains(foldText(v)))) {
+    final name = _foldName(_authorName(m, usersById));
+    if (!p.from.any((v) => v == 'me' ? _isMe(meUid, m.author.uid) : name.contains(_foldName(v)))) {
       return false;
     }
   }
@@ -198,7 +210,7 @@ bool messageMatches(
     bool hit(String v) => v == 'me'
         ? meUid != null && meUid.isNotEmpty && m.mentionedUids.contains(meUid)
         : m.mentionedUids.any(
-            (uid) => foldText(usersById[uid]?.name).contains(foldText(v)),
+            (uid) => _foldName(usersById[uid]?.name).contains(_foldName(v)),
           );
     if (!p.mentions.any(hit)) return false;
   }
